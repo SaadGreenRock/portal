@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Bundled locally so the portal works offline and never waits on a font CDN. */
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/Poppins-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/Poppins-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/Poppins-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/Poppins-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  /* Overridden per workspace by the company shell. */
+  --accent: #104751;
+  --accent-text: #ffffff;
+  --accent-wash: #f2f8f4;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-[#f7f7f5] text-ink antialiased;
+  }
+  /* One consistent focus ring everywhere, keyed to the active company. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Inputs are touch-friendly: the upload step happens on a phone. */
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-ink-line bg-white;
+  }
+
+  .label {
+    @apply block text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-ink-line bg-white px-3 py-2.5 text-[15px]
+           text-ink placeholder:text-ink-soft/60
+           disabled:cursor-not-allowed disabled:bg-[#f4f4f2] disabled:text-ink-soft;
+  }
+
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-lg px-4 py-2.5
+           text-[14px] font-semibold transition-colors
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.12);
+  }
+  .btn-ghost {
+    @apply border border-ink-line bg-white text-ink hover:bg-[#f4f4f2];
+  }
+  .btn-quiet {
+    @apply text-ink-soft hover:bg-[#efefec] hover:text-ink;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1
+           text-[11px] font-semibold uppercase tracking-[0.06em];
+  }
+  .chip-pending {
+    @apply bg-amber-100 text-amber-900;
+  }
+  .chip-completed {
+    @apply bg-emerald-100 text-emerald-900;
+  }
+
+  /* Voucher numbers, dates, amounts — tabular so columns line up. */
+  .mono {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}
+
+/* The preview iframe scales a full Letter page down to its container. */
+.sheet-scale {
+  transform-origin: top left;
+}
