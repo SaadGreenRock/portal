@@ -17,10 +17,24 @@ let cached: Store | null = null;
  */
 export async function store(): Promise<Store> {
   if (cached) return cached;
-  cached =
-    backend === "supabase"
-      ? (await import("./supabase")).supabaseStore
-      : (await import("./sqlite")).sqliteStore;
+
+  if (backend === "supabase") {
+    cached = (await import("./supabase")).supabaseStore;
+    return cached;
+  }
+
+  try {
+    cached = (await import("./sqlite")).sqliteStore;
+  } catch (cause) {
+    // better-sqlite3 is a native module. If its binary did not build for this
+    // platform the failure is otherwise an opaque module error, so name the two
+    // ways out of it.
+    throw new Error(
+      "BACKEND=local needs better-sqlite3, which failed to load. Reinstall it " +
+        "(`npm rebuild better-sqlite3`), or set BACKEND=supabase to skip it.",
+      { cause },
+    );
+  }
   return cached;
 }
 
