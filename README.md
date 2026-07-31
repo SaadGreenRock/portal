@@ -23,8 +23,7 @@ disk under `./.data`, so there is no account to create and nothing to configure.
 **Set `PORTAL_PASSWORD` before exposing this to a network.** Until you do, the
 password is `change-me` and the login screen says so.
 
-Requires Node 20+ and Google Chrome (or any Chromium) installed — see
-[PDF rendering](#pdf-rendering).
+Requires Node 20+. Nothing else — no Chromium, no system packages.
 
 ---
 
@@ -98,6 +97,9 @@ Deleted view.
 Local mode is fine for generating and printing, but the scan step usually
 happens away from the main computer. For that, the portal needs to be hosted.
 
+Deploys to Vercel as-is — there is no Chromium to work around, because the PDF
+is rendered in the operator's browser. See [PDF rendering](#pdf-rendering).
+
 1. Create a Supabase project.
 
 2. Run [`supabase/migration.sql`](supabase/migration.sql) in the SQL editor. It
@@ -147,24 +149,46 @@ session — in either backend.
 
 ### PDF rendering
 
-Vouchers are rendered by headless Chrome. That is a deliberate choice, not
-convenience: the acknowledgment paragraph is in Urdu, and Nastaliq requires real
-OpenType shaping (contextual joining, mark positioning, ligature substitution).
-The JavaScript PDF libraries don't implement it and would produce disconnected,
-unreadable letterforms. Chrome ships HarfBuzz and renders it correctly.
+Vouchers are rendered to PDF **in the operator's browser**, not on the server.
 
-- **Locally / on a VM**: uses the installed Chrome automatically. Override with
-  `CHROME_PATH` if it's somewhere unusual.
-- **On serverless (Vercel, Lambda)**: `npm i @sparticuz/chromium` and leave
-  `CHROME_PATH` empty — it will be picked up automatically.
+That is a deliberate choice driven by the Urdu. The acknowledgment paragraph is
+Nastaliq, which needs real OpenType shaping — contextual joining, mark
+positioning, ligature substitution. The JavaScript PDF libraries don't implement
+it and would emit disconnected, unreadable letterforms. So a browser has to do
+the shaping, and rather than deploy Chromium to do it, the portal uses the
+browser that is already open in front of the operator:
 
-The browser is kept warm between renders: the first voucher costs ~1s of launch,
-every one after it renders in a few hundred milliseconds.
+```
+voucher HTML  →  SVG <foreignObject>  →  <img>  →  <canvas>  →  JPEG  →  PDF
+                 (browser lays out             (288 dpi)      (one page,
+                  and shapes the text)                         Letter)
+```
+
+The server only ever hands over the page as an SVG (`/api/voucher/[id]/sheet`)
+and takes back the finished PDF (`POST /api/voucher/[id]/pdf`). Consequences:
+
+- **Nothing to install and nothing to keep pinned.** No Chromium in the bundle,
+  no `@sparticuz/chromium`, no cold-start penalty. Runs on Vercel's free tier.
+- **The PDF text is an image**, at 288 dpi (2448×3168 for Letter, ~400–500 KB).
+  It prints indistinguishably from vector; you just can't select text in it.
+- **Generation is two steps.** The server assigns the number, then the browser
+  renders. If the render fails the voucher still exists — its page says so and
+  offers **Render PDF** to retry, which rebuilds from the stored field values.
+
+Two implementation details that are load-bearing, and were both found by testing
+rather than by reading the spec:
+
+- The CSS inside the SVG is wrapped in `CDATA`. SVG is XML, so a `<style>` body
+  is parsed as markup — a child selector, a stray `&`, or an angle bracket in a
+  CSS comment silently breaks the whole render.
+- The SVG is handed to the `<img>` as a **`data:` URI, not a `blob:` URL**.
+  Chrome treats an SVG drawn from a blob URL as tainting the canvas, so
+  `toBlob()` then fails with a `SecurityError`.
 
 Fonts are bundled in `public/fonts` (Poppins and Noto Nastaliq Urdu, both OFL)
-and inlined into the PDF, so output is identical on any machine. Century Gothic
-is used when present — Poppins stands in for it otherwise, being the closest
-freely redistributable geometric sans.
+and inlined into the SVG, so output is identical on any machine. Century Gothic
+is used when present; Poppins stands in otherwise, being the closest freely
+redistributable geometric sans.
 
 ---
 
@@ -189,8 +213,9 @@ flattened PDF has no such structure to work from.
 src/
   lib/
     companies.ts     per-company brand, wording and numbering config
-    template.ts      the voucher itself — HTML/CSS, used for both PDF and preview
-    pdf.ts           headless Chrome renderer, keeps a warm browser
+    template.ts      the voucher itself — HTML/CSS, plus the SVG the browser rasterises
+    client-pdf.ts    browser-side SVG → canvas → JPEG → PDF
+    single-image-pdf.ts  minimal one-page PDF writer (no dependencies)
     amount-words.ts  PKR amounts in South Asian numbering
     actions.ts       server actions: generate, upload, signatories
     auth.ts          the password gate

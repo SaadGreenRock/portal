@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import GenerateForm from "@/components/GenerateForm";
-import { generateVoucher } from "@/lib/actions";
+import { createVoucher } from "@/lib/actions";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
 
@@ -24,7 +24,7 @@ export default async function NewVoucher({
   const signatories = await db.listSignatories(company.slug);
 
   // Bound to this workspace, so the form can never post into the other company.
-  const action = generateVoucher.bind(null, company.slug);
+  const action = createVoucher.bind(null, company.slug);
 
   return (
     <>

@@ -6,9 +6,7 @@ import { redirect } from "next/navigation";
 import { isAuthenticated } from "./auth";
 import { requireCompany, type CompanySlug } from "./companies";
 import { store } from "./db";
-import { htmlToPdf } from "./pdf";
 import { deleteFile, putFile, storageKeys } from "./storage";
-import { renderVoucherHtml } from "./template";
 import { TOGGLE_KEYS, type VoucherFields } from "./types";
 
 async function requireAuth() {
@@ -45,11 +43,16 @@ function readFields(form: FormData): VoucherFields {
 }
 
 /**
- * Creates the voucher record — which assigns its permanent number — then
- * renders and stores the branded PDF. Lands the operator on the voucher page
- * with a Print button, because printing is always the next thing they do.
+ * Creates the voucher record, which assigns its permanent number.
+ *
+ * The PDF is *not* produced here. It is rendered in the operator's browser and
+ * posted back to /api/voucher/[id]/pdf — see src/lib/client-pdf.ts for why.
+ * This returns the new id so the caller can drive that second step.
  */
-export async function generateVoucher(companySlug: string, form: FormData) {
+export async function createVoucher(
+  companySlug: string,
+  form: FormData,
+): Promise<{ id: string; voucherNo: string; company: string }> {
   await requireAuth();
   const company = requireCompany(companySlug);
   const fields = readFields(form);
@@ -70,30 +73,10 @@ export async function generateVoucher(companySlug: string, form: FormData) {
     fields,
   });
 
-  const pdf = await htmlToPdf(renderVoucherHtml(voucher, company));
-  const key = storageKeys.pdf(company.slug, voucher.voucherNo);
-  await putFile(key, pdf, "application/pdf");
-  await db.attachPdf(voucher.id, key);
-
   revalidatePath(`/${company.slug}/pending`);
   revalidatePath(`/${company.slug}/history`);
-  redirect(`/${company.slug}/v/${voucher.id}?new=1`);
-}
 
-/** Re-renders and replaces the stored PDF — used if a render was interrupted. */
-export async function regeneratePdf(voucherId: string) {
-  await requireAuth();
-  const db = await store();
-  const voucher = await db.getVoucher(voucherId);
-  if (!voucher) throw new Error("Voucher not found");
-
-  const company = requireCompany(voucher.company);
-  const pdf = await htmlToPdf(renderVoucherHtml(voucher, company));
-  const key = storageKeys.pdf(company.slug, voucher.voucherNo);
-  await putFile(key, pdf, "application/pdf");
-  await db.attachPdf(voucher.id, key);
-
-  revalidatePath(`/${company.slug}/v/${voucher.id}`);
+  return { id: voucher.id, voucherNo: voucher.voucherNo, company: company.slug };
 }
 
 /** Attaches the signed scan and completes the voucher. */

@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { amountInWords } from "@/lib/amount-words";
 import { emptyFields, TOGGLE_LABELS, type ToggleKey, type VoucherFields } from "@/lib/types";
+import { useVoucherPdf } from "@/lib/use-voucher-pdf";
 import SheetPreview, { usePreview } from "./SheetPreview";
 import Toggle from "./Toggle";
 
@@ -10,8 +12,8 @@ interface Props {
   company: string;
   today: string;
   signatories: string[];
-  /** Server action: takes the form payload and generates the voucher. */
-  action: (form: FormData) => void;
+  /** Server action: creates the record and returns its id. */
+  action: (form: FormData) => Promise<{ id: string; voucherNo: string; company: string }>;
 }
 
 /** Text under a toggle, spelling out what OFF actually means. */
@@ -28,10 +30,43 @@ const HINTS: Record<ToggleKey, string> = {
 export default function GenerateForm({ company, today, signatories, action }: Props) {
   const [fields, setFields] = useState<VoucherFields>(() => emptyFields(today));
   const [internalNote, setInternalNote] = useState("");
-  const [pending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
 
   const { html, busy } = usePreview(company, fields);
+  const pdf = useVoucherPdf();
+
+  /** "Saving…" through to "Rendering PDF…", so a slow step is never a dead button. */
+  const [creating, setCreating] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const submitting = creating || pdf.busy;
+
+  /**
+   * Generate is two steps: the server assigns the number, then this browser
+   * renders the PDF and posts it back. If the render fails the voucher still
+   * exists — its page offers a retry — so we navigate there either way rather
+   * than losing the operator's work.
+   */
+  async function submit(formData: FormData) {
+    setFailure(null);
+    setCreating(true);
+    let created: { id: string; voucherNo: string; company: string };
+    try {
+      created = await action(formData);
+    } catch {
+      setCreating(false);
+      setFailure("Could not save the voucher. Check your connection and try again.");
+      return;
+    }
+    setCreating(false);
+
+    // Navigate either way: the voucher and its number already exist, so losing
+    // the render is recoverable but losing the operator's place is not.
+    const rendered = await pdf.tryBuild(created.id, created.voucherNo);
+    router.push(
+      `/${created.company}/v/${created.id}?new=1${rendered ? "" : "&pdf=failed"}`,
+    );
+  }
 
   const setOn = (key: ToggleKey, value: boolean) =>
     setFields((f) => ({ ...f, on: { ...f.on, [key]: value } }));
@@ -66,7 +101,7 @@ export default function GenerateForm({ company, today, signatories, action }: Pr
   return (
     <form
       ref={formRef}
-      action={(formData) => startTransition(() => action(formData))}
+      action={submit}
       className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-start"
     >
       {/* Every toggle and value is mirrored into hidden inputs, so the server
@@ -253,13 +288,26 @@ export default function GenerateForm({ company, today, signatories, action }: Pr
 
         <SheetPreview html={html} busy={busy} />
 
-        <button type="submit" disabled={pending} className="btn btn-primary mt-4 w-full py-3">
-          {pending ? "Generating…" : "Generate voucher & PDF"}
+        <button type="submit" disabled={submitting} className="btn btn-primary mt-4 w-full py-3">
+          {creating
+            ? "Assigning number…"
+            : pdf.stage === "rendering"
+              ? "Rendering PDF…"
+              : pdf.stage === "uploading"
+                ? "Saving PDF…"
+                : "Generate voucher & PDF"}
         </button>
-        <p className="mt-2 text-center text-[12px] text-ink-soft">
-          Assigns the next voucher number. <kbd className="font-sans font-medium">⌘</kbd>
-          <kbd className="font-sans font-medium">↵</kbd>
-        </p>
+
+        {failure ? (
+          <p role="alert" className="mt-2 text-center text-[12.5px] font-medium text-red-700">
+            {failure}
+          </p>
+        ) : (
+          <p className="mt-2 text-center text-[12px] text-ink-soft">
+            Assigns the next voucher number. <kbd className="font-sans font-medium">⌘</kbd>
+            <kbd className="font-sans font-medium">↵</kbd>
+          </p>
+        )}
       </aside>
     </form>
   );

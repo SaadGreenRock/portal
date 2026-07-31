@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { amountInWords, formatAmount } from "./amount-words";
 import type { Company } from "./companies";
+import { SHEET } from "./sheet";
 import type { Voucher } from "./types";
 
 /**
@@ -99,7 +100,7 @@ function field(opts: {
         urduLabel ? `<span class="f-label-ur">${esc(urduLabel)}</span>` : ""
       }</div>
       <div class="f-value" style="border-bottom-color:${ruleColor};font-size:${valueSize}">${
-        value ? esc(value) : "&nbsp;"
+        value ? esc(value) : "&#160;"
       }</div>
     </div>`;
 }
@@ -144,11 +145,11 @@ export function renderVoucherHtml(
   // Sportech: centred logo over a black-ruled title, no bar.
   const header = t.headerBar
     ? `<div class="head head-bar" style="background:${t.headerBar}">
-         <img class="head-logo" src="${logo}" alt="" style="width:${company.logoWidthIn}in">
+         <img class="head-logo" src="${logo}" alt="" style="width:${company.logoWidthIn}in" />
          <div class="head-title" style="color:${t.headerText}">PAYMENT ACKNOWLEDGMENT VOUCHER</div>
        </div>`
     : `<div class="head head-plain">
-         <img class="head-logo" src="${logo}" alt="" style="width:${company.logoWidthIn}in">
+         <img class="head-logo" src="${logo}" alt="" style="width:${company.logoWidthIn}in" />
          <div class="head-title" style="color:${t.headerText}">PAYMENT ACKNOWLEDGMENT VOUCHER</div>
          ${company.subtitle ? `<div class="head-sub">${esc(company.subtitle)}</div>` : ""}
        </div>`;
@@ -158,7 +159,7 @@ export function renderVoucherHtml(
   return `<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8" />
 <style>
   ${fonts(assets)}
 
@@ -170,9 +171,11 @@ export function renderVoucherHtml(
     margin: 0.139in 0.181in 0.208in 0.181in;
   }
 
-  html, body { margin: 0; padding: 0; }
+  html, body, .pv-root { margin: 0; padding: 0; }
 
-  body {
+  /* .pv-root is the same box as the page body, for when this CSS is used inside
+     an SVG foreignObject (the client-side PDF path), which has no body element. */
+  body, .pv-root {
     font-family: 'Century Gothic', 'PortalSans', 'Avenir Next', sans-serif;
     color: #1a1a1a;
     font-size: 11pt;
@@ -442,17 +445,17 @@ ${header}
   </div>
 
   <div class="section">Description of Task Performed / Item Purchased</div>
-  <div class="desc">${description ? esc(description) : "&nbsp;"}</div>
+  <div class="desc">${description ? esc(description) : "&#160;"}</div>
 
   <div class="section">Amount</div>
   <div class="amount">
     <div>
       <div class="f-label">AMOUNT PAID (PKR)</div>
-      <div class="f-value amt-figure">${amountFigure ? esc(amountFigure) : "&nbsp;"}</div>
+      <div class="f-value amt-figure">${amountFigure ? esc(amountFigure) : "&#160;"}</div>
     </div>
     <div>
       <div class="f-label">AMOUNT IN WORDS</div>
-      <div class="f-value amt-words">${amountWords ? esc(amountWords) : "&nbsp;"}</div>
+      <div class="f-value amt-words">${amountWords ? esc(amountWords) : "&#160;"}</div>
     </div>
   </div>
 
@@ -500,4 +503,58 @@ ${header}
 <div class="foot">${esc(company.footer)}</div>
 </body>
 </html>`;
+}
+
+/**
+ * The voucher wrapped in an SVG, ready to be rasterised by the operator's
+ * browser: draw it into an <img>, paint that onto a canvas, and you have the
+ * page as pixels.
+ *
+ * Why go through SVG at all? Because <foreignObject> makes the *browser* lay the
+ * page out and shape the text. That matters entirely for the Urdu — Nastaliq
+ * needs real HarfBuzz shaping, and a JS PDF library would emit disconnected
+ * letterforms. This way the shaping engine is the one already on the operator's
+ * machine, so no Chromium has to be deployed anywhere.
+ *
+ * Assets are always inlined: an <img> loading an SVG treats it as an isolated
+ * document that may not fetch anything, so a /fonts URL would silently render
+ * in a fallback face.
+ */
+export function renderVoucherSvg(voucher: Voucher, company: Company): string {
+  const html = renderVoucherHtml(voucher, company, { assets: "inline" });
+
+  // Safe to split by pattern because this module produced the string: exactly
+  // one <style> block and one <body>.
+  const css = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1];
+  const body = /<body>([\s\S]*?)<\/body>/.exec(html)?.[1];
+  if (!css || !body) {
+    throw new Error("Could not split the voucher template into CSS and body.");
+  }
+
+  // Letter at the CSS reference resolution of 96dpi, and the DOCX page margins
+  // in the same units. The content box is inset by those margins; the page
+  // itself is the full sheet.
+  const PX = 96;
+  const page = { w: SHEET.widthPx, h: SHEET.heightPx };
+  const margin = { top: 0.139 * PX, side: 0.181 * PX, bottom: 0.208 * PX };
+  const content = {
+    x: margin.side,
+    y: margin.top,
+    w: page.w - margin.side * 2,
+    h: page.h - margin.top - margin.bottom,
+  };
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${page.w}" height="${page.h}" ` +
+    `viewBox="0 0 ${page.w} ${page.h}">` +
+    `<rect x="0" y="0" width="${page.w}" height="${page.h}" fill="#ffffff" />` +
+    `<foreignObject x="${content.x}" y="${content.y}" width="${content.w}" height="${content.h}">` +
+    `<div xmlns="http://www.w3.org/1999/xhtml" class="pv-root">` +
+    // CDATA is essential: inside SVG (which is XML) a <style> body is parsed as
+    // markup, not as opaque text the way HTML treats it. Without this, a child
+    // selector, a stray ampersand, or an angle bracket in a CSS comment becomes
+    // a parse error and the whole rasterisation silently fails.
+    `<style><![CDATA[${css.replace(/\]\]>/g, "]]&gt;")}]]></style>${body}` +
+    `</div></foreignObject></svg>`
+  );
 }

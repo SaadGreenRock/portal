@@ -1,16 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import BuildPdfButton from "@/components/BuildPdfButton";
 import DeleteVoucher from "@/components/DeleteVoucher";
 import PrintButton from "@/components/PrintButton";
 import SheetPreview from "@/components/SheetPreview";
 import UploadScan from "@/components/UploadScan";
-import {
-  deleteVoucher,
-  regeneratePdf,
-  removeScan,
-  restoreVoucher,
-  uploadScan,
-} from "@/lib/actions";
+import { deleteVoucher, removeScan, restoreVoucher, uploadScan } from "@/lib/actions";
 import { amountInWords, formatAmount } from "@/lib/amount-words";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -18,12 +13,19 @@ import { fileUrl } from "@/lib/storage";
 import { formatDate, renderVoucherHtml } from "@/lib/template";
 import { TOGGLE_LABELS, TOGGLE_KEYS, type ToggleKey } from "@/lib/types";
 
-/** "31 July 2026, 3:42 pm" for the audit trail. */
+/**
+ * "31 July 2026, 15:42" for the audit trail.
+ *
+ * Formats in local time, not UTC. Voucher numbers take their month from the
+ * local date, so a UTC date here would show 31 July next to a number reading
+ * 202608 for anything created in the evening east of Greenwich.
+ */
 function stamp(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return `${formatDate(d.toISOString().slice(0, 10))}, ${d
-    .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${formatDate(localDate)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default async function VoucherDetail({
@@ -31,10 +33,10 @@ export default async function VoucherDetail({
   searchParams,
 }: {
   params: Promise<{ company: string; id: string }>;
-  searchParams: Promise<{ new?: string }>;
+  searchParams: Promise<{ new?: string; pdf?: string }>;
 }) {
   const { company: slug, id } = await params;
-  const { new: justGenerated } = await searchParams;
+  const { new: justGenerated, pdf: pdfState } = await searchParams;
 
   const company = getCompany(slug);
   if (!company) notFound();
@@ -46,7 +48,6 @@ export default async function VoucherDetail({
 
   const attach = uploadScan.bind(null, v.id);
   const detach = removeScan.bind(null, v.id);
-  const rerender = regeneratePdf.bind(null, v.id);
   const drop = deleteVoucher.bind(null, v.id);
   const undelete = restoreVoucher.bind(null, v.id);
 
@@ -67,7 +68,18 @@ export default async function VoucherDetail({
 
   return (
     <>
-      {justGenerated ? (
+      {pdfState === "failed" && !v.pdfKey ? (
+        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 sm:p-5">
+          <p className="text-[15px] font-semibold text-amber-900">
+            {v.voucherNo} was saved, but its PDF could not be rendered.
+          </p>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-amber-900/80">
+            The voucher and its number are safe — only the PDF is missing. Press{" "}
+            <strong className="font-semibold">Render PDF</strong> to try again, or open this
+            page in a different browser if it keeps failing.
+          </p>
+        </div>
+      ) : justGenerated ? (
         <div
           className="mb-5 rounded-xl border p-4 sm:p-5"
           style={{ borderColor: "var(--accent)", background: "var(--accent-wash)" }}
@@ -120,11 +132,7 @@ export default async function VoucherDetail({
               </a>
             </>
           ) : (
-            <form action={rerender}>
-              <button type="submit" className="btn btn-primary">
-                Render PDF
-              </button>
-            </form>
+            <BuildPdfButton voucherId={v.id} voucherNo={v.voucherNo} />
           )}
 
           {/* A deleted voucher offers the way back instead of a second delete. */}
