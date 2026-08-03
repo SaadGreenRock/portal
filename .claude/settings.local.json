@@ -35,7 +35,9 @@
       "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' -o /dev/null -w '  %{size_download} bytes\\\\n' http://localhost:3000/api/voucher/nonexistent/sheet)",
       "Bash(timeout 25 npx vercel whoami)",
       "Bash(npx vercel *)",
-      "Bash(rm -rf .vercel .env.local)"
+      "Bash(rm -rf .vercel .env.local)",
+      "Bash(node --env-file=.env -e 'console.log\\(new URL\\(process.env.SUPABASE_URL\\).hostname.split\\(\".\"\\)[0]\\)')",
+      "Bash(grep -v '^$')"
     ]
   }
 }
