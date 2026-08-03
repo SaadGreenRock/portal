@@ -32,7 +32,10 @@
       "Bash(sips -s format jpeg -s formatOptions 85 __TRACKED_VAR__/noise.ppm --out __TRACKED_VAR__/big-invoice.jpg)",
       "Bash(awk '{printf \"test photo: %.1f MB\\\\n\", $5/1048576}')",
       "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3000/api/po/invoice-test-0001/sheet -o /tmp/claude-501/sheet.json -w '  %{size_download} bytes\\\\n')",
-      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' -o /dev/null -w '  %{size_download} bytes\\\\n' http://localhost:3000/api/voucher/nonexistent/sheet)"
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' -o /dev/null -w '  %{size_download} bytes\\\\n' http://localhost:3000/api/voucher/nonexistent/sheet)",
+      "Bash(timeout 25 npx vercel whoami)",
+      "Bash(npx vercel *)",
+      "Bash(rm -rf .vercel .env.local)"
     ]
   }
 }
