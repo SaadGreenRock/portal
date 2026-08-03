@@ -34,11 +34,23 @@ export async function POST(request: Request) {
   // An unsaved order has no number yet; show the shape the sequence will fill in.
   const poNo = body.poNo || `${company.prefix}-PO-${periodOf()}-•••`;
 
-  const pages = renderPoPages(
-    { poNo, status, doc: readPoDoc(body.doc) },
-    company,
-    { assets: "url", watermark: body.poNo ? watermarkFor(status) : "PREVIEW" },
-  );
+  // The editor calls this on every keystroke, so a value the parser refuses —
+  // a description past its length limit — has to come back as a message the
+  // operator can read *now*, not as a dead preview and a surprise on save.
+  let doc;
+  try {
+    doc = readPoDoc(body.doc);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "That order cannot be previewed." },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const pages = renderPoPages({ poNo, status, doc }, company, {
+    assets: "url",
+    watermark: body.poNo ? watermarkFor(status) : "PREVIEW",
+  });
 
   return NextResponse.json({ pages }, { headers: { "Cache-Control": "no-store" } });
 }

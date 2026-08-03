@@ -495,7 +495,10 @@ export const supabaseStore: Store = {
     if (query.maxAmount != null) q = q.lte("total", query.maxAmount);
 
     const { data, error, count } = await q
-      .order("po_date", { ascending: false })
+      // nullsFirst matches SQLite, which puts NULLs last on a DESC sort.
+      // Without it Postgres floats an order with no date to the top of History
+      // on the deployed site but not locally.
+      .order("po_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
     if (error) throw error;

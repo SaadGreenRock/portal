@@ -43,7 +43,8 @@
       "Bash(git -c user.name=SaadGreenRock commit -q -m ' *)",
       "Bash(rm -rf .data)",
       "Bash(ipconfig getifaddr *)",
-      "Bash(curl -s -o /dev/null -w '  reachable over LAN: HTTP %{http_code}\\\\n' http://__CMDSUB_OUTPUT__:3000/login)"
+      "Bash(curl -s -o /dev/null -w '  reachable over LAN: HTTP %{http_code}\\\\n' http://__CMDSUB_OUTPUT__:3000/login)",
+      "Bash(node --experimental-strip-types w-tmp.mts)"
     ]
   }
 }

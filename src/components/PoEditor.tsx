@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CURRENCY_LIST, amountToWords, formatMoneyFixed } from "@/lib/money";
 import type { SavedPo } from "@/lib/po/actions";
+import { MAX_ITEMS } from "@/lib/po/parse";
 import { lineAmount, poTotals } from "@/lib/po/totals";
 import {
   emptyItem,
@@ -68,7 +69,10 @@ export default function PoEditor({
   const pdf = useSheetPdf();
   const busy = saving || pdf.busy;
 
-  const { pages, busy: previewBusy } = usePagesPreview({ company, doc, poNo, status });
+  const { pages, busy: previewBusy, rejected } = usePagesPreview({ company, doc, poNo, status });
+  // Refuse locally for the same reason the server would, so the save button
+  // doesn't invite a press that cannot succeed.
+  const blocked = Boolean(rejected);
   const totals = useMemo(() => poTotals(doc), [doc]);
 
   /**
@@ -105,7 +109,10 @@ export default function PoEditor({
       items: d.items.map((i) => (i.id === id ? { ...i, ...patch } : i)),
     }));
 
-  const addItem = () => setDoc((d) => ({ ...d, items: [...d.items, emptyItem()] }));
+  const atItemLimit = doc.items.length >= MAX_ITEMS;
+
+  const addItem = () =>
+    setDoc((d) => (d.items.length >= MAX_ITEMS ? d : { ...d, items: [...d.items, emptyItem()] }));
 
   const removeItem = (id: string) =>
     setDoc((d) => {
@@ -148,10 +155,17 @@ export default function PoEditor({
     let saved: SavedPo;
     try {
       saved = await save({ doc, internalNote: note, issue });
-    } catch {
+    } catch (e) {
       setSaving(false);
       setIntent(null);
-      setFailure("Could not save the purchase order. Check your connection and try again.");
+      // The server's validation messages are written for a person to read — a
+      // generic "check your connection" would hide the one thing that helps.
+      const raw = e instanceof Error ? e.message : "";
+      setFailure(
+        raw && !/NEXT_REDIRECT|fetch failed|load failed/i.test(raw)
+          ? raw
+          : "Could not save the purchase order. Check your connection and try again.",
+      );
       return;
     }
     setSaving(false);
@@ -467,10 +481,15 @@ export default function PoEditor({
             )}
           </datalist>
 
-          <div className="border-t border-ink-line px-5 py-3.5">
-            <button type="button" onClick={addItem} className="btn btn-ghost">
+          <div className="flex flex-wrap items-center gap-3 border-t border-ink-line px-5 py-3.5">
+            <button type="button" onClick={addItem} disabled={atItemLimit} className="btn btn-ghost">
               + Add line
             </button>
+            {atItemLimit ? (
+              <span className="text-[12.5px] text-ink-soft">
+                {MAX_ITEMS} lines is the limit for one order — split it into two.
+              </span>
+            ) : null}
           </div>
         </section>
 
@@ -648,12 +667,21 @@ export default function PoEditor({
 
         <SheetStack pages={pages} busy={previewBusy} />
 
+        {rejected ? (
+          <p
+            role="alert"
+            className="mt-2.5 rounded-lg bg-amber-50 px-3 py-2.5 text-[12.5px] font-medium leading-snug text-amber-900"
+          >
+            {rejected} The preview above is the last version that fitted.
+          </p>
+        ) : null}
+
         <div className="mt-4 space-y-2">
           {mode === "create" ? (
             <>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || blocked}
                 onClick={() => void submit(true)}
                 className="btn btn-primary w-full py-3"
               >
@@ -663,7 +691,7 @@ export default function PoEditor({
                     ? pdf.statusLabel("Create & issue")
                     : "Create & issue"}
               </button>
-              <button type="submit" disabled={busy} className="btn btn-ghost w-full py-2.5">
+              <button type="submit" disabled={busy || blocked} className="btn btn-ghost w-full py-2.5">
                 {intent === "draft" && saving
                   ? "Assigning number…"
                   : intent === "draft"
@@ -672,7 +700,7 @@ export default function PoEditor({
               </button>
             </>
           ) : (
-            <button type="submit" disabled={busy} className="btn btn-primary w-full py-3">
+            <button type="submit" disabled={busy || blocked} className="btn btn-primary w-full py-3">
               {saving ? "Saving…" : pdf.statusLabel("Save changes")}
             </button>
           )}

@@ -24,8 +24,12 @@ export interface Currency {
   name: string;
   /** Main unit as it is spoken, plural: "Rupees". */
   unit: string;
+  /** Singular, for an amount of exactly one: "Rupee". */
+  unitOne: string;
   /** Fractional unit as it is spoken, plural: "Paisa". */
   subunit: string;
+  /** Singular fractional unit. Some currencies use one word for both. */
+  subunitOne: string;
   grouping: Grouping;
   /**
    * Locale used for the digit separators.
@@ -42,7 +46,9 @@ export const CURRENCIES: Record<string, Currency> = {
     code: "PKR",
     name: "Pakistan Rupee",
     unit: "Rupees",
+    unitOne: "Rupee",
     subunit: "Paisa",
+    subunitOne: "Paisa",
     grouping: "south-asian",
     locale: "en-US",
   },
@@ -50,7 +56,9 @@ export const CURRENCIES: Record<string, Currency> = {
     code: "SAR",
     name: "Saudi Riyal",
     unit: "Riyals",
+    unitOne: "Riyal",
     subunit: "Halalas",
+    subunitOne: "Halala",
     grouping: "international",
     locale: "en-US",
   },
@@ -58,7 +66,9 @@ export const CURRENCIES: Record<string, Currency> = {
     code: "AED",
     name: "UAE Dirham",
     unit: "Dirhams",
+    unitOne: "Dirham",
     subunit: "Fils",
+    subunitOne: "Fils",
     grouping: "international",
     locale: "en-US",
   },
@@ -66,7 +76,9 @@ export const CURRENCIES: Record<string, Currency> = {
     code: "USD",
     name: "US Dollar",
     unit: "Dollars",
+    unitOne: "Dollar",
     subunit: "Cents",
+    subunitOne: "Cent",
     grouping: "international",
     locale: "en-US",
   },
@@ -74,7 +86,9 @@ export const CURRENCIES: Record<string, Currency> = {
     code: "EUR",
     name: "Euro",
     unit: "Euros",
+    unitOne: "Euro",
     subunit: "Cents",
+    subunitOne: "Cent",
     grouping: "international",
     locale: "en-US",
   },
@@ -82,7 +96,9 @@ export const CURRENCIES: Record<string, Currency> = {
     code: "GBP",
     name: "Pound Sterling",
     unit: "Pounds",
+    unitOne: "Pound",
     subunit: "Pence",
+    subunitOne: "Penny",
     grouping: "international",
     locale: "en-US",
   },
@@ -193,10 +209,15 @@ export function amountToWords(
   const major = Math.floor(totalMinor / 100);
   const minor = totalMinor % 100;
 
+  // "One Rupee", not "One Rupees" — this prints on a document a vendor reads.
   const parts: string[] = [];
-  if (major > 0) parts.push(`${wholeNumberToWords(major, c.grouping)} ${c.unit}`);
+  if (major > 0) {
+    parts.push(`${wholeNumberToWords(major, c.grouping)} ${major === 1 ? c.unitOne : c.unit}`);
+  }
   if (minor > 0) {
-    parts.push(`${major > 0 ? "and " : ""}${twoDigits(minor)} ${c.subunit}`);
+    parts.push(
+      `${major > 0 ? "and " : ""}${twoDigits(minor)} ${minor === 1 ? c.subunitOne : c.subunit}`,
+    );
   }
 
   return `${parts.join(" ")} Only`;

@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { useSheetPdf } from "./use-sheet-pdf";
 
 /**
@@ -19,15 +18,14 @@ export function useVoucherPdf() {
     title: voucherNo,
   });
 
-  const build = useCallback(
-    (voucherId: string, voucherNo?: string) => pdf.build(target(voucherId, voucherNo)),
-    [pdf],
-  );
-
-  const tryBuild = useCallback(
-    (voucherId: string, voucherNo?: string) => pdf.tryBuild(target(voucherId, voucherNo)),
-    [pdf],
-  );
-
-  return { stage: pdf.stage, error: pdf.error, build, tryBuild, busy: pdf.busy };
+  // Not memoised: the only dependency is `pdf`, which is a fresh object every
+  // render, so a useCallback here would rebuild the function every time anyway
+  // while implying to the reader that it doesn't.
+  return {
+    stage: pdf.stage,
+    error: pdf.error,
+    busy: pdf.busy,
+    build: (voucherId: string, voucherNo?: string) => pdf.build(target(voucherId, voucherNo)),
+    tryBuild: (voucherId: string, voucherNo?: string) => pdf.tryBuild(target(voucherId, voucherNo)),
+  };
 }

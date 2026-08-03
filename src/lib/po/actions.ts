@@ -31,6 +31,19 @@ function revalidatePo(company: string, id?: string) {
   if (id) revalidatePath(`/${company}/po/${id}`);
 }
 
+/**
+ * A deleted order is in the recycle bin, and nothing should act on it.
+ *
+ * The buttons are already hidden, but a tab left open before the delete can
+ * still reach these actions — and "closing" a deleted order, or filing an
+ * invoice against one, would leave the record saying something untrue.
+ */
+function requireLive(po: { deletedAt: string | null; poNo: string }) {
+  if (po.deletedAt) {
+    throw new Error(`${po.poNo} is deleted. Restore it before changing it.`);
+  }
+}
+
 /* -------------------------------------------------------------------------
  * Actions
  * ---------------------------------------------------------------------------*/
@@ -58,7 +71,7 @@ export async function createPo(
   const db = await store();
   const po = await db.createPo({
     company: company.slug as CompanySlug,
-    internalNote: text(payload.internalNote, 400),
+    internalNote: text(payload.internalNote, 400, "Internal note"),
     doc: readPoDoc(payload.doc),
   });
 
@@ -80,8 +93,9 @@ export async function savePo(
   const db = await store();
   const existing = await db.getPo(id);
   if (!existing) throw new Error("Purchase order not found");
+  requireLive(existing);
 
-  const po = await db.updatePo(id, readPoDoc(payload.doc), text(payload.internalNote, 400));
+  const po = await db.updatePo(id, readPoDoc(payload.doc), text(payload.internalNote, 400, "Internal note"));
 
   revalidatePo(po.company, po.id);
   return { id: po.id, poNo: po.poNo, company: po.company };
@@ -103,6 +117,7 @@ export async function setPoStatus(id: string, status: PoStatus) {
   const db = await store();
   const po = await db.getPo(id);
   if (!po) throw new Error("Purchase order not found");
+  requireLive(po);
 
   await db.setPoStatus(id, status);
   revalidatePo(po.company, po.id);
@@ -124,6 +139,7 @@ export async function uploadPoInvoice(poId: string, form: FormData) {
   const db = await store();
   const po = await db.getPo(poId);
   if (!po) throw new Error("Purchase order not found");
+  requireLive(po);
 
   const key = storageKeys.poInvoice(po.company, po.poNo, ext);
   await putFile(
@@ -142,6 +158,7 @@ export async function removePoInvoice(poId: string) {
   const db = await store();
   const po = await db.getPo(poId);
   if (!po) throw new Error("Purchase order not found");
+  requireLive(po);
 
   if (po.invoiceKey) await deleteFile(po.invoiceKey);
   await db.removePoInvoice(po.id);
@@ -189,14 +206,14 @@ export async function savePoSettings(companySlug: string, form: FormData) {
   await db.saveSettings(company.slug as CompanySlug, {
     po: {
       currency: currency in CURRENCIES ? currency : "PKR",
-      taxLabel: text(form.get("taxLabel"), 40) || "Tax",
+      taxLabel: text(form.get("taxLabel"), 40, "Tax label") || "Tax",
       taxRate: Math.min(100, Math.max(0, Number(form.get("taxRate")) || 0)),
       showTax: form.get("showTax") === "1",
-      paymentTerms: text(form.get("paymentTerms"), 300),
-      deliveryAddress: text(form.get("deliveryAddress"), 600),
-      terms: text(form.get("terms"), 8000),
-      preparedBy: text(form.get("preparedBy"), 160),
-      approvedBy: text(form.get("approvedBy"), 160),
+      paymentTerms: text(form.get("paymentTerms"), 300, "Payment terms"),
+      deliveryAddress: text(form.get("deliveryAddress"), 600, "Delivery address"),
+      terms: text(form.get("terms"), 8000, "Terms and conditions"),
+      preparedBy: text(form.get("preparedBy"), 160, "Prepared by"),
+      approvedBy: text(form.get("approvedBy"), 160, "Approved by"),
     },
   });
 

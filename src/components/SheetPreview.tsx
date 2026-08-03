@@ -152,6 +152,12 @@ export function usePreview(company: string, fields: unknown, delay = 350) {
 export function usePagesPreview(body: unknown, delay = 500) {
   const [pages, setPages] = useState<string[]>([]);
   const [busy, setBusy] = useState(true);
+  /**
+   * A value the server refuses to render — a description past its length limit.
+   * Reported while typing rather than discovered on save, since the same parser
+   * guards both and would refuse the save for the same reason.
+   */
+  const [rejected, setRejected] = useState<string | null>(null);
   const serialized = JSON.stringify(body);
 
   useEffect(() => {
@@ -165,7 +171,13 @@ export function usePagesPreview(body: unknown, delay = 500) {
           body: serialized,
           signal: controller.signal,
         });
-        if (res.ok) setPages(((await res.json()) as { pages: string[] }).pages);
+        if (res.ok) {
+          setPages(((await res.json()) as { pages: string[] }).pages);
+          setRejected(null);
+        } else if (res.status === 422) {
+          const body = (await res.json().catch(() => null)) as { error?: string } | null;
+          setRejected(body?.error ?? "That order cannot be previewed.");
+        }
       } catch {
         // Aborted by the next keystroke, or offline — keep the last render.
       } finally {
@@ -179,5 +191,5 @@ export function usePagesPreview(body: unknown, delay = 500) {
     };
   }, [serialized, delay]);
 
-  return { pages, busy };
+  return { pages, busy, rejected };
 }
