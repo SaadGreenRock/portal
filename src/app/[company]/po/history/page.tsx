@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import PoRow from "@/components/PoRow";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { formatMoney } from "@/lib/money";
 import type { PoQuery, PoStatus } from "@/lib/po/types";
 
@@ -56,7 +58,9 @@ export default async function PoHistory({
   };
 
   const db = await store();
-  const { rows, total } = await db.searchPos(query);
+  const listed = await tryTable(() => db.searchPos(query));
+  if (!listed.ok) return <ModuleUnavailable module="Purchase Orders" />;
+  const { rows, total } = listed.value;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const filtered = Boolean(sp.q || sp.from || sp.to || sp.min || sp.max || status !== "all");
 

@@ -5,12 +5,20 @@ import { store } from "@/lib/db";
 import { renderPoSvgs } from "@/lib/po/template";
 
 /**
- * Hands the browser the purchase order as one self-contained SVG per page,
+ * Hands the browser one page of the purchase order as a self-contained SVG,
  * which it rasterises into the PDF. Generated from the stored document, so the
  * PDF can be rebuilt at any time and always matches the record.
+ *
+ * One page per request, not all of them at once. Each page inlines the whole
+ * font family and weighs about 1.2 MB, and a serverless response is capped
+ * around 4.5 MB — returning them together meant any order past three pages
+ * failed to render in production while working perfectly in development.
+ *
+ * The total is returned in `X-Page-Count` so the client knows how many more to
+ * ask for; page numbers are 1-based.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await isAuthenticated())) {
@@ -23,14 +31,19 @@ export async function GET(
 
   const pages = renderPoSvgs(po, requireCompany(po.company));
 
-  return NextResponse.json(
-    { pages },
-    {
-      headers: {
-        // Deterministic for a given document, but private — and an issued PO
-        // stays editable, so it must not be cached across an edit.
-        "Cache-Control": "no-store",
-      },
+  const requested = Number(new URL(request.url).searchParams.get("page") ?? "1");
+  const page = Number.isInteger(requested) ? requested : 1;
+  if (page < 1 || page > pages.length) {
+    return new NextResponse(`No page ${page}; this order has ${pages.length}.`, { status: 404 });
+  }
+
+  return new NextResponse(pages[page - 1], {
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "X-Page-Count": String(pages.length),
+      // An issued order stays editable, so a cached page could outlive its
+      // document. Never serve one from cache.
+      "Cache-Control": "no-store",
     },
-  );
+  });
 }

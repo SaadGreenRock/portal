@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { addSignatory, removeSignatory } from "@/lib/actions";
 import { getCompany } from "@/lib/companies";
 import { backend, store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
 import { periodOf } from "@/lib/db/shared";
 import { CURRENCY_LIST } from "@/lib/money";
 import { savePoSettings } from "@/lib/po/actions";
@@ -19,17 +20,21 @@ export default async function Settings({
   if (!company) notFound();
 
   const db = await store();
-  const [signatories, counts, poCounts, settings] = await Promise.all([
+  // The voucher half of this screen must keep working even when the purchase
+  // order module has never been migrated onto this database.
+  const [signatories, counts, poCountsResult, settingsResult] = await Promise.all([
     db.listSignatories(company.slug),
     db.counts(company.slug),
-    db.poCounts(company.slug),
-    db.getSettings(company.slug),
+    tryTable(() => db.poCounts(company.slug)),
+    tryTable(() => db.getSettings(company.slug)),
   ]);
+  const poCounts = poCountsResult.ok ? poCountsResult.value : null;
+  const settings = settingsResult.ok ? settingsResult.value : null;
 
   const add = addSignatory.bind(null, company.slug);
   const savePo = savePoSettings.bind(null, company.slug);
   const period = periodOf();
-  const po = settings.po;
+  const po = settings?.po ?? null;
 
   return (
     <>
@@ -59,6 +64,17 @@ export default async function Settings({
               individual order without touching these.
             </p>
           </header>
+
+          {!po ? (
+            <p className="px-5 py-6 text-[13.5px] leading-relaxed text-ink-soft">
+              Purchase orders are not set up on this database yet, so there is nothing to
+              configure. Run{" "}
+              <code className="rounded bg-[#f4f4f2] px-1.5 py-0.5 font-mono text-[12.5px] text-ink">
+                supabase/migration.sql
+              </code>{" "}
+              and reload. Signatories and voucher numbering below are unaffected.
+            </p>
+          ) : (
 
           <form action={savePo} className="space-y-4 p-5">
             <div className="grid grid-cols-2 gap-3">
@@ -162,6 +178,7 @@ export default async function Settings({
               Save purchase order defaults
             </button>
           </form>
+          )}
         </section>
 
         {/* ---- signatories --------------------------------------------- */}
@@ -230,8 +247,8 @@ export default async function Settings({
             <dl className="mt-3 space-y-2 text-[13.5px]">
               <Line label="Vouchers issued" value={counts.total} />
               <Line label="Awaiting signed scan" value={counts.pending} />
-              <Line label="Purchase orders raised" value={poCounts.total} />
-              <Line label="Orders still open" value={poCounts.open} />
+              <Line label="Purchase orders raised" value={poCounts?.total ?? "—"} />
+              <Line label="Orders still open" value={poCounts?.open ?? "—"} />
               <div className="flex justify-between gap-3 border-t border-ink-line pt-2">
                 <dt className="text-ink-soft">Storage</dt>
                 <dd className="mono">
@@ -253,7 +270,7 @@ export default async function Settings({
   );
 }
 
-function Line({ label, value }: { label: string; value: number }) {
+function Line({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex justify-between gap-3">
       <dt className="text-ink-soft">{label}</dt>

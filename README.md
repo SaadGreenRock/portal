@@ -35,7 +35,7 @@ Requires Node 20+. Nothing else — no Chromium, no system packages.
 > **Upgrading an existing Supabase deployment?** Purchase orders add two tables.
 > Re-run [`supabase/migration.sql`](supabase/migration.sql) — it is safe to
 > re-run — then `npm run check:supabase`. Until you do, the Purchase Orders tab
-> will error; vouchers keep working.
+> explains what to run and vouchers carry on working.
 
 ---
 
@@ -142,6 +142,12 @@ protect you from that:
 - The PDF URL is versioned by its render time, so a browser that already
   downloaded the old one does not serve it from cache.
 
+That warning is deliberately narrow. It fires when the *printed page* would
+differ — an edit, or a status change that adds or removes a watermark — and not
+when something merely happened to the record. Filing an invoice or closing an
+order leaves the document byte-identical, so it stays marked current. A warning
+that cried wolf on every action is one the operator would learn to click past.
+
 ### Vendors
 
 There is no vendor directory to maintain. Typing a vendor name suggests every
@@ -175,6 +181,45 @@ the next page, and line items are pulled forward with it so the last two pages
 end up evenly filled rather than one of them nearly blank.
 
 ---
+
+## Uploads
+
+Scans and invoices are photographed far more often than they are scanned, and a
+phone camera produces 3–12 MB per shot. A serverless function will not accept a
+request body over 4.5 MB, so a straight upload of a phone photo fails outright.
+
+The browser therefore re-encodes photographs before sending them: 2400px on the
+long edge — roughly 200 dpi across a page — dropping quality in steps until the
+result is under 3 MB. A 9.6 MB photo lands around 400 KB, and the shrink is
+reported under the button so nothing happens silently.
+
+This is best-effort by design. A format the browser can't decode (HEIC outside
+Safari) falls through unchanged rather than throwing, and the size is then
+checked in the browser *and* on the server, so the failure that reaches the
+operator is a sentence about rescanning rather than a platform error page.
+
+PDFs can't be re-encoded here, so a scanner set to 600 dpi will be refused with
+an explanation. Photograph the document instead — it is both smaller and, for a
+document you only need to be able to read later, entirely sufficient.
+
+**The 4 MB ceiling is the platform, not a preference.** Raising it in the config
+would only move the failure to Vercel's own limit, where the message is worse.
+
+## When a module isn't set up
+
+Adding purchase orders added two tables, and on a deployment where the migration
+hasn't been run every query against them fails. The first version of this let
+that take down the *whole portal*, vouchers included, because the workspace
+header draws a purchase-order count on every page.
+
+That was the wrong shape. Reads that only feed a badge now tolerate a missing
+table, and the module's own screens detect it and print what to run. Vouchers
+keep working regardless.
+
+The tolerance is narrow on purpose (`src/lib/db/resilience.ts`): only "that
+table does not exist" is treated as unavailability. A permissions problem, a
+network failure or a missing *column* still surfaces as an error, because a
+broken deployment quietly showing zeroes is worse than one that crashes.
 
 ## Document numbers
 
@@ -300,7 +345,16 @@ The server only ever hands over the pages as SVG (`/api/voucher/[id]/sheet`,
   offers **Render PDF** to retry, which rebuilds from the stored values.
 
 Purchase orders take the same path, one SVG per page, rasterised one at a time
-so a phone never holds several 2448×3168 canvases at once.
+so a phone never holds several 2448×3168 canvases at once. Two limits shape how:
+
+- **Pages are fetched one per request.** Each inlines the whole font family and
+  weighs about 1.2 MB, so returning them together overran the response limit on
+  anything past three pages — working perfectly in development and failing in
+  production, which is the worst way for a limit to be discovered.
+- **Long orders render at lower resolution.** The finished PDF is posted back in
+  one request. At 288 dpi a page costs ~570 KB, so past about seven pages it
+  could not be saved at all; orders of 4–8 pages drop to 240 dpi and longer ones
+  to 192. Ordinary one-to-three page orders keep the full 288.
 
 Two implementation details that are load-bearing, and were both found by testing
 rather than by reading the spec:

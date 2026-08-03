@@ -13,6 +13,7 @@ import {
   periodOf,
   poStatusPatch,
   rowToPo,
+  statusChangesDocument,
   rowToVoucher,
   vendorProfilesFrom,
   type PoRow,
@@ -394,15 +395,16 @@ export const supabaseStore: Store = {
 
   async attachPoInvoice(id, invoiceKey, invoiceName) {
     const db = supabase();
-    const { data, error: readErr } = await db.from(POS).select("status").eq("id", id).maybeSingle();
+    const { data, error: readErr } = await db.from(POS).select().eq("id", id).maybeSingle();
     if (readErr) throw readErr;
     if (!data) throw new Error("Purchase order not found");
 
+    const current = rowToPo(data as PoRow);
     const now = new Date().toISOString();
     // A cancelled order that turns out to have been delivered anyway keeps its
     // status: reviving it is a decision for the operator, not a side effect of
     // filing a document.
-    const closing = data.status !== "cancelled";
+    const status = current.status === "cancelled" ? current.status : "closed";
 
     const { error } = await db
       .from(POS)
@@ -410,8 +412,11 @@ export const supabaseStore: Store = {
         invoice_key: invoiceKey,
         invoice_name: invoiceName,
         invoice_at: now,
-        updated_at: now,
-        ...(closing ? { status: "closed", closed_at: now } : {}),
+        status,
+        ...(status === "closed" ? { closed_at: now } : {}),
+        // Filing paperwork is not an edit to the document, so the stored PDF
+        // stays current unless the status change itself alters the watermark.
+        ...(statusChangesDocument(current.status, status) ? { updated_at: now } : {}),
       })
       .eq("id", id);
     if (error) throw error;
@@ -419,12 +424,13 @@ export const supabaseStore: Store = {
 
   async removePoInvoice(id) {
     const db = supabase();
-    const { data, error: readErr } = await db.from(POS).select("status").eq("id", id).maybeSingle();
+    const { data, error: readErr } = await db.from(POS).select().eq("id", id).maybeSingle();
     if (readErr) throw readErr;
     if (!data) throw new Error("Purchase order not found");
 
+    const current = rowToPo(data as PoRow);
     const now = new Date().toISOString();
-    const reopening = data.status === "closed";
+    const status = current.status === "closed" ? "issued" : current.status;
 
     const { error } = await db
       .from(POS)
@@ -432,8 +438,10 @@ export const supabaseStore: Store = {
         invoice_key: null,
         invoice_name: null,
         invoice_at: null,
-        updated_at: now,
-        ...(reopening ? { status: "issued", closed_at: null } : {}),
+        status,
+        // Reopening clears the close stamp; any other status keeps whatever it had.
+        ...(current.status === "closed" ? { closed_at: null } : {}),
+        ...(statusChangesDocument(current.status, status) ? { updated_at: now } : {}),
       })
       .eq("id", id);
     if (error) throw error;

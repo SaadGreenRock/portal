@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import PoRow from "@/components/PoRow";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { dueIn } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 
@@ -23,7 +25,11 @@ export default async function OpenPurchaseOrders({
   if (!company) notFound();
 
   const db = await store();
-  const { rows } = await db.searchPos({ company: company.slug, status: "open", limit: 200 });
+  const listed = await tryTable(() =>
+    db.searchPos({ company: company.slug, status: "open", limit: 200 }),
+  );
+  if (!listed.ok) return <ModuleUnavailable module="Purchase Orders" />;
+  const { rows } = listed.value;
 
   const ranked = [...rows].sort((a, b) => urgency(a) - urgency(b));
 

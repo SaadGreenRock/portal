@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { endSession, isAuthenticated } from "@/lib/auth";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
 import WorkspaceNav from "@/components/WorkspaceNav";
 
 /**
@@ -28,9 +29,13 @@ export default async function CompanyLayout({
   const db = await store();
   // Both counts in one pass: the nav badges need them on every screen, and two
   // sequential round trips on a serverless request is a visible pause.
+  //
+  // The purchase order count is tolerated rather than awaited outright. It is
+  // decoration on a tab; if that module isn't migrated on this database, the
+  // badge disappears and vouchers carry on working.
   const [counts, poCounts] = await Promise.all([
     db.counts(company.slug),
-    db.poCounts(company.slug),
+    tryTable(() => db.poCounts(company.slug)),
   ]);
 
   async function signOut() {
@@ -78,7 +83,7 @@ export default async function CompanyLayout({
 
         <WorkspaceNav
           slug={company.slug}
-          badges={{ vouchers: counts.pending, po: poCounts.open }}
+          badges={{ vouchers: counts.pending, po: poCounts.ok ? poCounts.value.open : 0 }}
         />
       </header>
 

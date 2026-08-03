@@ -1,19 +1,19 @@
 import path from "node:path";
+import { MAX_UPLOAD_BYTES, UPLOAD_EXTENSIONS } from "./upload-limits";
 
 /**
- * Validation shared by every file the operator uploads — a voucher's signed
- * scan, a purchase order's invoice.
+ * Server-side validation shared by every file the operator uploads — a
+ * voucher's signed scan, a purchase order's invoice.
  *
  * One whitelist and one size limit, because they are answering the same
  * question in both cases: "is this a photograph or a scan of a piece of paper?"
+ * The browser checks the same limits first (see UploadFile), so reaching a
+ * failure here means someone bypassed the form.
  */
 
-/** Whatever a phone camera or a desk scanner produces. */
-export const UPLOAD_EXTENSIONS = new Set([
-  ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff",
-]);
+export { MAX_UPLOAD_BYTES, UPLOAD_EXTENSIONS };
 
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const asMb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 /**
  * Pulls the file out of a form payload and checks it, or throws a message fit
@@ -26,7 +26,10 @@ export function readUpload(form: FormData, field = "file"): { file: File; ext: s
     throw new Error("Choose a file to upload.");
   }
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error("That file is larger than 25 MB. Try a lower-resolution scan.");
+    throw new Error(
+      `That file is ${asMb(file.size)} and the limit is ${asMb(MAX_UPLOAD_BYTES)}. ` +
+        "Photograph the document instead of scanning it at full resolution.",
+    );
   }
 
   const ext = path.extname(file.name).toLowerCase();

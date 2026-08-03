@@ -15,6 +15,7 @@ import {
   periodOf,
   poStatusPatch,
   rowToPo,
+  statusChangesDocument,
   rowToVoucher,
   vendorProfilesFrom,
   type PoRow,
@@ -499,14 +500,17 @@ export const sqliteStore: Store = {
     if (!row) throw new Error("Purchase order not found");
 
     const patch = poStatusPatch(rowToPo(row), status, new Date().toISOString());
+    // COALESCE, because the patch omits updated_at when the change does not
+    // alter the printed page — every named parameter still has to be bound.
     handle
       .prepare(
         `UPDATE purchase_orders
-            SET status = @status, updated_at = @updated_at,
+            SET status = @status,
+                updated_at = COALESCE(@updated_at, updated_at),
                 issued_at = @issued_at, closed_at = @closed_at
           WHERE id = @id`,
       )
-      .run({ id, ...patch });
+      .run({ id, updated_at: null, ...patch });
   },
 
   async attachPoPdf(id, pdfKey) {
@@ -518,34 +522,66 @@ export const sqliteStore: Store = {
   },
 
   async attachPoInvoice(id, invoiceKey, invoiceName) {
-    const now = new Date().toISOString();
+    const handle = connect();
+    const row = handle.prepare(`SELECT * FROM purchase_orders WHERE id = ?`).get(id) as
+      | PoRow
+      | undefined;
+    if (!row) throw new Error("Purchase order not found");
+
+    const current = rowToPo(row);
     // A cancelled order that turns out to have been delivered anyway keeps its
     // status: reviving it is a decision for the operator, not a side effect of
     // filing a document.
-    connect()
+    const status = current.status === "cancelled" ? current.status : "closed";
+    const now = new Date().toISOString();
+
+    handle
       .prepare(
         `UPDATE purchase_orders
             SET invoice_key = @key, invoice_name = @name, invoice_at = @now,
-                updated_at = @now,
-                status    = CASE WHEN status = 'cancelled' THEN status ELSE 'closed' END,
-                closed_at = CASE WHEN status = 'cancelled' THEN closed_at ELSE @now END
+                status = @status, closed_at = @closed_at,
+                updated_at = COALESCE(@updated_at, updated_at)
           WHERE id = @id`,
       )
-      .run({ id, key: invoiceKey, name: invoiceName, now });
+      .run({
+        id,
+        key: invoiceKey,
+        name: invoiceName,
+        now,
+        status,
+        closed_at: status === "closed" ? now : current.closedAt,
+        // Filing paperwork is not an edit to the document, so the stored PDF
+        // stays current unless the status change itself alters the watermark.
+        updated_at: statusChangesDocument(current.status, status) ? now : null,
+      });
   },
 
   async removePoInvoice(id) {
+    const handle = connect();
+    const row = handle.prepare(`SELECT * FROM purchase_orders WHERE id = ?`).get(id) as
+      | PoRow
+      | undefined;
+    if (!row) throw new Error("Purchase order not found");
+
+    const current = rowToPo(row);
+    const status = current.status === "closed" ? "issued" : current.status;
     const now = new Date().toISOString();
-    connect()
+
+    handle
       .prepare(
         `UPDATE purchase_orders
             SET invoice_key = NULL, invoice_name = NULL, invoice_at = NULL,
-                updated_at = @now,
-                status    = CASE WHEN status = 'closed' THEN 'issued' ELSE status END,
-                closed_at = CASE WHEN status = 'closed' THEN NULL ELSE closed_at END
+                status = @status, closed_at = @closed_at,
+                updated_at = COALESCE(@updated_at, updated_at)
           WHERE id = @id`,
       )
-      .run({ id, now });
+      .run({
+        id,
+        status,
+        // Reopening clears the close stamp; any other status keeps whatever it had.
+        closed_at: current.status === "closed" ? null : current.closedAt,
+        updated_at: statusChangesDocument(current.status, status) ? now : null,
+      });
   },
 
   async softDeletePo(id) {

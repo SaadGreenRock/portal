@@ -2,6 +2,7 @@ import Link from "next/link";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
 
 /**
  * Landing screen. Choosing a company is the top-level act — the two workspaces
@@ -23,7 +24,9 @@ export default async function Landing() {
                 c.slug,
                 {
                   vouchers: await db.counts(c.slug),
-                  po: await db.poCounts(c.slug),
+                  // Tolerated: an unmigrated purchase order module must not
+                  // stop the landing page from listing the companies.
+                  po: await tryTable(() => db.poCounts(c.slug)),
                 },
               ] as const,
           ),
@@ -85,10 +88,16 @@ export default async function Landing() {
                     <span className="mono text-ink-soft">{c.vouchers.total}</span>
                   </div>
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className={c.po.open > 0 ? "font-semibold text-ink" : "text-ink-soft"}>
-                      {c.po.open} open {c.po.open === 1 ? "order" : "orders"}
+                    <span
+                      className={
+                        c.po.ok && c.po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
+                      }
+                    >
+                      {c.po.ok
+                        ? `${c.po.value.open} open ${c.po.value.open === 1 ? "order" : "orders"}`
+                        : "purchase orders not set up"}
                     </span>
-                    <span className="mono text-ink-soft">{c.po.total}</span>
+                    <span className="mono text-ink-soft">{c.po.ok ? c.po.value.total : "—"}</span>
                   </div>
                 </div>
               ) : (

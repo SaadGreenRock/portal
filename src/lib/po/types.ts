@@ -22,6 +22,24 @@ export const PO_STATUS_LABELS: Record<PoStatus, string> = {
 /** "Open" is the working set: everything that still needs attention. */
 export const OPEN_STATUSES: PoStatus[] = ["draft", "issued"];
 
+/**
+ * What, if anything, is stamped across the printed page.
+ *
+ * A draft PDF says so, because a draft that reaches a vendor looking like a
+ * final order is exactly the mistake this is here to prevent. A cancelled one
+ * says so for the same reason: the vendor may already hold a copy.
+ *
+ * This doubles as the answer to "does the rendered PDF depend on the status?".
+ * Issued and closed stamp nothing, so moving between them leaves the document
+ * byte-identical — which is how the database layer knows a status change has
+ * not invalidated the stored PDF.
+ */
+export function watermarkFor(status: PoStatus): string | null {
+  if (status === "draft") return "DRAFT";
+  if (status === "cancelled") return "CANCELLED";
+  return null;
+}
+
 export interface PoItem {
   /**
    * Stable row key. Kept in the document rather than derived from the array

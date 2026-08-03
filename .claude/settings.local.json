@@ -37,7 +37,10 @@
       "Bash(npx vercel *)",
       "Bash(rm -rf .vercel .env.local)",
       "Bash(node --env-file=.env -e 'console.log\\(new URL\\(process.env.SUPABASE_URL\\).hostname.split\\(\".\"\\)[0]\\)')",
-      "Bash(grep -v '^$')"
+      "Bash(grep -v '^$')",
+      "Bash(awk '{printf \"stored:   %.0f KB  \\(%.1f%% of original\\)\\\\n\", $5/1024, $5*100/10099712}')",
+      "Bash(git add *)",
+      "Bash(git -c user.name=SaadGreenRock commit -q -m ' *)"
     ]
   }
 }

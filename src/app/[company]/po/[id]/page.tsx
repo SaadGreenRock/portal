@@ -8,6 +8,8 @@ import UploadFile from "@/components/UploadFile";
 import { SheetStack } from "@/components/SheetPreview";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { dueIn, formatDate, stamp } from "@/lib/format";
 import { amountToWords, formatMoney, formatMoneyFixed, formatQty } from "@/lib/money";
 import {
@@ -36,7 +38,9 @@ export default async function PurchaseOrderDetail({
   if (!company) notFound();
 
   const db = await store();
-  const po = await db.getPo(id);
+  const found = await tryTable(() => db.getPo(id));
+  if (!found.ok) return <ModuleUnavailable module="Purchase Orders" />;
+  const po = found.value;
   // Guard the workspace boundary: a Green Rock URL must never open a Sportech record.
   if (!po || po.company !== company.slug) notFound();
 

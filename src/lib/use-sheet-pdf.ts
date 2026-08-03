@@ -37,12 +37,26 @@ export function useSheetPdf() {
     setProgress(null);
     setStage("rendering");
 
-    const sheet = await fetch(sheetUrl);
-    if (!sheet.ok) throw new Error("Could not load the document layout.");
+    /**
+     * Pages are fetched one at a time. Each carries its own copy of the inlined
+     * fonts, so asking for all of them in one response overruns the platform's
+     * response limit on anything longer than a few pages.
+     */
+    const fetchPage = async (page: number) => {
+      const url = new URL(sheetUrl, window.location.origin);
+      if (page > 1) url.searchParams.set("page", String(page));
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Could not load the document layout.");
+      return { svg: await res.text(), count: Number(res.headers.get("X-Page-Count") ?? "1") || 1 };
+    };
 
-    const svgs = sheet.headers.get("content-type")?.includes("application/json")
-      ? ((await sheet.json()) as { pages: string[] }).pages
-      : [await sheet.text()];
+    const first = await fetchPage(1);
+    const svgs = [first.svg];
+    setProgress(first.count > 1 ? { done: 1, total: first.count } : null);
+
+    for (let page = 2; page <= first.count; page++) {
+      svgs.push((await fetchPage(page)).svg);
+    }
 
     const { blob } = await sheetsToPdf(svgs, title, (page, total) =>
       setProgress(total > 1 ? { done: page, total } : null),

@@ -17,9 +17,25 @@ import { SHEET } from "./sheet";
 /**
  * 3× the CSS reference resolution, i.e. 288dpi. Letter at 3× is 2448×3168,
  * which prints indistinguishably from vector at normal reading distance while
- * keeping the file a few hundred KB.
+ * keeping the page a few hundred KB.
  */
 const SCALE = 3;
+
+/**
+ * Resolution has to give way on a long document.
+ *
+ * The finished PDF is posted back in one request, and a serverless request body
+ * is capped around 4.5 MB. At 288dpi a page costs roughly 570 KB, so an order
+ * past about seven pages could not be saved at all. Dropping to 240 and then
+ * 192dpi keeps a long order well inside the limit; both are still comfortably
+ * above what a text document needs to print cleanly, and every ordinary
+ * one-to-three page order keeps the full 288.
+ */
+function scaleFor(pageCount: number): number {
+  if (pageCount <= 3) return SCALE;
+  if (pageCount <= 8) return 2.5;
+  return 2;
+}
 
 /** Above ~0.93 the file grows fast for no visible gain on text this size. */
 const JPEG_QUALITY = 0.93;
@@ -30,12 +46,12 @@ export interface RenderResult {
 }
 
 /** Rasterises one page. */
-async function svgToPage(svg: string): Promise<PdfImagePage> {
+async function svgToPage(svg: string, scale: number): Promise<PdfImagePage> {
   const image = await loadSvg(svg);
 
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(SHEET.widthPx * SCALE);
-  canvas.height = Math.round(SHEET.heightPx * SCALE);
+  canvas.width = Math.round(SHEET.widthPx * scale);
+  canvas.height = Math.round(SHEET.heightPx * scale);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("This browser did not provide a 2D canvas context.");
@@ -69,11 +85,12 @@ export async function sheetsToPdf(
 ): Promise<RenderResult> {
   if (svgs.length === 0) throw new Error("There are no pages to render.");
 
+  const scale = scaleFor(svgs.length);
   const pages: PdfImagePage[] = [];
   for (let i = 0; i < svgs.length; i++) {
     // Reported before the work, so the label names the page being rendered.
     onProgress?.(i + 1, svgs.length);
-    pages.push(await svgToPage(svgs[i]));
+    pages.push(await svgToPage(svgs[i], scale));
   }
 
   const pdf = buildImagePdf({ pages, title });

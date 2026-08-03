@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { COMPANIES, type CompanySlug } from "../companies";
 import { poTotals } from "../po/totals";
-import type { PoDoc, PoStatus, PurchaseOrder, VendorProfile } from "../po/types";
+import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
 import type { Voucher, VoucherFields, VoucherStatus } from "../types";
 
 export const newId = () => randomUUID();
@@ -170,17 +170,30 @@ export function rowToPo(r: PoRow): PurchaseOrder {
 }
 
 /**
+ * Whether a status change alters what the printed document looks like.
+ *
+ * Only the watermark depends on status, so issued → closed leaves the PDF
+ * byte-identical while draft → issued removes a DRAFT stamp from every page.
+ */
+export const statusChangesDocument = (from: PoStatus, to: PoStatus) =>
+  watermarkFor(from) !== watermarkFor(to);
+
+/**
  * The columns a status change writes.
  *
  * issuedAt records the first time an order went out and is not re-stamped by a
  * later close or cancel — the vendor holds a document dated that day. Pulling
  * an order all the way back to draft does clear it, because that is the one
  * transition that says the order was never really issued.
+ *
+ * updatedAt is only moved when the change would alter the printed page. It is
+ * what "the PDF on file is out of date" is measured against, and a warning that
+ * fires when nothing visible changed is a warning the operator learns to ignore.
  */
 export function poStatusPatch(current: PurchaseOrder, status: PoStatus, now: string) {
   return {
     status,
-    updated_at: now,
+    ...(statusChangesDocument(current.status, status) ? { updated_at: now } : {}),
     issued_at: status === "draft" ? null : (current.issuedAt ?? (status === "issued" ? now : null)),
     closed_at: status === "closed" ? now : null,
   };

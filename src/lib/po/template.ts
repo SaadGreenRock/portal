@@ -11,7 +11,7 @@ import { formatDate } from "../format";
 import { amountToWords, currency as currencyOf, formatMoneyFixed, formatQty } from "../money";
 import { SHEET } from "../sheet";
 import { poTotals, usableItems } from "./totals";
-import type { PoDoc, PoItem, PoStatus } from "./types";
+import { watermarkFor, type PoDoc, type PoItem, type PoStatus } from "./types";
 
 /**
  * Renders a purchase order as one or more self-contained HTML pages, sized for
@@ -839,15 +839,4 @@ export function renderPoSvgs(po: PoRenderable, company: Company): string[] {
   }).map((html) => wrapPageSvg(html, geometry));
 }
 
-/**
- * What, if anything, is stamped across the page.
- *
- * A draft PDF says so, because a draft that reaches a vendor looking like a
- * final order is exactly the mistake this is here to prevent. A cancelled one
- * says so for the same reason: the vendor may already hold a copy.
- */
-export function watermarkFor(status: PoStatus): string | null {
-  if (status === "draft") return "DRAFT";
-  if (status === "cancelled") return "CANCELLED";
-  return null;
-}
+export { watermarkFor };

@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import PoEditor from "@/components/PoEditor";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { todayIso } from "@/lib/format";
 import { createPo } from "@/lib/po/actions";
 import { emptyPoDoc } from "@/lib/po/types";
@@ -16,10 +18,12 @@ export default async function NewPurchaseOrder({
   if (!company) notFound();
 
   const db = await store();
-  const [settings, vendors] = await Promise.all([
-    db.getSettings(company.slug),
-    db.listVendors(company.slug),
-  ]);
+  const ready = await tryTable(async () => ({
+    settings: await db.getSettings(company.slug),
+    vendors: await db.listVendors(company.slug),
+  }));
+  if (!ready.ok) return <ModuleUnavailable module="Purchase Orders" />;
+  const { settings, vendors } = ready.value;
 
   // Bound to this workspace, so the form can never post into the other company.
   const save = createPo.bind(null, company.slug);

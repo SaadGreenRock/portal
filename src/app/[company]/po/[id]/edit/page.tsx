@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import PoEditor from "@/components/PoEditor";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { savePo } from "@/lib/po/actions";
 import { PO_STATUS_LABELS } from "@/lib/po/types";
 
@@ -16,7 +18,12 @@ export default async function EditPurchaseOrder({
   if (!company) notFound();
 
   const db = await store();
-  const [po, vendors] = await Promise.all([db.getPo(id), db.listVendors(company.slug)]);
+  const ready = await tryTable(async () => ({
+    po: await db.getPo(id),
+    vendors: await db.listVendors(company.slug),
+  }));
+  if (!ready.ok) return <ModuleUnavailable module="Purchase Orders" />;
+  const { po, vendors } = ready.value;
   if (!po || po.company !== company.slug) notFound();
 
   const save = savePo.bind(null, po.id);
