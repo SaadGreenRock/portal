@@ -28,14 +28,30 @@ export default function WorkspaceNav({
   const pathname = usePathname();
   const settingsPath = `/${slug}/settings`;
   const inSettings = pathname === settingsPath || pathname.startsWith(`${settingsPath}/`);
+  const overviewPath = `/${slug}`;
+  const inOverview = pathname === overviewPath;
   const current = activeModule(pathname, slug);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
       {/* ---- module switcher ---------------------------------------------- */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-2.5">
+        {/* The workspace overview. First, because it is where a visit starts. */}
+        <Link
+          href={overviewPath}
+          aria-current={inOverview ? "page" : undefined}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+            inOverview
+              ? "text-[var(--accent-text)]"
+              : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+          }`}
+          style={inOverview ? { background: "var(--accent)" } : undefined}
+        >
+          Overview
+        </Link>
+
         {MODULES.map((m) => {
-          const on = !inSettings && m.key === current.key;
+          const on = !inSettings && !inOverview && m.key === current.key;
           const count = badges[m.key] ?? 0;
           return (
             <Link
@@ -76,7 +92,7 @@ export default function WorkspaceNav({
       </div>
 
       {/* ---- tabs within the module --------------------------------------- */}
-      {inSettings ? null : (
+      {inSettings || inOverview ? null : (
         <nav>
           <ul className="-mb-px flex gap-1 overflow-x-auto">
             {current.tabs.map((tab) => {

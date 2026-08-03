@@ -41,9 +41,20 @@ Requires Node 20+. Nothing else — no Chromium, no system packages.
 
 ## Getting around
 
-The header has two rows. The first picks the **module** — Vouchers or Purchase
-Orders — and holds Settings. The second is that module's screens. Badges count
-what is outstanding: vouchers awaiting a scan, and orders still open.
+Opening a company lands on its **Overview**: what needs attention today, and the
+way into each module. It is not a menu — the module switcher is on every screen
+anyway, so a page that only listed the modules would not be worth the click. It
+earns it by answering "what is waiting on me" first: vouchers without a signed
+scan and how long the oldest has waited, orders overdue on delivery, value still
+outstanding per currency.
+
+Below that, the header has two rows. The first picks the **module** — Vouchers or
+Purchase Orders — and holds Settings. The second is that module's screens. Badges
+count what is outstanding.
+
+The Overview draws its cards from the module registry, so a new module appears
+there automatically with its description and links; it gets counts of its own
+when someone writes a summary for it.
 
 ---
 
@@ -408,7 +419,9 @@ The portal is built to grow. A new module — delivery notes, invoices, a plant
 register — is:
 
 1. An entry in `MODULES` in `src/lib/modules.ts`, which draws the nav.
-2. Pages under `src/app/[company]/<segment>/`.
+2. Pages under `src/app/[company]/<segment>/`. A card on the workspace Overview
+   appears on its own; add a `summaries` entry there when it has counts worth
+   showing.
 3. An interface in `src/lib/db/types.ts` and a section in each backend. The
    compiler names every method a backend is still missing.
 4. Optionally a section in `CompanySettings` (`src/lib/settings.ts`) — settings

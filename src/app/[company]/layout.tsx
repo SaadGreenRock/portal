@@ -69,10 +69,10 @@ export default async function CompanyLayout({
             <img src={company.logo} alt={company.name} className="h-5 w-auto object-contain" />
           </Link>
 
-          <div className="min-w-0 flex-1">
+          <Link href={`/${company.slug}`} className="min-w-0 flex-1 rounded-md hover:opacity-80">
             <div className="truncate text-[14px] font-semibold leading-tight">{company.name}</div>
             <div className="text-[11.5px] leading-tight text-ink-soft">Company portal</div>
-          </div>
+          </Link>
 
           <form action={signOut}>
             <button type="submit" className="btn btn-quiet px-3 py-1.5 text-[13px]">

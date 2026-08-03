@@ -1,15 +1,215 @@
-import { redirect } from "next/navigation";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { getCompany } from "@/lib/companies";
+import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import { ageInDays, dueIn } from "@/lib/format";
+import { formatMoney } from "@/lib/money";
+import { MODULES, moduleHome, modulePath, type ModuleKey } from "@/lib/modules";
 
 /**
- * Opening a workspace lands on Generate — the thing the operator came to do.
- * Every other module is one click away in the nav, so nothing stands between
- * the operator and the work.
+ * The workspace overview.
+ *
+ * Opening a company used to redirect straight to Generate, which quietly assumed
+ * every visit was to write a voucher. This is the fork in the road instead — but
+ * a page that only listed the modules would not be worth the click, since the
+ * switcher above is on every screen anyway. So it answers "what needs me today"
+ * and offers the way in as a side effect.
+ *
+ * Cards come from the module registry. A new module gets one for free, showing
+ * its blurb and a link; give it a `summaries` entry when it has something worth
+ * counting.
  */
-export default async function CompanyHome({
+
+interface Stat {
+  label: string;
+  value: string;
+  /** Draws attention — something is late or waiting too long. */
+  urgent?: boolean;
+}
+
+interface ModuleSummary {
+  stats: Stat[];
+  /** Empty means nothing to do, which is worth saying out loud. */
+  allClear?: string;
+}
+
+export default async function WorkspaceOverview({
   params,
 }: {
   params: Promise<{ company: string }>;
 }) {
-  const { company } = await params;
-  redirect(`/${company}/vouchers/new`);
+  const { company: slug } = await params;
+  const company = getCompany(slug);
+  if (!company) notFound();
+
+  const db = await store();
+  const [counts, pending, poCounts, openPos] = await Promise.all([
+    db.counts(company.slug),
+    db.listPending(company.slug),
+    tryTable(() => db.poCounts(company.slug)),
+    tryTable(() => db.searchPos({ company: company.slug, status: "open", limit: 200 })),
+  ]);
+
+  /* ---- vouchers ---------------------------------------------------------- */
+  const oldestPending = pending[0];
+  const voucherSummary: ModuleSummary = {
+    stats: [
+      {
+        label: "awaiting signed scan",
+        value: String(counts.pending),
+        urgent: counts.pending > 0,
+      },
+      ...(oldestPending
+        ? [{ label: "longest wait", value: ageInDays(oldestPending.createdAt) }]
+        : []),
+      { label: "issued in total", value: String(counts.total) },
+    ],
+    // "Every voucher has its signed copy" would be a strange thing to say about
+    // a workspace that has never issued one.
+    allClear:
+      counts.total === 0
+        ? "No vouchers issued yet."
+        : counts.pending === 0
+          ? "Every voucher has its signed copy on file."
+          : undefined,
+  };
+
+  /* ---- purchase orders --------------------------------------------------- */
+  let poSummary: ModuleSummary | null = null;
+  if (poCounts.ok && openPos.ok) {
+    const rows = openPos.value.rows;
+    const overdue = rows.filter(
+      (po) => po.status === "issued" && (dueIn(po.doc.deliveryDate)?.days ?? 0) < 0,
+    ).length;
+
+    // Per currency: adding SAR to PKR would be a meaningless number.
+    const outstanding = new Map<string, number>();
+    for (const po of rows) {
+      if (po.status !== "issued") continue;
+      outstanding.set(po.doc.currency, (outstanding.get(po.doc.currency) ?? 0) + po.total);
+    }
+
+    poSummary = {
+      stats: [
+        { label: "still open", value: String(poCounts.value.open) },
+        ...(overdue > 0
+          ? [{ label: "overdue on delivery", value: String(overdue), urgent: true }]
+          : []),
+        ...(poCounts.value.draft > 0
+          ? [{ label: "not yet issued", value: String(poCounts.value.draft) }]
+          : []),
+        ...(outstanding.size > 0
+          ? [
+              {
+                label: "value outstanding",
+                value: [...outstanding.entries()]
+                  .map(([code, sum]) => `${code} ${formatMoney(sum, code)}`)
+                  .join("  ·  "),
+              },
+            ]
+          : []),
+      ],
+      allClear:
+        poCounts.value.total === 0
+          ? "No orders raised yet."
+          : poCounts.value.open === 0
+            ? "No orders are open with a vendor."
+            : undefined,
+    };
+  }
+
+  const summaries: Partial<Record<ModuleKey, ModuleSummary | null>> = {
+    vouchers: voucherSummary,
+    po: poSummary,
+  };
+
+  const needsAttention = counts.pending > 0 || (poCounts.ok && poCounts.value.open > 0);
+
+  return (
+    <>
+      <div className="mb-6">
+        <h1 className="text-[20px] font-bold tracking-tight">{company.name}</h1>
+        <p className="mt-1 text-[14px] text-ink-soft">
+          {needsAttention
+            ? "What needs attention, and where to pick up."
+            : "Nothing outstanding. Pick where to start."}
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {MODULES.map((module) => {
+          const summary = summaries[module.key];
+
+          return (
+            <section key={module.key} className="card flex flex-col p-5">
+              <Link
+                href={moduleHome(slug, module)}
+                className="group flex items-baseline justify-between gap-3"
+              >
+                <h2 className="text-[16px] font-semibold group-hover:underline">
+                  {module.label}
+                </h2>
+                <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+              </Link>
+
+              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-soft">{module.blurb}</p>
+
+              {/* Not set up on this database — say so rather than showing zeroes. */}
+              {summary === null ? (
+                <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2.5 text-[12.5px] leading-snug text-amber-900">
+                  Not set up on this database yet. Open the tab to see what to run.
+                </p>
+              ) : summary ? (
+                <>
+                  <dl className="mt-4 flex-1 space-y-1.5">
+                    {summary.stats.map((stat) => (
+                      <div
+                        key={stat.label}
+                        className="flex items-baseline justify-between gap-3 text-[13.5px]"
+                      >
+                        <dt className="text-ink-soft">{stat.label}</dt>
+                        <dd
+                          className={`mono ${
+                            stat.urgent ? "font-semibold text-amber-700" : "font-medium"
+                          }`}
+                        >
+                          {stat.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  {summary.allClear ? (
+                    <p className="mt-3 text-[12.5px] text-ink-soft">{summary.allClear}</p>
+                  ) : null}
+                </>
+              ) : (
+                <div className="flex-1" />
+              )}
+
+              {/* Every tab the module has, so the overview is a way in and not a
+                  detour through it. */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {module.tabs.map((tab, i) => (
+                  <Link
+                    key={tab.segment || "index"}
+                    href={modulePath(slug, module, tab.segment)}
+                    className={`btn px-3 py-2 text-[13px] ${i === 0 ? "btn-primary" : "btn-ghost"}`}
+                  >
+                    {tab.label}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
+        Everything here is {company.name} only — numbering, history and settings are separate
+        from the other workspace.
+      </p>
+    </>
+  );
 }
