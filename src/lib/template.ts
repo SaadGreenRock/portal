@@ -1,7 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import { amountInWords, formatAmount } from "./amount-words";
 import type { Company } from "./companies";
+import { esc, fontFaceCss, logoUri, wrapPageSvg, type AssetMode } from "./doc-assets";
+import { formatDate } from "./format";
 import { SHEET } from "./sheet";
 import type { Voucher } from "./types";
 
@@ -15,71 +15,11 @@ import type { Voucher } from "./types";
  *
  * The same HTML backs both the PDF and the on-screen preview, so the two can
  * never drift apart. The only difference is how assets are attached — see
- * AssetMode below.
+ * AssetMode in doc-assets.ts.
  */
 
-const PUBLIC = path.join(process.cwd(), "public");
-
-/** Reads a file from /public once and memoises it as a data URI. */
-const assetCache = new Map<string, string>();
-function dataUri(relPath: string, mime: string): string {
-  const cached = assetCache.get(relPath);
-  if (cached) return cached;
-  const bytes = fs.readFileSync(path.join(PUBLIC, relPath));
-  const uri = `data:${mime};base64,${bytes.toString("base64")}`;
-  assetCache.set(relPath, uri);
-  return uri;
-}
-
-const fontCss: Partial<Record<AssetMode, string>> = {};
-function fonts(mode: AssetMode): string {
-  const cached = fontCss[mode];
-  if (cached) return cached;
-
-  // Inlined for the PDF renderer, which must not depend on an HTTP server being
-  // reachable. Referenced by URL for on-screen previews, where inlining would
-  // add ~1 MB of base64 to every page render for no benefit — the browser
-  // fetches and caches the same files once instead.
-  const src = (file: string) =>
-    mode === "inline" ? dataUri(`fonts/${file}`, "font/ttf") : `/fonts/${file}`;
-
-  const face = (family: string, file: string, weight: string, style = "normal") =>
-    `@font-face{font-family:'${family}';src:url('${src(
-      file,
-    )}') format('truetype');font-weight:${weight};font-style:${style};font-display:block}`;
-
-  const css = [
-    // Poppins stands in for Century Gothic: both are geometric sans faces with a
-    // single-storey 'a'. A machine that has the real Century Gothic installed
-    // will use it, since it is first in the stack.
-    face("PortalSans", "Poppins-Regular.ttf", "400"),
-    face("PortalSans", "Poppins-Medium.ttf", "500"),
-    face("PortalSans", "Poppins-SemiBold.ttf", "600"),
-    face("PortalSans", "Poppins-Bold.ttf", "700"),
-    face("PortalSans", "Poppins-Italic.ttf", "400", "italic"),
-    // Variable Nastaliq — Chrome shapes this correctly, which is the whole
-    // reason the PDF is rendered by a browser rather than drawn by a JS library.
-    face("PortalUrdu", "NotoNastaliqUrdu.ttf", "400 700"),
-  ].join("");
-
-  fontCss[mode] = css;
-  return css;
-}
-
-const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-/** "2026-07-31" → "31 July 2026", matching how the vouchers are dated by hand. */
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return iso;
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ];
-  return `${d} ${months[m - 1]} ${y}`;
-}
+/** Page margins straight from the DOCX sectPr (twips ÷ 1440). */
+const MARGIN_IN = { top: 0.139, side: 0.181, bottom: 0.208 };
 
 /**
  * One labelled field. `value` empty → the rule is drawn but left clear, which
@@ -104,13 +44,6 @@ function field(opts: {
       }</div>
     </div>`;
 }
-
-/**
- * How fonts and logos are embedded.
- * "inline" — base64 data URIs; nothing is fetched. Required for PDF rendering.
- * "url"    — plain /fonts and /logos paths; far smaller payload, browser-cached.
- */
-export type AssetMode = "inline" | "url";
 
 export interface RenderOptions {
   /** Draws a diagonal PREVIEW wash — used by the live preview, never when saving. */
@@ -138,8 +71,7 @@ export function renderVoucherHtml(
   const authorizedDate = f.on.authorizedDate ? formatDate(f.authorizedDate) : "";
   const description = f.on.description ? f.description.trim() : "";
 
-  const logo =
-    assets === "inline" ? dataUri(company.logo.replace(/^\//, ""), "image/png") : company.logo;
+  const logo = logoUri(company, assets);
 
   // Green Rock: logo and title share a full-bleed teal bar.
   // Sportech: centred logo over a black-ruled title, no bar.
@@ -161,14 +93,13 @@ export function renderVoucherHtml(
 <head>
 <meta charset="utf-8" />
 <style>
-  ${fonts(assets)}
+  ${fontFaceCss(assets, "latin+urdu")}
 
   *, *::before, *::after { box-sizing: border-box; }
 
   @page {
     size: Letter;
-    /* Page margins straight from the DOCX sectPr (twips ÷ 1440). */
-    margin: 0.139in 0.181in 0.208in 0.181in;
+    margin: ${MARGIN_IN.top}in ${MARGIN_IN.side}in ${MARGIN_IN.bottom}in ${MARGIN_IN.side}in;
   }
 
   html, body, .pv-root { margin: 0; padding: 0; }
@@ -508,53 +439,18 @@ ${header}
 /**
  * The voucher wrapped in an SVG, ready to be rasterised by the operator's
  * browser: draw it into an <img>, paint that onto a canvas, and you have the
- * page as pixels.
+ * page as pixels. See wrapPageSvg in doc-assets.ts for why it goes through SVG.
  *
- * Why go through SVG at all? Because <foreignObject> makes the *browser* lay the
- * page out and shape the text. That matters entirely for the Urdu — Nastaliq
- * needs real HarfBuzz shaping, and a JS PDF library would emit disconnected
- * letterforms. This way the shaping engine is the one already on the operator's
- * machine, so no Chromium has to be deployed anywhere.
- *
- * Assets are always inlined: an <img> loading an SVG treats it as an isolated
- * document that may not fetch anything, so a /fonts URL would silently render
- * in a fallback face.
+ * The Urdu is what makes this non-negotiable for the voucher: Nastaliq needs
+ * real HarfBuzz shaping, which a JS PDF library would not do.
  */
 export function renderVoucherSvg(voucher: Voucher, company: Company): string {
-  const html = renderVoucherHtml(voucher, company, { assets: "inline" });
-
-  // Safe to split by pattern because this module produced the string: exactly
-  // one <style> block and one <body>.
-  const css = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1];
-  const body = /<body>([\s\S]*?)<\/body>/.exec(html)?.[1];
-  if (!css || !body) {
-    throw new Error("Could not split the voucher template into CSS and body.");
-  }
-
-  // Letter at the CSS reference resolution of 96dpi, and the DOCX page margins
-  // in the same units. The content box is inset by those margins; the page
-  // itself is the full sheet.
   const PX = 96;
-  const page = { w: SHEET.widthPx, h: SHEET.heightPx };
-  const margin = { top: 0.139 * PX, side: 0.181 * PX, bottom: 0.208 * PX };
-  const content = {
-    x: margin.side,
-    y: margin.top,
-    w: page.w - margin.side * 2,
-    h: page.h - margin.top - margin.bottom,
-  };
-
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${page.w}" height="${page.h}" ` +
-    `viewBox="0 0 ${page.w} ${page.h}">` +
-    `<rect x="0" y="0" width="${page.w}" height="${page.h}" fill="#ffffff" />` +
-    `<foreignObject x="${content.x}" y="${content.y}" width="${content.w}" height="${content.h}">` +
-    `<div xmlns="http://www.w3.org/1999/xhtml" class="pv-root">` +
-    // CDATA is essential: inside SVG (which is XML) a <style> body is parsed as
-    // markup, not as opaque text the way HTML treats it. Without this, a child
-    // selector, a stray ampersand, or an angle bracket in a CSS comment becomes
-    // a parse error and the whole rasterisation silently fails.
-    `<style><![CDATA[${css.replace(/\]\]>/g, "]]&gt;")}]]></style>${body}` +
-    `</div></foreignObject></svg>`
-  );
+  return wrapPageSvg(renderVoucherHtml(voucher, company, { assets: "inline" }), {
+    widthPx: SHEET.widthPx,
+    heightPx: SHEET.heightPx,
+    marginTop: MARGIN_IN.top * PX,
+    marginSide: MARGIN_IN.side * PX,
+    marginBottom: MARGIN_IN.bottom * PX,
+  });
 }

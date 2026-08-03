@@ -4,7 +4,7 @@
  *   npm run check:supabase
  *
  * Verifies, in order: the credentials are present and of the right kind, the
- * project is reachable, both tables exist, the storage bucket exists and is
+ * project is reachable, every table exists, the storage bucket exists and is
  * private, and that a file can actually be written and read back. Every failure
  * says what to do about it.
  *
@@ -94,11 +94,20 @@ if (!url || !key || credentialsBad) {
 const db = createClient(url, key, { auth: { persistSession: false } });
 
 // ---- tables --------------------------------------------------------------
+// Each table is probed on a column it is guaranteed to have — company_settings
+// is keyed by `company`, not by an id.
+const TABLES = [
+  ["vouchers", "id"],
+  ["signatories", "id"],
+  ["purchase_orders", "id"],
+  ["company_settings", "company"],
+];
+
 let tablesExist = true;
-for (const table of ["vouchers", "signatories"]) {
+for (const [table, column] of TABLES) {
   // A real GET, not { head: true } — a HEAD request against a missing table
   // comes back with no body and no error, which reads as a false pass.
-  const { error } = await db.from(table).select("id").limit(1);
+  const { error } = await db.from(table).select(column).limit(1);
   if (error) {
     // PostgREST reports a missing table as a schema-cache miss (PGRST205),
     // which is a migration problem, not a credentials problem.
@@ -115,17 +124,23 @@ for (const table of ["vouchers", "signatories"]) {
   }
 }
 
-// The delete feature needs this column; a project migrated earlier may lack it.
-// Pointless to report separately when the table itself is absent.
+// Columns added after the first release. A project migrated earlier may lack
+// them, and the failure would otherwise look like a code bug. Pointless to
+// report separately when the table itself is absent.
 if (tablesExist) {
-  const { error } = await db.from("vouchers").select("deleted_at").limit(1);
-  if (error) {
-    fail(
-      `Column "vouchers.deleted_at" missing: ${error.message}`,
-      "Re-run supabase/migration.sql — it adds the column if absent",
-    );
-  } else {
-    pass('Column "vouchers.deleted_at" present');
+  for (const [table, column] of [
+    ["vouchers", "deleted_at"],
+    ["purchase_orders", "pdf_at"],
+  ]) {
+    const { error } = await db.from(table).select(column).limit(1);
+    if (error) {
+      fail(
+        `Column "${table}.${column}" missing: ${error.message}`,
+        "Re-run supabase/migration.sql — it is safe to re-run and adds what is absent",
+      );
+    } else {
+      pass(`Column "${table}.${column}" present`);
+    }
   }
 }
 
@@ -145,7 +160,7 @@ if (tablesExist) {
       pass(`Storage bucket "${BUCKET}" exists`);
       if (bucket.public) {
         fail(
-          `Bucket "${BUCKET}" is PUBLIC — anyone with a URL could read signed vouchers`,
+          `Bucket "${BUCKET}" is PUBLIC — anyone with a URL could read signed vouchers and purchase orders`,
           "Dashboard → Storage → vouchers → Settings → make it private",
         );
       } else {

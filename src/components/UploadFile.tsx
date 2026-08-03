@@ -3,19 +3,22 @@
 import { useRef, useState, useTransition } from "react";
 
 /**
- * Attaches the signed scan to a voucher.
+ * Attaches a scanned document — a voucher's signed copy, a purchase order's
+ * invoice.
  *
  * This step usually happens on a phone standing next to a scanner, so the
  * control is a single large tap target that offers the camera directly, and it
  * submits the moment a file is chosen — no separate "upload" press.
  */
-export default function UploadScan({
+export default function UploadFile({
   action,
-  label = "Upload signed scan",
+  label = "Upload",
+  hint = "Photo or PDF, up to 25 MB.",
   compact = false,
 }: {
   action: (form: FormData) => Promise<void>;
   label?: string;
+  hint?: string;
   compact?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
@@ -25,7 +28,7 @@ export default function UploadScan({
   function submit(file: File) {
     setError(null);
     const form = new FormData();
-    form.set("scan", file);
+    form.set("file", file);
     startTransition(async () => {
       try {
         await action(form);
@@ -64,9 +67,7 @@ export default function UploadScan({
         </p>
       ) : null}
       {!compact && !error ? (
-        <p className="text-center text-[12px] text-ink-soft">
-          Photo or PDF, up to 25 MB.
-        </p>
+        <p className="text-center text-[12px] text-ink-soft">{hint}</p>
       ) : null}
     </div>
   );

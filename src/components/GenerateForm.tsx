@@ -64,7 +64,7 @@ export default function GenerateForm({ company, today, signatories, action }: Pr
     // the render is recoverable but losing the operator's place is not.
     const rendered = await pdf.tryBuild(created.id, created.voucherNo);
     router.push(
-      `/${created.company}/v/${created.id}?new=1${rendered ? "" : "&pdf=failed"}`,
+      `/${created.company}/vouchers/${created.id}?new=1${rendered ? "" : "&pdf=failed"}`,
     );
   }
 

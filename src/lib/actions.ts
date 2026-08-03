@@ -1,24 +1,17 @@
 "use server";
 
-import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "./auth";
 import { requireCompany, type CompanySlug } from "./companies";
 import { store } from "./db";
 import { deleteFile, putFile, storageKeys } from "./storage";
+import { readUpload } from "./uploads";
 import { TOGGLE_KEYS, type VoucherFields } from "./types";
 
 async function requireAuth() {
   if (!(await isAuthenticated())) redirect("/login");
 }
-
-/** Whitelist of scan formats — whatever a phone camera or a scanner produces. */
-const SCAN_EXTENSIONS = new Set([
-  ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff",
-]);
-
-const MAX_SCAN_BYTES = 25 * 1024 * 1024;
 
 /**
  * Pulls the voucher fields out of a form payload. Toggles arrive as checkbox
@@ -73,8 +66,8 @@ export async function createVoucher(
     fields,
   });
 
-  revalidatePath(`/${company.slug}/pending`);
-  revalidatePath(`/${company.slug}/history`);
+  revalidatePath(`/${company.slug}/vouchers/pending`);
+  revalidatePath(`/${company.slug}/vouchers/history`);
 
   return { id: voucher.id, voucherNo: voucher.voucherNo, company: company.slug };
 }
@@ -82,18 +75,7 @@ export async function createVoucher(
 /** Attaches the signed scan and completes the voucher. */
 export async function uploadScan(voucherId: string, form: FormData) {
   await requireAuth();
-  const file = form.get("scan");
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("Choose a scanned file to upload.");
-  }
-  if (file.size > MAX_SCAN_BYTES) {
-    throw new Error("That file is larger than 25 MB. Try a lower-resolution scan.");
-  }
-
-  const ext = path.extname(file.name).toLowerCase();
-  if (!SCAN_EXTENSIONS.has(ext)) {
-    throw new Error(`Unsupported file type "${ext || "unknown"}". Upload a PDF or an image.`);
-  }
+  const { file, ext } = readUpload(form);
 
   const db = await store();
   const voucher = await db.getVoucher(voucherId);
@@ -103,9 +85,9 @@ export async function uploadScan(voucherId: string, form: FormData) {
   await putFile(key, Buffer.from(await file.arrayBuffer()), file.type || "application/octet-stream");
   await db.attachScan(voucher.id, key, file.name);
 
-  revalidatePath(`/${voucher.company}/pending`);
-  revalidatePath(`/${voucher.company}/history`);
-  revalidatePath(`/${voucher.company}/v/${voucher.id}`);
+  revalidatePath(`/${voucher.company}/vouchers/pending`);
+  revalidatePath(`/${voucher.company}/vouchers/history`);
+  revalidatePath(`/${voucher.company}/vouchers/${voucher.id}`);
 }
 
 /** Detaches a scan uploaded in error, returning the voucher to pending. */
@@ -118,9 +100,9 @@ export async function removeScan(voucherId: string) {
   if (voucher.scanKey) await deleteFile(voucher.scanKey);
   await db.removeScan(voucher.id);
 
-  revalidatePath(`/${voucher.company}/pending`);
-  revalidatePath(`/${voucher.company}/history`);
-  revalidatePath(`/${voucher.company}/v/${voucher.id}`);
+  revalidatePath(`/${voucher.company}/vouchers/pending`);
+  revalidatePath(`/${voucher.company}/vouchers/history`);
+  revalidatePath(`/${voucher.company}/vouchers/${voucher.id}`);
 }
 
 /**
@@ -137,9 +119,9 @@ export async function deleteVoucher(voucherId: string) {
 
   await db.softDelete(voucher.id);
 
-  revalidatePath(`/${voucher.company}/pending`);
-  revalidatePath(`/${voucher.company}/history`);
-  redirect(`/${voucher.company}/history?deleted=${encodeURIComponent(voucher.voucherNo)}`);
+  revalidatePath(`/${voucher.company}/vouchers/pending`);
+  revalidatePath(`/${voucher.company}/vouchers/history`);
+  redirect(`/${voucher.company}/vouchers/history?deleted=${encodeURIComponent(voucher.voucherNo)}`);
 }
 
 export async function restoreVoucher(voucherId: string) {
@@ -150,9 +132,9 @@ export async function restoreVoucher(voucherId: string) {
 
   await db.restore(voucher.id);
 
-  revalidatePath(`/${voucher.company}/pending`);
-  revalidatePath(`/${voucher.company}/history`);
-  redirect(`/${voucher.company}/v/${voucher.id}`);
+  revalidatePath(`/${voucher.company}/vouchers/pending`);
+  revalidatePath(`/${voucher.company}/vouchers/history`);
+  redirect(`/${voucher.company}/vouchers/${voucher.id}`);
 }
 
 export async function addSignatory(companySlug: string, form: FormData) {
@@ -164,7 +146,7 @@ export async function addSignatory(companySlug: string, form: FormData) {
   const db = await store();
   await db.addSignatory(company.slug as CompanySlug, name);
   revalidatePath(`/${company.slug}/settings`);
-  revalidatePath(`/${company.slug}/new`);
+  revalidatePath(`/${company.slug}/vouchers/new`);
 }
 
 export async function removeSignatory(companySlug: string, id: string) {
@@ -173,5 +155,5 @@ export async function removeSignatory(companySlug: string, id: string) {
   const db = await store();
   await db.removeSignatory(id);
   revalidatePath(`/${company.slug}/settings`);
-  revalidatePath(`/${company.slug}/new`);
+  revalidatePath(`/${company.slug}/vouchers/new`);
 }

@@ -10,13 +10,23 @@ import { store } from "@/lib/db";
 export default async function Landing() {
   const authed = await isAuthenticated();
 
-  // Pending counts are the one thing worth surfacing before you pick: they tell
-  // you which workspace has vouchers still waiting on a signed scan.
+  // Outstanding work is the one thing worth surfacing before you pick: which
+  // workspace has vouchers waiting on a signed scan, and which has orders still
+  // out with a vendor.
   const counts = authed
     ? await (async () => {
         const db = await store();
         const entries = await Promise.all(
-          COMPANY_LIST.map(async (c) => [c.slug, await db.counts(c.slug)] as const),
+          COMPANY_LIST.map(
+            async (c) =>
+              [
+                c.slug,
+                {
+                  vouchers: await db.counts(c.slug),
+                  po: await db.poCounts(c.slug),
+                },
+              ] as const,
+          ),
         );
         return Object.fromEntries(entries);
       })()
@@ -26,7 +36,7 @@ export default async function Landing() {
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
       <header className="mb-10">
         <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
-          Payment Acknowledgment Vouchers
+          Company Portal
         </h1>
         <p className="mt-2 text-[15px] text-ink-soft">
           Choose a company to open its workspace.
@@ -39,7 +49,7 @@ export default async function Landing() {
           return (
             <Link
               key={company.slug}
-              href={authed ? `/${company.slug}/new` : `/login?next=/${company.slug}/new`}
+              href={authed ? `/${company.slug}/vouchers/new` : `/login?next=/${company.slug}/vouchers/new`}
               className="group card flex flex-col gap-5 p-6 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
               style={{ borderColor: "#e4e4e4" }}
             >
@@ -58,16 +68,28 @@ export default async function Landing() {
               <div>
                 <div className="text-[17px] font-semibold">{company.name}</div>
                 <div className="mono mt-1 text-[13px] text-ink-soft">
-                  {company.prefix}-YYYYMM-000
+                  Vouchers · Purchase orders
                 </div>
               </div>
 
               {c ? (
-                <div className="flex items-center gap-4 text-[13px]">
-                  <span className={c.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"}>
-                    {c.pending} awaiting signature
-                  </span>
-                  <span className="text-ink-soft">{c.total} total</span>
+                <div className="space-y-1 text-[13px]">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span
+                      className={
+                        c.vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
+                      }
+                    >
+                      {c.vouchers.pending} awaiting signature
+                    </span>
+                    <span className="mono text-ink-soft">{c.vouchers.total}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className={c.po.open > 0 ? "font-semibold text-ink" : "text-ink-soft"}>
+                      {c.po.open} open {c.po.open === 1 ? "order" : "orders"}
+                    </span>
+                    <span className="mono text-ink-soft">{c.po.total}</span>
+                  </div>
                 </div>
               ) : (
                 <div className="text-[13px] text-ink-soft">Open workspace →</div>

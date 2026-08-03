@@ -2,49 +2,116 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const TABS = [
-  { segment: "new", label: "Generate" },
-  { segment: "pending", label: "Pending" },
-  { segment: "history", label: "History" },
-  { segment: "settings", label: "Settings" },
-] as const;
+import {
+  MODULES,
+  activeModule,
+  moduleHome,
+  modulePath,
+  type ModuleBadges,
+} from "@/lib/modules";
 
 /**
- * Workspace tabs. Scrolls horizontally rather than wrapping so the bar stays
- * one line deep on a phone.
+ * Workspace navigation: which module you are in, then that module's tabs.
+ *
+ * Two rows rather than one flat list. With more than one module a single row
+ * either grows past the width of a phone or forces the labels to be so terse
+ * they stop meaning anything; splitting it keeps "which part of the portal am
+ * I in" and "which screen" as separate, always-visible questions.
  */
-export default function WorkspaceNav({ slug, pending }: { slug: string; pending: number }) {
+export default function WorkspaceNav({
+  slug,
+  badges,
+}: {
+  slug: string;
+  badges: ModuleBadges;
+}) {
   const pathname = usePathname();
+  const settingsPath = `/${slug}/settings`;
+  const inSettings = pathname === settingsPath || pathname.startsWith(`${settingsPath}/`);
+  const current = activeModule(pathname, slug);
 
   return (
-    <nav className="mx-auto max-w-6xl px-4 sm:px-6">
-      <ul className="-mb-px flex gap-1 overflow-x-auto">
-        {TABS.map(({ segment, label }) => {
-          const href = `/${slug}/${segment}`;
-          const active = pathname === href || pathname.startsWith(`${href}/`);
+    <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      {/* ---- module switcher ---------------------------------------------- */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2.5">
+        {MODULES.map((m) => {
+          const on = !inSettings && m.key === current.key;
+          const count = badges[m.key] ?? 0;
           return (
-            <li key={segment}>
-              <Link
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] font-medium transition-colors ${
-                  active
-                    ? "border-[var(--accent)] text-ink"
-                    : "border-transparent text-ink-soft hover:text-ink"
-                }`}
-              >
-                {label}
-                {segment === "pending" && pending > 0 ? (
-                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">
-                    {pending}
-                  </span>
-                ) : null}
-              </Link>
-            </li>
+            <Link
+              key={m.key}
+              href={moduleHome(slug, m)}
+              aria-current={on ? "page" : undefined}
+              className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                on
+                  ? "text-[var(--accent-text)]"
+                  : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+              }`}
+              style={on ? { background: "var(--accent)" } : undefined}
+            >
+              {m.label}
+              {count > 0 ? (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums ${
+                    on ? "bg-white/25" : "bg-[#e4e4e0] text-ink"
+                  }`}
+                >
+                  {count}
+                </span>
+              ) : null}
+            </Link>
           );
         })}
-      </ul>
-    </nav>
+
+        <span className="ml-auto shrink-0" />
+        <Link
+          href={settingsPath}
+          aria-current={inSettings ? "page" : undefined}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+            inSettings ? "bg-[#efefec] text-ink" : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+          }`}
+        >
+          Settings
+        </Link>
+      </div>
+
+      {/* ---- tabs within the module --------------------------------------- */}
+      {inSettings ? null : (
+        <nav>
+          <ul className="-mb-px flex gap-1 overflow-x-auto">
+            {current.tabs.map((tab) => {
+              const href = modulePath(slug, current, tab.segment);
+              // An empty segment is the module index, which every other tab's
+              // URL is a prefix of — so it only matches exactly.
+              const active = tab.segment
+                ? pathname === href || pathname.startsWith(`${href}/`)
+                : pathname === href;
+              const count = tab.badge ? (badges[tab.badge] ?? 0) : 0;
+
+              return (
+                <li key={tab.segment || "index"}>
+                  <Link
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                      active
+                        ? "border-[var(--accent)] text-ink"
+                        : "border-transparent text-ink-soft hover:text-ink"
+                    }`}
+                  >
+                    {tab.label}
+                    {count > 0 ? (
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-900">
+                        {count}
+                      </span>
+                    ) : null}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      )}
+    </div>
   );
 }

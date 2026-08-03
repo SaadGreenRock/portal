@@ -62,6 +62,51 @@ export default function SheetPreview({
 }
 
 /**
+ * The same thing for a document that runs to more than one page: every page
+ * stacked in a scrollable column, numbered, so the operator can see exactly
+ * where the fold lands before anything is printed.
+ */
+export function SheetStack({
+  pages,
+  busy,
+  maxHeight = "72vh",
+}: {
+  pages: string[];
+  busy?: boolean;
+  maxHeight?: string;
+}) {
+  if (pages.length === 0) {
+    return (
+      <div className="grid h-64 w-full place-items-center rounded-lg border border-ink-line bg-white text-[13px] text-ink-soft">
+        Preparing preview…
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <div className="space-y-3 overflow-y-auto pr-0.5" style={{ maxHeight }}>
+        {pages.map((html, i) => (
+          <div key={i}>
+            <SheetPreview html={html} />
+            {pages.length > 1 ? (
+              <div className="mono mt-1 text-center text-[11px] text-ink-soft">
+                Page {i + 1} of {pages.length}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {busy ? (
+        <div className="pointer-events-none absolute bottom-2.5 right-3.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm">
+          Updating…
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Debounced live preview. Posts the current field values to /api/preview and
  * returns the rendered HTML, so the preview can never drift from the PDF.
  */
@@ -96,4 +141,43 @@ export function usePreview(company: string, fields: unknown, delay = 350) {
   }, [company, serialized, delay]);
 
   return { html, busy };
+}
+
+/**
+ * The multi-page equivalent, for purchase orders.
+ *
+ * A longer debounce than the voucher's: a PO render is several pages of layout
+ * and the operator is typically typing a whole line item, not tweaking one word.
+ */
+export function usePagesPreview(body: unknown, delay = 500) {
+  const [pages, setPages] = useState<string[]>([]);
+  const [busy, setBusy] = useState(true);
+  const serialized = JSON.stringify(body);
+
+  useEffect(() => {
+    setBusy(true);
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/po/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: serialized,
+          signal: controller.signal,
+        });
+        if (res.ok) setPages(((await res.json()) as { pages: string[] }).pages);
+      } catch {
+        // Aborted by the next keystroke, or offline — keep the last render.
+      } finally {
+        setBusy(false);
+      }
+    }, delay);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [serialized, delay]);
+
+  return { pages, busy };
 }

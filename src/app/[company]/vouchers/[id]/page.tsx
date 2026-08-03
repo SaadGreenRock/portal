@@ -1,32 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import BuildPdfButton from "@/components/BuildPdfButton";
-import DeleteVoucher from "@/components/DeleteVoucher";
+import ConfirmDelete from "@/components/ConfirmDelete";
 import PrintButton from "@/components/PrintButton";
 import SheetPreview from "@/components/SheetPreview";
-import UploadScan from "@/components/UploadScan";
+import UploadFile from "@/components/UploadFile";
 import { deleteVoucher, removeScan, restoreVoucher, uploadScan } from "@/lib/actions";
 import { amountInWords, formatAmount } from "@/lib/amount-words";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { formatDate, stamp } from "@/lib/format";
 import { fileUrl } from "@/lib/storage";
-import { formatDate, renderVoucherHtml } from "@/lib/template";
+import { renderVoucherHtml } from "@/lib/template";
 import { TOGGLE_LABELS, TOGGLE_KEYS, type ToggleKey } from "@/lib/types";
-
-/**
- * "31 July 2026, 15:42" for the audit trail.
- *
- * Formats in local time, not UTC. Voucher numbers take their month from the
- * local date, so a UTC date here would show 31 July next to a number reading
- * 202608 for anything created in the evening east of Greenwich.
- */
-function stamp(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const localDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return `${formatDate(localDate)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 export default async function VoucherDetail({
   params,
@@ -127,7 +113,7 @@ export default async function VoucherDetail({
           {v.pdfKey ? (
             <>
               <PrintButton href={fileUrl(v.pdfKey)} />
-              <a href={`${fileUrl(v.pdfKey)}?download`} className="btn btn-ghost" download>
+              <a href={fileUrl(v.pdfKey, { download: true })} className="btn btn-ghost" download>
                 Download
               </a>
             </>
@@ -143,7 +129,7 @@ export default async function VoucherDetail({
               </button>
             </form>
           ) : (
-            <DeleteVoucher action={drop} voucherNo={v.voucherNo} />
+            <ConfirmDelete action={drop} subject={v.voucherNo} />
           )}
         </div>
       </div>
@@ -194,7 +180,7 @@ export default async function VoucherDetail({
                       >
                         Open scan
                       </a>
-                      <a href={`${fileUrl(v.scanKey)}?download`} download className="btn btn-ghost">
+                      <a href={fileUrl(v.scanKey, { download: true })} download className="btn btn-ghost">
                         Download
                       </a>
                     </div>
@@ -226,7 +212,7 @@ export default async function VoucherDetail({
                 <p className="mt-1.5 mb-5 text-[13.5px] leading-relaxed text-ink-soft">
                   Print the voucher, have it signed, then photograph or scan the signed copy.
                 </p>
-                <UploadScan action={attach} />
+                <UploadFile action={attach} label="Upload signed scan" />
               </div>
             </div>
           )}
@@ -260,7 +246,7 @@ export default async function VoucherDetail({
       </section>
 
       <div className="mt-6">
-        <Link href={`/${company.slug}/history`} className="btn btn-ghost">
+        <Link href={`/${company.slug}/vouchers/history`} className="btn btn-ghost">
           ← All {company.name} vouchers
         </Link>
       </div>

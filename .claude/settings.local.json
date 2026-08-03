@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(python3 -)",
+      "Bash(npm run *)",
+      "Read(//private/tmp/claude-501/**)",
+      "Bash(curl -s -c cookies.txt -b cookies.txt -X POST http://localhost:3100/login -d \"password=change-me\" -o /dev/null -w \"%{http_code}\\\\n\" -L)",
+      "Bash(node --env-file=.env -e ' *)",
+      "Read(//tmp/claude-501/**)",
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' -X POST http://localhost:3100/api/po/preview -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(python3 -c ' *)",
+      "Bash(SCRATCH=/private/tmp/claude-501/-Users-saadhassan-Desktop-Green-Rock-Payment-Acknowledgement-System-portal/9226bed0-a4e7-4c59-b141-e932e30e88f2/scratchpad node -e ' *)",
+      "Bash(command -v qpdf)",
+      "Bash(qpdf --check /private/tmp/claude-501/-Users-saadhassan-Desktop-Green-Rock-Payment-Acknowledgement-System-portal/9226bed0-a4e7-4c59-b141-e932e30e88f2/scratchpad/data/files/green-rock/GR-PO-202608-099/purchase-order.pdf)",
+      "Bash(curl -s -o /dev/null -w '  %{http_code}  /sportech/po/multipage-test-0001\\\\n' -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3100/sportech/po/multipage-test-0001)",
+      "Bash(curl -s -o /dev/null -w '  %{http_code}  /sportech/po/multipage-test-0001/edit\\\\n' -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3100/sportech/po/multipage-test-0001/edit)",
+      "Bash(curl -s -o /dev/null -w '  %{http_code}  /nope/po\\\\n' -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3100/nope/po)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(curl -s -o /dev/null -w \"login %{http_code}\\\\n\" http://localhost:3000/login)",
+      "Bash(git mv *)",
+      "Bash(rm -rf .data/vouchers.db* .data/files)",
+      "Bash(BACKEND=local npx next dev -p 3000)",
+      "Bash(node -e ' *)",
+      "Bash(cp /tmp/claude-501/seed.cjs ./seed-tmp.cjs)",
+      "Bash(node ./seed-tmp.cjs)",
+      "Bash(rm -f ./seed-tmp.cjs)",
+      "Bash(sips -s format jpeg public/logos/green-rock.png --out __TRACKED_VAR__/techno-valley-invoice.jpg)",
+      "Bash(curl -s -D- -o /tmp/claude-501/fetched.jpg -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3000/api/file/green-rock/GR-PO-202608-001/invoice.jpg)",
+      "Bash(cp /dev/null /tmp/x)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/login)",
+      "Bash(sips -s format jpeg -s formatOptions 85 __TRACKED_VAR__/noise.ppm --out __TRACKED_VAR__/big-invoice.jpg)",
+      "Bash(awk '{printf \"test photo: %.1f MB\\\\n\", $5/1048576}')",
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3000/api/po/invoice-test-0001/sheet -o /tmp/claude-501/sheet.json -w '  %{size_download} bytes\\\\n')",
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' -o /dev/null -w '  %{size_download} bytes\\\\n' http://localhost:3000/api/voucher/nonexistent/sheet)"
+    ]
+  }
+}

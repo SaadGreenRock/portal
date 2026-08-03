@@ -5,6 +5,22 @@ const nextConfig: NextConfig = {
   // only reachable when BACKEND=local; on Vercel the Supabase backend is used
   // and this never loads.
   serverExternalPackages: ["better-sqlite3"],
+
+  /**
+   * The voucher screens used to sit directly under /[company]. They moved under
+   * /[company]/vouchers when purchase orders arrived and the workspace needed
+   * more than one module. These keep existing bookmarks and phone shortcuts
+   * working — :company matches a single segment, so /green-rock/po/… can never
+   * be caught by them.
+   */
+  async redirects() {
+    return [
+      { source: "/:company/new", destination: "/:company/vouchers/new", permanent: true },
+      { source: "/:company/pending", destination: "/:company/vouchers/pending", permanent: true },
+      { source: "/:company/history", destination: "/:company/vouchers/history", permanent: true },
+      { source: "/:company/v/:id", destination: "/:company/vouchers/:id", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

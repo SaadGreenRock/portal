@@ -3,10 +3,10 @@ import path from "node:path";
 import { backend } from "./db";
 
 /**
- * File storage for the two files a voucher can have: the generated PDF and the
- * signed scan. Local mode writes to ./.data/files; Supabase mode uses a Storage
- * bucket. Callers only deal in opaque keys like
- * "green-rock/GR-202607-014/voucher.pdf".
+ * File storage for everything a record can carry: a voucher's generated PDF and
+ * signed scan, a purchase order's PDF and vendor invoice. Local mode writes to
+ * ./.data/files; Supabase mode uses a Storage bucket. Callers only deal in
+ * opaque keys like "green-rock/GR-202607-014/voucher.pdf".
  *
  * Files are always served back through /api/file/<key> rather than a public URL,
  * so they stay behind the password gate in both modes.
@@ -98,8 +98,33 @@ export const storageKeys = {
   pdf: (company: string, voucherNo: string) => `${company}/${voucherNo}/voucher.pdf`,
   scan: (company: string, voucherNo: string, ext: string) =>
     `${company}/${voucherNo}/signed${ext.startsWith(".") ? ext : `.${ext}`}`,
+  /**
+   * A purchase order's PDF is overwritten in place on every re-render, because
+   * an issued PO stays editable — the file must always be the current document,
+   * not one of a pile of past attempts.
+   */
+  poPdf: (company: string, poNo: string) => `${company}/${poNo}/purchase-order.pdf`,
+  poInvoice: (company: string, poNo: string, ext: string) =>
+    `${company}/${poNo}/invoice${ext.startsWith(".") ? ext : `.${ext}`}`,
 };
 
-/** URL the browser uses to fetch a stored file. */
-export const fileUrl = (key: string) =>
-  `/api/file/${key.split("/").map(encodeURIComponent).join("/")}`;
+/**
+ * URL the browser uses to fetch a stored file.
+ *
+ * `v` matters for purchase orders. A voucher's PDF is written once and never
+ * changes, so /api/file can serve it as immutable — but a PO stays editable and
+ * its PDF is overwritten in place at the same key. Passing the render timestamp
+ * changes the URL whenever the file changes, which is what makes the immutable
+ * header safe for both.
+ */
+export function fileUrl(
+  key: string,
+  options: { v?: string | null; download?: boolean } = {},
+): string {
+  const path = `/api/file/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const params = new URLSearchParams();
+  if (options.v) params.set("v", options.v);
+  if (options.download) params.set("download", "1");
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}

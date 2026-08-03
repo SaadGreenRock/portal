@@ -3,20 +3,21 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 
 /**
- * Deletes a voucher, behind an inline two-step confirm.
+ * Deletes a record, behind an inline two-step confirm.
  *
  * Deliberately not window.confirm: this sits inside list rows where a stray tap
- * on a phone is easy, and an inline confirm makes it obvious which voucher is
+ * on a phone is easy, and an inline confirm makes it obvious which record is
  * about to go. The second press is a different button in a different place, so
  * a double-tap can't sail straight through it.
  */
-export default function DeleteVoucher({
+export default function ConfirmDelete({
   action,
-  voucherNo,
+  subject,
   compact = false,
 }: {
   action: () => Promise<void>;
-  voucherNo: string;
+  /** What is being deleted, named in the confirm prompt — a document number. */
+  subject: string;
   compact?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
@@ -60,7 +61,7 @@ export default function DeleteVoucher({
         <button
           type="button"
           onClick={() => setArmed(true)}
-          aria-label={`Delete voucher ${voucherNo}`}
+          aria-label={`Delete ${subject}`}
           className={`btn btn-quiet ${size} hover:!bg-red-50 hover:!text-red-700`}
         >
           Delete
@@ -77,7 +78,7 @@ export default function DeleteVoucher({
   return (
     <div className="flex items-center gap-1.5 rounded-lg bg-red-50 px-2 py-1.5">
       <span className="whitespace-nowrap text-[12.5px] font-medium text-red-900">
-        Delete {voucherNo}?
+        Delete {subject}?
       </span>
       <button
         ref={confirmRef}

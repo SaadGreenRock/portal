@@ -22,11 +22,16 @@ export default async function CompanyLayout({
   if (!company) notFound();
 
   if (!(await isAuthenticated())) {
-    redirect(`/login?next=${encodeURIComponent(`/${slug}/new`)}`);
+    redirect(`/login?next=${encodeURIComponent(`/${slug}/vouchers/new`)}`);
   }
 
   const db = await store();
-  const counts = await db.counts(company.slug);
+  // Both counts in one pass: the nav badges need them on every screen, and two
+  // sequential round trips on a serverless request is a visible pause.
+  const [counts, poCounts] = await Promise.all([
+    db.counts(company.slug),
+    db.poCounts(company.slug),
+  ]);
 
   async function signOut() {
     "use server";
@@ -61,9 +66,7 @@ export default async function CompanyLayout({
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-semibold leading-tight">{company.name}</div>
-            <div className="text-[11.5px] leading-tight text-ink-soft">
-              Payment Acknowledgment Vouchers
-            </div>
+            <div className="text-[11.5px] leading-tight text-ink-soft">Company portal</div>
           </div>
 
           <form action={signOut}>
@@ -73,7 +76,10 @@ export default async function CompanyLayout({
           </form>
         </div>
 
-        <WorkspaceNav slug={company.slug} pending={counts.pending} />
+        <WorkspaceNav
+          slug={company.slug}
+          badges={{ vouchers: counts.pending, po: poCounts.open }}
+        />
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>

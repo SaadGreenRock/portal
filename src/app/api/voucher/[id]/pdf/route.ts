@@ -38,9 +38,9 @@ export async function POST(
   await putFile(key, bytes, "application/pdf");
   await db.attachPdf(voucher.id, key);
 
-  revalidatePath(`/${voucher.company}/pending`);
-  revalidatePath(`/${voucher.company}/history`);
-  revalidatePath(`/${voucher.company}/v/${voucher.id}`);
+  revalidatePath(`/${voucher.company}/vouchers/pending`);
+  revalidatePath(`/${voucher.company}/vouchers/history`);
+  revalidatePath(`/${voucher.company}/vouchers/${voucher.id}`);
 
   return NextResponse.json({ ok: true, key, bytes: bytes.length });
 }

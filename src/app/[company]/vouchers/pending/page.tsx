@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import DeleteVoucher from "@/components/DeleteVoucher";
-import UploadScan from "@/components/UploadScan";
+import ConfirmDelete from "@/components/ConfirmDelete";
+import UploadFile from "@/components/UploadFile";
 import { deleteVoucher, uploadScan } from "@/lib/actions";
 import { formatAmount } from "@/lib/amount-words";
 import { getCompany } from "@/lib/companies";
@@ -43,7 +43,7 @@ export default async function Pending({
           <p className="mx-auto mt-1.5 max-w-sm text-[13.5px] text-ink-soft">
             Every voucher issued for {company.name} has its signed copy on file.
           </p>
-          <Link href={`/${company.slug}/new`} className="btn btn-primary mt-5">
+          <Link href={`/${company.slug}/vouchers/new`} className="btn btn-primary mt-5">
             Generate a voucher
           </Link>
         </div>
@@ -59,7 +59,7 @@ export default async function Pending({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                       <Link
-                        href={`/${company.slug}/v/${v.id}`}
+                        href={`/${company.slug}/vouchers/${v.id}`}
                         className="mono text-[15px] font-semibold hover:underline"
                       >
                         {v.voucherNo}
@@ -90,8 +90,8 @@ export default async function Pending({
                         Open PDF
                       </a>
                     ) : null}
-                    <UploadScan action={attach} label="Upload scan" compact />
-                    <DeleteVoucher action={drop} voucherNo={v.voucherNo} compact />
+                    <UploadFile action={attach} label="Upload scan" compact />
+                    <ConfirmDelete action={drop} subject={v.voucherNo} compact />
                   </div>
                 </div>
               </li>

@@ -37,7 +37,7 @@ export default async function Login({
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-5 py-16">
-      <h1 className="text-[22px] font-bold tracking-tight">Payment Voucher Portal</h1>
+      <h1 className="text-[22px] font-bold tracking-tight">Company Portal</h1>
       <p className="mt-1.5 text-[14px] text-ink-soft">Enter the portal password to continue.</p>
 
       <form action={submit} className="mt-7 space-y-3">

@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import DeleteVoucher from "@/components/DeleteVoucher";
+import ConfirmDelete from "@/components/ConfirmDelete";
 import { deleteVoucher, restoreVoucher } from "@/lib/actions";
 import { formatAmount } from "@/lib/amount-words";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
-import { formatDate } from "@/lib/template";
+import { formatDate } from "@/lib/format";
 import type { HistoryQuery, VoucherStatus } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -82,7 +82,7 @@ export default async function History({
             stays spent and will not be reissued.
           </p>
           <Link
-            href={`/${company.slug}/history?status=deleted`}
+            href={`/${company.slug}/vouchers/history?status=deleted`}
             className="btn btn-ghost px-3 py-1.5 text-[13px]"
           >
             View deleted
@@ -165,7 +165,7 @@ export default async function History({
               Apply filters
             </button>
             {filtered ? (
-              <Link href={`/${company.slug}/history`} className="btn btn-ghost">
+              <Link href={`/${company.slug}/vouchers/history`} className="btn btn-ghost">
                 Clear
               </Link>
             ) : null}
@@ -199,7 +199,7 @@ export default async function History({
                   {/* The link covers the row's information; the actions sit
                       outside it, since a button cannot live inside an anchor. */}
                   <Link
-                    href={`/${company.slug}/v/${v.id}`}
+                    href={`/${company.slug}/vouchers/${v.id}`}
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 rounded-md hover:opacity-80"
                   >
                     <div className="min-w-[9.5rem]">
@@ -252,7 +252,7 @@ export default async function History({
                         </button>
                       </form>
                     ) : (
-                      <DeleteVoucher action={drop} voucherNo={v.voucherNo} compact />
+                      <ConfirmDelete action={drop} subject={v.voucherNo} compact />
                     )}
                   </div>
                 </li>

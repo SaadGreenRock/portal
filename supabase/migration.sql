@@ -1,4 +1,4 @@
--- Payment Acknowledgment Voucher Portal — Supabase schema
+-- Green Rock Portal — Supabase schema
 --
 -- Run this once in the Supabase SQL editor before setting BACKEND=supabase.
 -- It is safe to re-run: every statement is guarded.
@@ -60,17 +60,84 @@ create table if not exists public.signatories (
   constraint signatories_company_name_key unique (company, name)
 );
 
-alter table public.vouchers    enable row level security;
-alter table public.signatories enable row level security;
+-- ---------------------------------------------------------------------------
+-- Purchase orders
+-- ---------------------------------------------------------------------------
+-- The typed document lives in one jsonb column, so adding a field to a PO needs
+-- no migration. Only what the list filters and sorts on is lifted into columns.
+create table if not exists public.purchase_orders (
+  id            uuid primary key,
+  po_no         text        not null unique,
+  company       text        not null,
+  status        text        not null default 'draft'
+                            check (status in ('draft', 'issued', 'closed', 'cancelled')),
+  seq           integer     not null,
+  period        text        not null,           -- yyyymm, e.g. 202608
+  internal_note text        not null default '',
+  doc           jsonb       not null,
+  vendor_name   text        not null default '',
+  subject       text        not null default '',
+  currency      text        not null default 'PKR',
+  subtotal      numeric     not null default 0,
+  total         numeric     not null default 0,
+  po_date       date,
+  delivery_date date,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  issued_at     timestamptz,
+  closed_at     timestamptz,
+  -- Same reasoning as vouchers: the row stays so the number stays spent.
+  deleted_at    timestamptz,
+  pdf_key       text,
+  -- Older than updated_at means the stored PDF predates the current document.
+  pdf_at        timestamptz,
+  -- The vendor's invoice. Attaching it is what closes the order.
+  invoice_key   text,
+  invoice_name  text,
+  invoice_at    timestamptz,
+  constraint purchase_orders_company_period_seq_key unique (company, period, seq)
+);
+
+-- Applied separately so a project created before PDF-freshness tracking picks it up.
+alter table public.purchase_orders add column if not exists pdf_at       timestamptz;
+alter table public.purchase_orders add column if not exists invoice_key  text;
+alter table public.purchase_orders add column if not exists invoice_name text;
+alter table public.purchase_orders add column if not exists invoice_at   timestamptz;
+
+create index if not exists po_company_status_idx
+  on public.purchase_orders (company, status);
+
+create index if not exists po_company_date_idx
+  on public.purchase_orders (company, po_date desc);
+
+-- Backs both the free-text search and the vendor autocomplete.
+create index if not exists po_company_vendor_idx
+  on public.purchase_orders (company, vendor_name);
+
+-- ---------------------------------------------------------------------------
+-- Per-company settings
+-- ---------------------------------------------------------------------------
+-- One JSON document per company. A new module adds a section to the document
+-- rather than a column here, so this table never needs migrating again.
+create table if not exists public.company_settings (
+  company    text primary key,
+  data       jsonb       not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.vouchers         enable row level security;
+alter table public.signatories      enable row level security;
+alter table public.purchase_orders  enable row level security;
+alter table public.company_settings enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 
 -- ---------------------------------------------------------------------------
 -- Storage
 -- ---------------------------------------------------------------------------
--- One private bucket holds both files per voucher (the generated PDF and the
--- signed scan). Private is important: files are served through the portal's own
--- /api/file route so they stay behind the password gate.
+-- One private bucket holds every generated document and uploaded scan. Private
+-- is important: files are served through the portal's own /api/file route so
+-- they stay behind the password gate.
 insert into storage.buckets (id, name, public)
 values ('vouchers', 'vouchers', false)
 on conflict (id) do nothing;

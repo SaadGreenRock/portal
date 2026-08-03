@@ -1,12 +1,12 @@
 /**
- * Writes a one-page PDF containing a single full-bleed JPEG.
+ * Writes a PDF whose pages are each one full-bleed JPEG.
  *
  * That is the entire requirement here, and it needs no library: a JPEG is
  * already DCT-compressed, so it can be dropped into the PDF as a DCTDecode
  * stream verbatim — no zlib, no image re-encoding, nothing to keep updated.
  *
  * Runs in the browser (no Node APIs), because the operator's browser is what
- * produces the page image.
+ * produces the page images.
  */
 
 const enc = new TextEncoder();
@@ -38,7 +38,7 @@ class PdfWriter {
   }
 }
 
-export interface SingleImagePdfOptions {
+export interface PdfImagePage {
   jpeg: Uint8Array;
   /** Pixel dimensions of the JPEG. */
   pixelWidth: number;
@@ -46,17 +46,27 @@ export interface SingleImagePdfOptions {
   /** Page size in PDF points (1/72in). The image is stretched to fill it. */
   pageWidthPt: number;
   pageHeightPt: number;
-  title?: string;
 }
 
-export function buildSingleImagePdf({
-  jpeg,
-  pixelWidth,
-  pixelHeight,
-  pageWidthPt,
-  pageHeightPt,
-  title,
-}: SingleImagePdfOptions): Uint8Array {
+export interface ImagePdfOptions {
+  pages: PdfImagePage[];
+  title?: string;
+  producer?: string;
+}
+
+/**
+ * Object layout, for anyone tracing the xref by hand:
+ *
+ *   1            catalog
+ *   2            page tree
+ *   3 + 3n       page n
+ *   4 + 3n       page n's image
+ *   5 + 3n       page n's content stream
+ *   3 + 3N       document info
+ */
+export function buildImagePdf({ pages, title, producer }: ImagePdfOptions): Uint8Array {
+  if (pages.length === 0) throw new Error("A PDF needs at least one page.");
+
   const w = new PdfWriter();
   // Offsets are 1-indexed by object number; index 0 is the free-list head.
   const offsets: number[] = [0];
@@ -70,47 +80,63 @@ export function buildSingleImagePdf({
   w.push("%PDF-1.4\n");
   w.push(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
 
+  const pageObj = (i: number) => 3 + i * 3;
+  const imageObj = (i: number) => 4 + i * 3;
+  const contentObj = (i: number) => 5 + i * 3;
+  const infoObj = 3 + pages.length * 3;
+
   obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
-  obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
   obj(
-    3,
-    "<< /Type /Page /Parent 2 0 R " +
-      `/MediaBox [0 0 ${round(pageWidthPt)} ${round(pageHeightPt)}] ` +
-      "/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>",
+    2,
+    `<< /Type /Pages /Kids [${pages
+      .map((_, i) => `${pageObj(i)} 0 R`)
+      .join(" ")}] /Count ${pages.length} >>`,
   );
 
-  // The image itself: raw JPEG bytes between stream/endstream.
-  offsets[4] = w.offset;
-  w.push(
-    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pixelWidth} ` +
-      `/Height ${pixelHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 ` +
-      `/Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`,
-  );
-  w.push(jpeg);
-  w.push("\nendstream\nendobj\n");
+  pages.forEach((page, i) => {
+    obj(
+      pageObj(i),
+      "<< /Type /Page /Parent 2 0 R " +
+        `/MediaBox [0 0 ${round(page.pageWidthPt)} ${round(page.pageHeightPt)}] ` +
+        `/Resources << /XObject << /Im0 ${imageObj(i)} 0 R >> >> ` +
+        `/Contents ${contentObj(i)} 0 R >>`,
+    );
 
-  // Content stream: scale the unit image up to the page box and draw it.
-  // PDF's origin is bottom-left, which the cm matrix already accounts for.
-  const content = `q\n${round(pageWidthPt)} 0 0 ${round(pageHeightPt)} 0 0 cm\n/Im0 Do\nQ\n`;
-  obj(5, `<< /Length ${enc.encode(content).length} >>\nstream\n${content}endstream`);
+    // The image itself: raw JPEG bytes between stream/endstream.
+    offsets[imageObj(i)] = w.offset;
+    w.push(
+      `${imageObj(i)} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${page.pixelWidth} ` +
+        `/Height ${page.pixelHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 ` +
+        `/Filter /DCTDecode /Length ${page.jpeg.length} >>\nstream\n`,
+    );
+    w.push(page.jpeg);
+    w.push("\nendstream\nendobj\n");
+
+    // Content stream: scale the unit image up to the page box and draw it.
+    // PDF's origin is bottom-left, which the cm matrix already accounts for.
+    const content = `q\n${round(page.pageWidthPt)} 0 0 ${round(
+      page.pageHeightPt,
+    )} 0 0 cm\n/Im0 Do\nQ\n`;
+    obj(contentObj(i), `<< /Length ${enc.encode(content).length} >>\nstream\n${content}endstream`);
+  });
 
   obj(
-    6,
-    `<< /Producer (Payment Voucher Portal)${
+    infoObj,
+    `<< /Producer (${pdfText(producer ?? "Green Rock Portal")})${
       title ? ` /Title (${pdfText(title)})` : ""
     } >>`,
   );
 
   // xref: one 20-byte entry per object, in object-number order.
   const startxref = w.offset;
-  const count = offsets.length; // objects 1..6 plus the free entry
+  const count = offsets.length;
   w.push(`xref\n0 ${count}\n`);
   w.push("0000000000 65535 f \n");
   for (let n = 1; n < count; n++) {
     w.push(`${String(offsets[n]).padStart(10, "0")} 00000 n \n`);
   }
   w.push(
-    `trailer\n<< /Size ${count} /Root 1 0 R /Info 6 0 R >>\n` +
+    `trailer\n<< /Size ${count} /Root 1 0 R /Info ${infoObj} 0 R >>\n` +
       `startxref\n${startxref}\n%%EOF\n`,
   );
 

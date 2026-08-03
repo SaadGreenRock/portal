@@ -1,8 +1,15 @@
-# Payment Acknowledgment Voucher Portal
+# Company Portal — Green Rock & Sportech
 
-A single-operator web portal for Green Rock and Sportech. It generates numbered,
-company-branded voucher PDFs, tracks which ones are still waiting on a physical
-signature, and keeps the signed scans in a searchable permanent record.
+A single-operator web portal for the paperwork that has to be numbered, findable
+and consistent. It currently does two things:
+
+- **Payment acknowledgment vouchers** — numbered, company-branded voucher PDFs,
+  with the signed scans kept in a searchable permanent record.
+- **Purchase orders** — priced, totalled orders raised on vendors, issued as a
+  branded PDF and closed by filing the vendor's invoice.
+
+Each company is its own workspace. They share nothing: separate numbering,
+separate history, separate settings.
 
 It does not replace the handwritten signature — it makes the paper trail
 numbered, organised and findable.
@@ -25,18 +32,29 @@ password is `change-me` and the login screen says so.
 
 Requires Node 20+. Nothing else — no Chromium, no system packages.
 
+> **Upgrading an existing Supabase deployment?** Purchase orders add two tables.
+> Re-run [`supabase/migration.sql`](supabase/migration.sql) — it is safe to
+> re-run — then `npm run check:supabase`. Until you do, the Purchase Orders tab
+> will error; vouchers keep working.
+
 ---
 
-## How it works day to day
+## Getting around
+
+The header has two rows. The first picks the **module** — Vouchers or Purchase
+Orders — and holds Settings. The second is that module's screens. Badges count
+what is outstanding: vouchers awaiting a scan, and orders still open.
+
+---
+
+## Vouchers
 
 | Screen | What it's for |
 |---|---|
-| **Landing** | Pick a company. The two workspaces share nothing — separate numbering, history, signatories. |
 | **Generate** | Set an internal note, switch on whichever fields are already known, press Generate. A live preview shows exactly what will print. |
 | **Pending** | Everything generated but not yet uploaded, oldest first, with how long each has been waiting. |
 | **History** | Every voucher ever issued. Search by number, recipient, internal note or description; filter by status, date range and amount. |
 | **History → Deleted** | Anything deleted, with a Restore button on each row. |
-| **Settings** | The company's saved Authorized Signatory names. |
 
 The lifecycle is: **Generate** → print → sign in person → scan → **Upload** →
 *Completed*. The Pending list exists so nothing gets stranded halfway.
@@ -62,29 +80,132 @@ Rupees Only*.
 private shorthand for searching later and never appears on the voucher; the
 description prints on the signed document.
 
-### Voucher numbers
+---
 
-`GR-202607-014` — company prefix, year+month, then a 3-digit sequence that
-restarts at `001` each month, counted separately per company. Numbers are
-assigned when the voucher is generated and are never reused or renumbered. A
-unique database constraint on `(company, period, seq)` is what enforces that,
-so two simultaneous generates can't collide.
+## Purchase orders
 
-### Deleting a voucher
+| Screen | What it's for |
+|---|---|
+| **New PO** | The editor. Vendor, dates, terms, line items, tax, notes. A live preview shows every page exactly as it will print. |
+| **Open** | Drafts and orders still out with a vendor, most urgent first — anything overdue on delivery leads. Shows the value outstanding per currency. |
+| **History** | Every order ever raised. Search by number, vendor, subject or internal note; filter by status, date range and total. |
+| **History → Deleted** | Anything deleted, with a Restore button on each row. |
 
-There's a **Delete** button on each row in Pending and History, and on the
-voucher's own page. It asks for confirmation first, then the voucher disappears
-from Pending, History and the counts.
+The lifecycle is short on purpose:
 
-The record itself is kept behind the scenes, for two reasons:
+```
+Draft ──▶ Issued ──▶ Closed          (closed by filing the invoice)
+             └────▶ Cancelled
+```
+
+Every transition can be reversed. A one-operator tool has nobody to appeal to
+when a status is set by mistake, so being able to put it back is worth more than
+a state machine that refuses.
+
+**Create & issue** does both in one press, so the PDF comes out without a DRAFT
+watermark and is ready to send. **Save as draft** stops short of that; a draft's
+PDF is stamped *DRAFT*, and a cancelled order's is stamped *CANCELLED*, because
+the vendor may already hold a copy of either.
+
+### Closing an order: file the invoice
+
+When the equipment arrives, photograph or scan the vendor's invoice and upload
+it on the order's page. **That closes the order** — one action, not two things
+to remember.
+
+This works because of what the portal is used to buy. For bulk materials the
+delivery note and the invoice are separate documents arriving at separate times,
+and closing needs a goods-receipt step of its own. For a laptop or a monitor the
+invoice comes *with* the item: it is the delivery document, the proof the order
+was fulfilled, and — long after the order is closed — the warranty record.
+
+Three loose ends are handled:
+
+- **Paid in advance, not yet delivered?** The invoice can arrive before the
+  goods do. Uploading it still closes the order, and **Reopen** puts it back.
+- **Closed without an invoice?** Both the order page and the lists flag it, so
+  an order can't quietly be marked done on a verbal say-so.
+- **Wrong file uploaded?** Removing it reopens the order and deletes the file.
+
+Cancelled orders are the one exception: filing an invoice against one attaches
+the document but leaves the status alone. Reviving a cancelled order should be a
+decision, not a side effect of filing paperwork.
+
+### Editing an issued order
+
+An issued PO stays editable, and saving re-renders its PDF in place. Two things
+protect you from that:
+
+- If a render was interrupted, the order page warns *"The PDF on file is older
+  than this order"* and offers **Re-render PDF** instead of Print, so a stale
+  file can't be sent by accident.
+- The PDF URL is versioned by its render time, so a browser that already
+  downloaded the old one does not serve it from cache.
+
+### Vendors
+
+There is no vendor directory to maintain. Typing a vendor name suggests every
+vendor previously ordered from, with how many orders each has; picking one fills
+in the address, contact, phone and tax number from the most recent order. Typing
+a name that isn't there is how a vendor gets added.
+
+### Money
+
+Currency, tax label, tax rate and whether tax shows at all are **per company**,
+set in **Settings → Purchase order defaults**, and can be overridden on any
+individual order. PKR, SAR, AED, USD, EUR and GBP are supported.
+
+The amount in words follows the currency: PKR counts in Lakh and Crore and says
+*Rupees*; SAR counts in Millions and says *Riyals*.
+
+Line totals, tax and the grand total are computed in exactly one place
+(`src/lib/po/totals.ts`), so the figure the operator saw while typing is the
+figure on the PDF and the figure History filters on.
+
+### Pages
+
+A purchase order is as long as it needs to be. Line items flow across pages,
+each continuation page repeats the table header and the PO number, and the
+footer numbers them *Page 2 of 3*.
+
+The closing block — totals, amount in words, notes, terms, signatures — is never
+split across a fold: a signature line separated from its totals is not a
+document anyone should sign. If it doesn't fit under the last row it moves to
+the next page, and line items are pulled forward with it so the last two pages
+end up evenly filled rather than one of them nearly blank.
+
+---
+
+## Document numbers
+
+```
+GR-202607-014        a voucher
+GR-PO-202608-001     a purchase order
+```
+
+Company prefix, a document-type segment for anything that isn't a voucher, then
+year+month and a 3-digit sequence that restarts at `001` each month. Each
+sequence is counted separately per company **and** per document type.
+
+Numbers are assigned when the record is created and are never reused or
+renumbered. A unique database constraint on `(company, period, seq)` is what
+enforces that, so two simultaneous creates can't collide.
+
+## Deleting
+
+There's a **Delete** button on every list row and on each record's own page. It
+asks for confirmation first, then the record disappears from the lists and the
+counts.
+
+The row itself is kept behind the scenes, for two reasons:
 
 - **The number stays spent.** The sequence allocator takes `MAX(seq) + 1`, so a
-  genuinely removed row would let the next voucher reuse a number that may
-  already have been printed and signed. Deleting leaves a gap in the sequence
-  instead — the same way a paper voucher book does.
-- **It's reversible.** Both files are retained, so a delete pressed by mistake
-  can be undone in full from **History → Deleted → Restore**. There are no
-  backups behind this tool, so an irreversible delete would be a poor trade.
+  genuinely removed row would let the next document reuse a number that may
+  already have been printed, signed, or sent to a vendor. Deleting leaves a gap
+  in the sequence instead — the same way a paper book does.
+- **It's reversible.** Files are retained, so a delete pressed by mistake can be
+  undone in full from **History → Deleted → Restore**. There are no backups
+  behind this tool, so an irreversible delete would be a poor trade.
 
 If you ever do need to purge a record and its files outright, that isn't in the
 UI by design — say the word and I'll add it as an explicit second step on the
@@ -92,19 +213,20 @@ Deleted view.
 
 ---
 
-## Deploying it (so you can upload scans from a phone)
+## Deploying it
 
 Local mode is fine for generating and printing, but the scan step usually
 happens away from the main computer. For that, the portal needs to be hosted.
 
-Deploys to Vercel as-is — there is no Chromium to work around, because the PDF
-is rendered in the operator's browser. See [PDF rendering](#pdf-rendering).
+Deploys to Vercel as-is — there is no Chromium to work around, because the PDFs
+are rendered in the operator's browser. See [PDF rendering](#pdf-rendering).
 
 1. Create a Supabase project.
 
 2. Run [`supabase/migration.sql`](supabase/migration.sql) in the SQL editor. It
-   creates both tables and a **private** `vouchers` storage bucket. Safe to
-   re-run.
+   creates all four tables and a **private** `vouchers` storage bucket. Safe to
+   re-run, and re-running is how an existing project picks up new tables and
+   columns.
 
 3. Copy the **secret** API key from **Project Settings → API keys** and put it
    in `.env` along with the project URL:
@@ -128,9 +250,10 @@ is rendered in the operator's browser. See [PDF rendering](#pdf-rendering).
    npm run check:supabase
    ```
 
-   This verifies the key is the right kind, the project is reachable, both
-   tables and the `deleted_at` column exist, the bucket exists and is private,
-   and that a file can be written and read back. Each failure tells you the fix.
+   This verifies the key is the right kind, the project is reachable, every
+   table and the columns added after the first release exist, the bucket exists
+   and is private, and that a file can be written and read back. Each failure
+   tells you the fix.
 
 5. Set `BACKEND=supabase` and restart.
 
@@ -144,36 +267,40 @@ variable. If it leaks, rotate it in the dashboard.
 existing deployment doesn't need renaming.
 
 Files are always served through the portal's own `/api/file/…` route rather than
-a public bucket URL, so a stored voucher or scan can't be read without a valid
+a public bucket URL, so a stored document or scan can't be read without a valid
 session — in either backend.
 
 ### PDF rendering
 
-Vouchers are rendered to PDF **in the operator's browser**, not on the server.
+Documents are rendered to PDF **in the operator's browser**, not on the server.
 
-That is a deliberate choice driven by the Urdu. The acknowledgment paragraph is
-Nastaliq, which needs real OpenType shaping — contextual joining, mark
-positioning, ligature substitution. The JavaScript PDF libraries don't implement
-it and would emit disconnected, unreadable letterforms. So a browser has to do
-the shaping, and rather than deploy Chromium to do it, the portal uses the
-browser that is already open in front of the operator:
+That is a deliberate choice driven by the voucher's Urdu. The acknowledgment
+paragraph is Nastaliq, which needs real OpenType shaping — contextual joining,
+mark positioning, ligature substitution. The JavaScript PDF libraries don't
+implement it and would emit disconnected, unreadable letterforms. So a browser
+has to do the shaping, and rather than deploy Chromium to do it, the portal uses
+the browser that is already open in front of the operator:
 
 ```
-voucher HTML  →  SVG <foreignObject>  →  <img>  →  <canvas>  →  JPEG  →  PDF
-                 (browser lays out             (288 dpi)      (one page,
-                  and shapes the text)                         Letter)
+document HTML  →  SVG <foreignObject>  →  <img>  →  <canvas>  →  JPEG  →  PDF
+                  (browser lays out            (288 dpi)      (one page
+                   and shapes the text)                        per sheet)
 ```
 
-The server only ever hands over the page as an SVG (`/api/voucher/[id]/sheet`)
-and takes back the finished PDF (`POST /api/voucher/[id]/pdf`). Consequences:
+The server only ever hands over the pages as SVG (`/api/voucher/[id]/sheet`,
+`/api/po/[id]/sheet`) and takes back the finished PDF. Consequences:
 
 - **Nothing to install and nothing to keep pinned.** No Chromium in the bundle,
   no `@sparticuz/chromium`, no cold-start penalty. Runs on Vercel's free tier.
-- **The PDF text is an image**, at 288 dpi (2448×3168 for Letter, ~400–500 KB).
-  It prints indistinguishably from vector; you just can't select text in it.
+- **The PDF text is an image**, at 288 dpi (2448×3168 per Letter page, ~400–500
+  KB). It prints indistinguishably from vector; you just can't select text in
+  it.
 - **Generation is two steps.** The server assigns the number, then the browser
-  renders. If the render fails the voucher still exists — its page says so and
-  offers **Render PDF** to retry, which rebuilds from the stored field values.
+  renders. If the render fails the record still exists — its page says so and
+  offers **Render PDF** to retry, which rebuilds from the stored values.
+
+Purchase orders take the same path, one SVG per page, rasterised one at a time
+so a phone never holds several 2448×3168 canvases at once.
 
 Two implementation details that are load-bearing, and were both found by testing
 rather than by reading the spec:
@@ -186,9 +313,23 @@ rather than by reading the spec:
   `toBlob()` then fails with a `SecurityError`.
 
 Fonts are bundled in `public/fonts` (Poppins and Noto Nastaliq Urdu, both OFL)
-and inlined into the SVG, so output is identical on any machine. Century Gothic
-is used when present; Poppins stands in otherwise, being the closest freely
-redistributable geometric sans.
+and inlined into the SVG, so output is identical on any machine. A purchase
+order asks for the Latin set only, which keeps 920 KB of Nastaliq out of every
+page it renders. Century Gothic is used when present; Poppins stands in
+otherwise, being the closest freely redistributable geometric sans.
+
+### Why the purchase order paginates on the server
+
+Page breaks have to be decided before the browser lays anything out, so the
+heights of the fixed blocks are stated as constants in `src/lib/po/template.ts`
+and a line-item row's height is estimated from how many lines its description
+will wrap to. Every constant there was measured from the real rendered CSS, and
+the wrap estimate is deliberately conservative: guessing one line too many costs
+a little white space, guessing one too few would run a row off the bottom edge.
+
+**If you change that CSS, re-measure.** The constants and the stylesheet are one
+mechanism split across two places, which is the price of not shipping a layout
+engine.
 
 ---
 
@@ -196,14 +337,30 @@ redistributable geometric sans.
 
 Add one entry to `COMPANIES` in `src/lib/companies.ts` — name, prefix, logo
 path, brand colours and the acknowledgment wording — and drop the logo into
-`public/logos`. Numbering, history, pending list, settings and the voucher
-template all follow from it; no other file needs to change.
+`public/logos`. Numbering, history, pending list, settings and both document
+templates all follow from it; no other file needs to change.
 
-For a new company's template, provide an **editable source** (DOCX or the
-original design file), not a flattened PDF. The Green Rock and Sportech layouts
-in `src/lib/template.ts` were reconstructed from their DOCX sources, which is
+The purchase order masthead sizes the logo by height, so any aspect ratio fits.
+The voucher reproduces each company's approved DOCX layout, so for a new
+company's voucher template, provide an **editable source** (DOCX or the original
+design file), not a flattened PDF — the Green Rock and Sportech layouts in
+`src/lib/template.ts` were reconstructed from their DOCX sources, which is
 possible because the structure and exact measurements are still in there. A
 flattened PDF has no such structure to work from.
+
+## Adding a module
+
+The portal is built to grow. A new module — delivery notes, invoices, a plant
+register — is:
+
+1. An entry in `MODULES` in `src/lib/modules.ts`, which draws the nav.
+2. Pages under `src/app/[company]/<segment>/`.
+3. An interface in `src/lib/db/types.ts` and a section in each backend. The
+   compiler names every method a backend is still missing.
+4. Optionally a section in `CompanySettings` (`src/lib/settings.ts`) — settings
+   are one JSON document per company, so that costs no schema change.
+
+Nothing existing has to be touched.
 
 ---
 
@@ -213,20 +370,33 @@ flattened PDF has no such structure to work from.
 src/
   lib/
     companies.ts     per-company brand, wording and numbering config
-    template.ts      the voucher itself — HTML/CSS, plus the SVG the browser rasterises
+    modules.ts       which modules a workspace has, and their tabs
+    settings.ts      per-company editable defaults, and their validation
+    money.ts         currencies, formatting, and amounts written out in words
+    format.ts        dates, timestamps, "3 days overdue"
+    doc-assets.ts    bundled fonts and logos, and the SVG page wrapper
+    template.ts      the voucher — HTML/CSS, plus its SVG
+    po/
+      types.ts       the purchase order domain model
+      totals.ts      line amounts, tax and the grand total — the only copy
+      template.ts    the purchase order, its CSS, and the paginator
+      actions.ts     server actions: create, save, status, settings
     client-pdf.ts    browser-side SVG → canvas → JPEG → PDF
-    single-image-pdf.ts  minimal one-page PDF writer (no dependencies)
-    amount-words.ts  PKR amounts in South Asian numbering
-    actions.ts       server actions: generate, upload, signatories
+    image-pdf.ts     minimal multi-page PDF writer (no dependencies)
+    use-sheet-pdf.ts the render-and-file hook both document types use
+    amount-words.ts  the voucher's PKR wording, on top of money.ts
+    actions.ts       voucher server actions
     auth.ts          the password gate
+    uploads.ts       the one whitelist and size limit for scanned uploads
     storage.ts       file storage — local disk or Supabase Storage
     db/
-      types.ts       the Store interface both backends implement
+      types.ts       the Store interface, one section per module
+      shared.ts      numbering, row mapping, vendor rollup
       sqlite.ts      local backend
       supabase.ts    hosted backend
   app/               screens (Next.js App Router)
-  components/        form, toggles, preview, upload
+  components/        forms, toggles, previews, upload
 ```
 
-The preview and the PDF are rendered from the same function in `template.ts`, so
-what the operator sees while typing cannot drift from what prints.
+Each document's preview and its PDF are rendered from the same function, so what
+the operator sees while typing cannot drift from what prints.

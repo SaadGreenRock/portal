@@ -2,14 +2,22 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { COMPANIES, type CompanySlug } from "../companies";
+import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
+import { mergeSettings, type CompanySettings } from "../settings";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewVoucher, Store } from "./types";
+import type { NewPurchaseOrder, NewVoucher, Store } from "./types";
 import {
   denormalize,
+  denormalizePo,
+  formatPoNo,
   formatVoucherNo,
   newId,
   periodOf,
+  poStatusPatch,
+  rowToPo,
   rowToVoucher,
+  vendorProfilesFrom,
+  type PoRow,
   type VoucherRow,
 } from "./shared";
 
@@ -79,6 +87,50 @@ function connect(): Database.Database {
       created_at TEXT NOT NULL,
       UNIQUE (company, name)
     );
+
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id            TEXT PRIMARY KEY,
+      po_no         TEXT NOT NULL UNIQUE,
+      company       TEXT NOT NULL,
+      status        TEXT NOT NULL,
+      seq           INTEGER NOT NULL,
+      period        TEXT NOT NULL,
+      internal_note TEXT NOT NULL DEFAULT '',
+      -- The whole typed document. Adding a field to a PO costs nothing here.
+      doc           TEXT NOT NULL,
+      -- Lifted out of doc so lists and filters never deserialise a row.
+      vendor_name   TEXT NOT NULL DEFAULT '',
+      subject       TEXT NOT NULL DEFAULT '',
+      currency      TEXT NOT NULL DEFAULT 'PKR',
+      subtotal      REAL NOT NULL DEFAULT 0,
+      total         REAL NOT NULL DEFAULT 0,
+      po_date       TEXT,
+      delivery_date TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      issued_at     TEXT,
+      closed_at     TEXT,
+      deleted_at    TEXT,
+      pdf_key       TEXT,
+      pdf_at        TEXT,
+      invoice_key   TEXT,
+      invoice_name  TEXT,
+      invoice_at    TEXT,
+      -- Same guarantee as vouchers: a number is never handed out twice.
+      UNIQUE (company, period, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS po_company_status ON purchase_orders (company, status);
+    CREATE INDEX IF NOT EXISTS po_company_date ON purchase_orders (company, po_date DESC);
+    CREATE INDEX IF NOT EXISTS po_company_vendor ON purchase_orders (company, vendor_name);
+
+    -- One JSON document of settings per company, so a new module can add a
+    -- section without a schema change.
+    CREATE TABLE IF NOT EXISTS company_settings (
+      company    TEXT PRIMARY KEY,
+      data       TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   migrate(handle);
@@ -88,18 +140,40 @@ function connect(): Database.Database {
 }
 
 /**
- * Brings a database created by an earlier version up to date. CREATE TABLE IF
- * NOT EXISTS won't add columns to a table that already exists, so new columns
- * have to be applied explicitly.
+ * Columns added after a table first shipped.
+ *
+ * CREATE TABLE IF NOT EXISTS won't touch a table that already exists, so a
+ * database created by an earlier version keeps its old shape until these are
+ * applied. Every column here must be nullable — there is no backfill.
  */
+const ADDED_COLUMNS: Array<[table: string, column: string, type: string]> = [
+  ["vouchers", "deleted_at", "TEXT"],
+  ["purchase_orders", "pdf_at", "TEXT"],
+  ["purchase_orders", "invoice_key", "TEXT"],
+  ["purchase_orders", "invoice_name", "TEXT"],
+  ["purchase_orders", "invoice_at", "TEXT"],
+];
+
+/** Brings a database created by an earlier version up to date. */
 function migrate(handle: Database.Database) {
-  const columns = new Set(
-    (handle.prepare(`PRAGMA table_info(vouchers)`).all() as Array<{ name: string }>).map(
-      (c) => c.name,
-    ),
-  );
-  if (!columns.has("deleted_at")) {
-    handle.exec(`ALTER TABLE vouchers ADD COLUMN deleted_at TEXT`);
+  const columnsOf = (table: string) =>
+    new Set(
+      (handle.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    );
+
+  const seen = new Map<string, Set<string>>();
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    let existing = seen.get(table);
+    if (!existing) {
+      existing = columnsOf(table);
+      seen.set(table, existing);
+    }
+    if (!existing.has(column)) {
+      handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      existing.add(column);
+    }
   }
 }
 
@@ -327,5 +401,285 @@ export const sqliteStore: Store = {
 
   async removeSignatory(id) {
     connect().prepare(`DELETE FROM signatories WHERE id = ?`).run(id);
+  },
+
+  /* ---- purchase orders ------------------------------------------------- */
+
+  async createPo({ company, internalNote, doc }: NewPurchaseOrder): Promise<PurchaseOrder> {
+    const handle = connect();
+    const period = periodOf();
+    const now = new Date().toISOString();
+    const d = denormalizePo(doc);
+
+    const insert = handle.prepare(`
+      INSERT INTO purchase_orders (
+        id, po_no, company, status, seq, period, internal_note, doc,
+        vendor_name, subject, currency, subtotal, total, po_date, delivery_date,
+        created_at, updated_at
+      ) VALUES (
+        @id, @po_no, @company, 'draft', @seq, @period, @internal_note, @doc,
+        @vendor_name, @subject, @currency, @subtotal, @total, @po_date, @delivery_date,
+        @created_at, @created_at
+      )
+    `);
+
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM purchase_orders
+        WHERE company = ? AND period = ?`,
+    );
+
+    // As with vouchers, the UNIQUE (company, period, seq) constraint is the real
+    // guard; the retry loop just picks up the next free number if we lost a race.
+    const claim = handle.transaction((): PoRow => {
+      const { seq } = nextSeq.get(company, period) as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        po_no: formatPoNo(company, period, seq),
+        company,
+        seq,
+        period,
+        internal_note: internalNote,
+        doc: JSON.stringify(doc),
+        created_at: now,
+        ...d,
+      });
+      return handle.prepare(`SELECT * FROM purchase_orders WHERE id = ?`).get(id) as PoRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToPo(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a purchase order number after several attempts");
+  },
+
+  async getPo(id) {
+    const row = connect().prepare(`SELECT * FROM purchase_orders WHERE id = ?`).get(id) as
+      | PoRow
+      | undefined;
+    return row ? rowToPo(row) : null;
+  },
+
+  async updatePo(id, doc: PoDoc, internalNote: string) {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE purchase_orders SET
+            doc = @doc, internal_note = @internal_note, updated_at = @updated_at,
+            vendor_name = @vendor_name, subject = @subject, currency = @currency,
+            subtotal = @subtotal, total = @total,
+            po_date = @po_date, delivery_date = @delivery_date
+          WHERE id = @id`,
+      )
+      .run({
+        id,
+        doc: JSON.stringify(doc),
+        internal_note: internalNote,
+        updated_at: new Date().toISOString(),
+        ...denormalizePo(doc),
+      });
+
+    const row = handle.prepare(`SELECT * FROM purchase_orders WHERE id = ?`).get(id) as
+      | PoRow
+      | undefined;
+    if (!row) throw new Error("Purchase order not found");
+    return rowToPo(row);
+  },
+
+  async setPoStatus(id, status: PoStatus) {
+    const handle = connect();
+    const row = handle.prepare(`SELECT * FROM purchase_orders WHERE id = ?`).get(id) as
+      | PoRow
+      | undefined;
+    if (!row) throw new Error("Purchase order not found");
+
+    const patch = poStatusPatch(rowToPo(row), status, new Date().toISOString());
+    handle
+      .prepare(
+        `UPDATE purchase_orders
+            SET status = @status, updated_at = @updated_at,
+                issued_at = @issued_at, closed_at = @closed_at
+          WHERE id = @id`,
+      )
+      .run({ id, ...patch });
+  },
+
+  async attachPoPdf(id, pdfKey) {
+    // updated_at is deliberately untouched: rendering the PDF is not an edit to
+    // the document, and pdf_at older than updated_at is how a stale file is spotted.
+    connect()
+      .prepare(`UPDATE purchase_orders SET pdf_key = ?, pdf_at = ? WHERE id = ?`)
+      .run(pdfKey, new Date().toISOString(), id);
+  },
+
+  async attachPoInvoice(id, invoiceKey, invoiceName) {
+    const now = new Date().toISOString();
+    // A cancelled order that turns out to have been delivered anyway keeps its
+    // status: reviving it is a decision for the operator, not a side effect of
+    // filing a document.
+    connect()
+      .prepare(
+        `UPDATE purchase_orders
+            SET invoice_key = @key, invoice_name = @name, invoice_at = @now,
+                updated_at = @now,
+                status    = CASE WHEN status = 'cancelled' THEN status ELSE 'closed' END,
+                closed_at = CASE WHEN status = 'cancelled' THEN closed_at ELSE @now END
+          WHERE id = @id`,
+      )
+      .run({ id, key: invoiceKey, name: invoiceName, now });
+  },
+
+  async removePoInvoice(id) {
+    const now = new Date().toISOString();
+    connect()
+      .prepare(
+        `UPDATE purchase_orders
+            SET invoice_key = NULL, invoice_name = NULL, invoice_at = NULL,
+                updated_at = @now,
+                status    = CASE WHEN status = 'closed' THEN 'issued' ELSE status END,
+                closed_at = CASE WHEN status = 'closed' THEN NULL ELSE closed_at END
+          WHERE id = @id`,
+      )
+      .run({ id, now });
+  },
+
+  async softDeletePo(id) {
+    connect()
+      .prepare(
+        `UPDATE purchase_orders SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .run(new Date().toISOString(), id);
+  },
+
+  async restorePo(id) {
+    connect().prepare(`UPDATE purchase_orders SET deleted_at = NULL WHERE id = ?`).run(id);
+  },
+
+  async searchPos(query: PoQuery) {
+    const handle = connect();
+    const where: string[] = ["company = @company"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    if (query.status === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+      if (query.status === "open") {
+        where.push(`status IN (${OPEN_STATUSES.map((s) => `'${s}'`).join(", ")})`);
+      } else if (query.status && query.status !== "all") {
+        where.push("status = @status");
+        params.status = query.status;
+      }
+    }
+    if (query.q?.trim()) {
+      where.push(`(
+        po_no         LIKE @q COLLATE NOCASE OR
+        vendor_name   LIKE @q COLLATE NOCASE OR
+        subject       LIKE @q COLLATE NOCASE OR
+        internal_note LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+    if (query.from) {
+      where.push("po_date IS NOT NULL AND date(po_date) >= date(@from)");
+      params.from = query.from;
+    }
+    if (query.to) {
+      where.push("po_date IS NOT NULL AND date(po_date) <= date(@to)");
+      params.to = query.to;
+    }
+    if (query.minAmount != null) {
+      where.push("total >= @minAmount");
+      params.minAmount = query.minAmount;
+    }
+    if (query.maxAmount != null) {
+      where.push("total <= @maxAmount");
+      params.maxAmount = query.maxAmount;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM purchase_orders WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    // Ordered by PO date with created_at as the tie-break, so two orders raised
+    // the same day still come back in the order they were raised.
+    const rows = handle
+      .prepare(
+        `SELECT * FROM purchase_orders WHERE ${clause}
+          ORDER BY po_date DESC, created_at DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as PoRow[];
+
+    return { rows: rows.map(rowToPo), total };
+  },
+
+  async poCounts(company: CompanySlug): Promise<PoCounts> {
+    const rows = connect()
+      .prepare(
+        `SELECT status, COUNT(*) AS n FROM purchase_orders
+          WHERE company = ? AND deleted_at IS NULL
+          GROUP BY status`,
+      )
+      .all(company) as Array<{ status: string; n: number }>;
+
+    const of = (s: PoStatus) => rows.find((r) => r.status === s)?.n ?? 0;
+    const draft = of("draft");
+    const issued = of("issued");
+    return {
+      draft,
+      issued,
+      closed: of("closed"),
+      cancelled: of("cancelled"),
+      open: draft + issued,
+      total: rows.reduce((sum, r) => sum + r.n, 0),
+    };
+  },
+
+  async listVendors(company) {
+    // Capped: this feeds an autocomplete, and a few hundred distinct vendors is
+    // already far more than a workspace of this size will ever have.
+    const rows = connect()
+      .prepare(
+        `SELECT doc, created_at FROM purchase_orders
+          WHERE company = ? AND deleted_at IS NULL AND vendor_name <> ''
+          ORDER BY created_at DESC
+          LIMIT 600`,
+      )
+      .all(company) as Array<{ doc: string; created_at: string }>;
+    return vendorProfilesFrom(rows);
+  },
+
+  /* ---- settings -------------------------------------------------------- */
+
+  async getSettings(company): Promise<CompanySettings> {
+    const row = connect()
+      .prepare(`SELECT data FROM company_settings WHERE company = ?`)
+      .get(company) as { data: string } | undefined;
+    if (!row) return mergeSettings(null);
+    try {
+      return mergeSettings(JSON.parse(row.data));
+    } catch {
+      // Corrupt JSON should give the operator working defaults, not a 500.
+      return mergeSettings(null);
+    }
+  },
+
+  async saveSettings(company, patch) {
+    const current = await sqliteStore.getSettings(company);
+    const next = mergeSettings({ ...current, ...patch, po: { ...current.po, ...patch.po } });
+    connect()
+      .prepare(
+        `INSERT INTO company_settings (company, data, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT (company) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+      )
+      .run(company, JSON.stringify(next), new Date().toISOString());
+    return next;
   },
 };
