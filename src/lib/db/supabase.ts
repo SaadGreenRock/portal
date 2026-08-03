@@ -9,6 +9,7 @@ import {
   type RfqStatus,
 } from "../rfq/types";
 import { mergeSettings, type CompanySettings } from "../settings";
+import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
 import type { NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
@@ -719,6 +720,50 @@ export const supabaseStore: Store = {
       open: draft + sent,
       total: draft + sent + closed + cancelled,
     };
+  },
+
+  /* ---- expenditure ------------------------------------------------------ */
+
+  async spendRows(company: CompanySlug): Promise<SpendRow[]> {
+    const db = supabase();
+
+    // Vouchers are PKR by construction; see the note in the SQLite backend.
+    const [vouchers, orders] = await Promise.all([
+      db
+        .from(TABLE)
+        .select("status, amount, voucher_date, created_at")
+        .eq("company", company)
+        .is("deleted_at", null),
+      db
+        .from(POS)
+        .select("status, currency, total, po_date, created_at")
+        .eq("company", company)
+        .is("deleted_at", null),
+    ]);
+    if (vouchers.error) throw vouchers.error;
+    if (orders.error) throw orders.error;
+
+    const day = (value: string | null, fallback: string) =>
+      (value ?? fallback).slice(0, 10);
+
+    return [
+      ...(vouchers.data ?? []).map((v) => ({
+        kind: "voucher" as const,
+        company,
+        status: String(v.status),
+        currency: "PKR",
+        amount: v.amount == null ? null : Number(v.amount),
+        date: day(v.voucher_date as string | null, String(v.created_at)),
+      })),
+      ...(orders.data ?? []).map((o) => ({
+        kind: "po" as const,
+        company,
+        status: String(o.status),
+        currency: String(o.currency || "PKR"),
+        amount: o.total == null ? null : Number(o.total),
+        date: day(o.po_date as string | null, String(o.created_at)),
+      })),
+    ];
   },
 
   /* ---- settings -------------------------------------------------------- */

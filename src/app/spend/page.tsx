@@ -1,0 +1,290 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { isAuthenticated } from "@/lib/auth";
+import { COMPANY_LIST, type Company } from "@/lib/companies";
+import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+import { formatMoney } from "@/lib/money";
+import {
+  RANGE_LABELS,
+  summarise,
+  withinRange,
+  type SpendRange,
+  type SpendRow,
+  type SpendSummary,
+} from "@/lib/spend/types";
+
+/**
+ * Expenditure across both companies.
+ *
+ * Deliberately outside /[company]: the point of the page is the combined figure,
+ * which belongs to neither workspace. Each company's own total sits underneath,
+ * so "separately, and together" is one screen rather than three.
+ *
+ * The report shows Paid out and Committed on separate lines before combining
+ * them, because they are different claims: a voucher is money that has left and
+ * been signed for, while a purchase order is money promised to a vendor that may
+ * not have been paid yet. A single blended number would read as authoritative
+ * and mean neither thing.
+ */
+
+const RANGES: SpendRange[] = ["all", "year", "month"];
+
+export default async function Expenditure({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>;
+}) {
+  if (!(await isAuthenticated())) redirect(`/login?next=${encodeURIComponent("/spend")}`);
+
+  const { range: rangeParam } = await searchParams;
+  const range: SpendRange = RANGES.includes(rangeParam as SpendRange)
+    ? (rangeParam as SpendRange)
+    : "all";
+
+  const db = await store();
+  const now = new Date();
+
+  // Tolerated per company: an unmigrated purchase order table must not stop the
+  // voucher half of the report from being readable.
+  const perCompany = await Promise.all(
+    COMPANY_LIST.map(async (company) => {
+      const result = await tryTable(() => db.spendRows(company.slug));
+      const rows = (result.ok ? result.value : []).filter((r) => withinRange(r, range, now));
+      return { company, rows, available: result.ok };
+    }),
+  );
+
+  const everything: SpendRow[] = perCompany.flatMap((c) => c.rows);
+  const combined = summarise(everything);
+  const anyMissing = perCompany.some((c) => !c.available);
+
+  return (
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
+          <p className="mt-1 text-[14px] text-ink-soft">
+            Both companies together, and each on its own. From vouchers and purchase orders.
+          </p>
+        </div>
+        <Link href="/" className="btn btn-ghost">
+          ← Companies
+        </Link>
+      </div>
+
+      {/* Range filters live in the URL, so a view can be bookmarked. */}
+      <nav className="mb-6 flex flex-wrap gap-1.5">
+        {RANGES.map((r) => (
+          <Link
+            key={r}
+            href={r === "all" ? "/spend" : `/spend?range=${r}`}
+            aria-current={r === range ? "page" : undefined}
+            className={`rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+              r === range
+                ? "bg-[#104751] text-white"
+                : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+            }`}
+          >
+            {RANGE_LABELS[r]}
+          </Link>
+        ))}
+      </nav>
+
+      {anyMissing ? (
+        <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
+          Purchase orders are not set up on this database, so these figures cover vouchers only.
+          Run <code className="font-mono">supabase/migration.sql</code> and reload.
+        </p>
+      ) : null}
+
+      {/* ---- both companies together ------------------------------------- */}
+      <section className="card mb-5 overflow-hidden">
+        <header className="border-b border-ink-line px-5 py-4">
+          <h2 className="text-[16px] font-semibold">Both companies</h2>
+          <p className="mt-0.5 text-[12.5px] text-ink-soft">
+            {RANGE_LABELS[range]}, across {COMPANY_LIST.map((c) => c.name).join(" and ")}.
+          </p>
+        </header>
+
+        <Totals summary={combined} emphasis />
+
+        {/* The breakdown that makes the combined figure checkable. */}
+        <div className="border-t border-ink-line">
+          <p className="label px-5 pt-4">Split by company</p>
+          <dl className="divide-y divide-ink-line">
+            {perCompany.map(({ company, rows }) => {
+              const s = summarise(rows);
+              return (
+                <div
+                  key={company.slug}
+                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
+                >
+                  <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
+                    <span
+                      aria-hidden
+                      className="block h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: company.theme.ui }}
+                    />
+                    {company.name}
+                  </dt>
+                  <dd className="mono text-[13.5px] font-semibold">
+                    {s.byCurrency.length === 0 ? (
+                      <span className="font-normal text-ink-soft">nothing recorded</span>
+                    ) : (
+                      s.byCurrency
+                        .map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
+                        .join("  ·  ")
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        </div>
+      </section>
+
+      {/* ---- each company on its own -------------------------------------- */}
+      <div className="grid gap-5 sm:grid-cols-2">
+        {perCompany.map(({ company, rows }) => (
+          <CompanyCard key={company.slug} company={company} summary={summarise(rows)} range={range} />
+        ))}
+      </div>
+
+      <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
+        Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
+        nothing has been promised to a vendor yet. Currencies are never added together.
+      </p>
+    </main>
+  );
+}
+
+function CompanyCard({
+  company,
+  summary,
+  range,
+}: {
+  company: Company;
+  summary: SpendSummary;
+  range: SpendRange;
+}) {
+  return (
+    <section className="card overflow-hidden">
+      <header
+        className="flex items-center gap-3 border-b border-ink-line px-5 py-4"
+        style={{ borderTop: `3px solid ${company.theme.ui}` }}
+      >
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[16px] font-semibold">{company.name}</h2>
+          <p className="mt-0.5 text-[12.5px] text-ink-soft">{RANGE_LABELS[range]}</p>
+        </div>
+        <Link
+          href={`/${company.slug}`}
+          className="shrink-0 text-[13px] text-ink-soft hover:text-ink"
+        >
+          Open →
+        </Link>
+      </header>
+
+      <Totals summary={summary} />
+    </section>
+  );
+}
+
+/**
+ * The three lines, per currency.
+ *
+ * Paid and Committed are separate because they answer different questions, and
+ * the combined line sits under a rule so it reads as their sum rather than as a
+ * fourth independent figure.
+ */
+function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boolean }) {
+  const { byCurrency, counts } = summary;
+
+  if (byCurrency.length === 0) {
+    return (
+      <p className="px-5 py-6 text-[13.5px] text-ink-soft">
+        Nothing recorded in this period.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {byCurrency.map((t) => (
+        <div key={t.currency} className="border-b border-ink-line px-5 py-4 last:border-b-0">
+          {byCurrency.length > 1 ? (
+            <p className="label mb-2.5">{t.currency}</p>
+          ) : null}
+
+          <dl className="space-y-1.5">
+            <Line label="Paid out — vouchers" value={t.paid} currency={t.currency} />
+            <Line label="Committed — purchase orders" value={t.committed} currency={t.currency} />
+
+            <div className="flex items-baseline justify-between gap-4 border-t border-ink-line pt-2.5">
+              <dt className={`font-semibold ${emphasis ? "text-[15px]" : "text-[13.5px]"}`}>
+                Combined
+              </dt>
+              <dd className={`mono font-bold ${emphasis ? "text-[20px]" : "text-[16px]"}`}>
+                {t.currency} {formatMoney(t.total, t.currency)}
+              </dd>
+            </div>
+
+            {t.draft > 0 ? (
+              <div className="flex items-baseline justify-between gap-4 pt-1 text-[12.5px] text-ink-soft">
+                <dt>Draft orders, not counted</dt>
+                <dd className="mono">
+                  {t.currency} {formatMoney(t.draft, t.currency)}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      ))}
+
+      {/* The gap in the figure, stated rather than hidden. */}
+      {counts.vouchersWithoutAmount > 0 || counts.ordersCancelled > 0 ? (
+        <div className="border-t border-ink-line bg-[#fbfbfa] px-5 py-3">
+          {counts.vouchersWithoutAmount > 0 ? (
+            <p className="text-[12.5px] leading-snug text-amber-800">
+              <strong className="font-semibold">
+                {counts.vouchersWithoutAmount} of {counts.vouchers} vouchers
+              </strong>{" "}
+              had the amount left blank to be written by hand, so no figure was recorded and they
+              are not in the total above.
+            </p>
+          ) : null}
+          {counts.ordersCancelled > 0 ? (
+            <p className="mt-1 text-[12.5px] text-ink-soft">
+              {counts.ordersCancelled} cancelled {counts.ordersCancelled === 1 ? "order" : "orders"}{" "}
+              excluded.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function Line({
+  label,
+  value,
+  currency,
+}: {
+  label: string;
+  value: number;
+  currency: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 text-[13.5px]">
+      <dt className="text-ink-soft">{label}</dt>
+      <dd className="mono">
+        {value > 0 ? (
+          `${currency} ${formatMoney(value, currency)}`
+        ) : (
+          <span className="text-ink-soft">—</span>
+        )}
+      </dd>
+    </div>
+  );
+}

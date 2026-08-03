@@ -11,6 +11,7 @@ import {
   type RfqStatus,
 } from "../rfq/types";
 import { mergeSettings, type CompanySettings } from "../settings";
+import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
 import type { NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
@@ -929,6 +930,55 @@ export const sqliteStore: Store = {
       open: draft + sent,
       total: rows.reduce((sum, r) => sum + r.n, 0),
     };
+  },
+
+  /* ---- expenditure ------------------------------------------------------ */
+
+  async spendRows(company: CompanySlug): Promise<SpendRow[]> {
+    const handle = connect();
+
+    // Vouchers are PKR by construction — the template prints "AMOUNT PAID (PKR)"
+    // and amount-words.ts speaks Rupees — so the currency is stated rather than
+    // stored. `amount` is NULL when the operator left it blank to write by hand.
+    const vouchers = handle
+      .prepare(
+        `SELECT status, amount, COALESCE(voucher_date, date(created_at)) AS date
+           FROM vouchers
+          WHERE company = ? AND deleted_at IS NULL`,
+      )
+      .all(company) as Array<{ status: string; amount: number | null; date: string }>;
+
+    const orders = handle
+      .prepare(
+        `SELECT status, currency, total, COALESCE(po_date, date(created_at)) AS date
+           FROM purchase_orders
+          WHERE company = ? AND deleted_at IS NULL`,
+      )
+      .all(company) as Array<{
+      status: string;
+      currency: string;
+      total: number | null;
+      date: string;
+    }>;
+
+    return [
+      ...vouchers.map((v) => ({
+        kind: "voucher" as const,
+        company,
+        status: v.status,
+        currency: "PKR",
+        amount: v.amount,
+        date: v.date,
+      })),
+      ...orders.map((o) => ({
+        kind: "po" as const,
+        company,
+        status: o.status,
+        currency: o.currency || "PKR",
+        amount: o.total,
+        date: o.date,
+      })),
+    ];
   },
 
   /* ---- settings -------------------------------------------------------- */

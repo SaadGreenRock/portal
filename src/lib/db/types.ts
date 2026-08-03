@@ -15,6 +15,7 @@ import type {
   RfqStatus,
 } from "../rfq/types";
 import type { CompanySettings } from "../settings";
+import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher, VoucherFields } from "../types";
 
 /**
@@ -163,6 +164,20 @@ export interface RfqStore {
   rfqCounts(company: CompanySlug): Promise<RfqCounts>;
 }
 
+export interface SpendStore {
+  /**
+   * Every non-deleted voucher and purchase order for a company, reduced to what
+   * a total needs.
+   *
+   * Deliberately not aggregated in the database. PostgREST cannot GROUP BY
+   * without a stored function, and adding one would mean another migration the
+   * operator has to remember to run; at this scale — a small company's
+   * paperwork — selecting five columns and adding them up in the app costs
+   * nothing. It would need revisiting at tens of thousands of records.
+   */
+  spendRows(company: CompanySlug): Promise<SpendRow[]>;
+}
+
 export interface SettingsStore {
   /** Always returns a complete object; unset fields fall back to the defaults. */
   getSettings(company: CompanySlug): Promise<CompanySettings>;
@@ -170,4 +185,4 @@ export interface SettingsStore {
   saveSettings(company: CompanySlug, patch: Partial<CompanySettings>): Promise<CompanySettings>;
 }
 
-export interface Store extends VoucherStore, PoStore, RfqStore, SettingsStore {}
+export interface Store extends VoucherStore, PoStore, RfqStore, SpendStore, SettingsStore {}

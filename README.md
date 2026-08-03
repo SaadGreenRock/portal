@@ -11,7 +11,8 @@ and consistent. It currently does two things:
   *blank*, for vendors to fill in and send back.
 
 Each company is its own workspace. They share nothing: separate numbering,
-separate history, separate settings.
+separate history, separate settings. **Expenditure** is the one screen that spans
+both, because one person runs them and sometimes needs the combined figure.
 
 It does not replace the handwritten signature — it makes the paper trail
 numbered, organised and findable.
@@ -267,6 +268,49 @@ Defaults live in **Settings → Quotation request defaults**: which currency to 
 vendors to quote in, how many days they get to reply, where to send the answer,
 and the conditions of quoting printed at the foot.
 
+## Expenditure
+
+`/spend`, reachable from the company picker and from **Expenditure** in any
+workspace's header. Both companies together, each on its own underneath, filtered
+to all time, this year or this month.
+
+The report refuses to give you one blended number, and that is the whole point of
+it:
+
+```
+Paid out — vouchers            PKR   246,000     money that has left
+Committed — purchase orders    PKR 1,910,420     promised to a vendor
+─────────────────────────────────────────────
+Combined                       PKR 2,156,420
+Draft orders, not counted      PKR    69,384     promised to nobody yet
+```
+
+A voucher is money someone has signed for. A purchase order is money committed
+that may not have been paid. Adding them without saying so would produce a
+confident figure meaning two different things, so they get their own lines and
+are combined only after.
+
+What is left out, and why:
+
+- **Drafts** are shown but excluded — nothing has been promised to a vendor yet.
+- **Cancelled orders** are excluded, and the count is stated so the omission is
+  visible rather than silent.
+- **Deleted** records of any kind are excluded.
+- **Currencies are never added together.** A PKR total and an SAR total are
+  reported side by side, because a single number spanning both would look
+  authoritative and mean nothing.
+
+And the gap worth knowing about: a voucher whose amount was **left blank to be
+written by hand** has no figure to count. The report says so — *"1 of 6 vouchers
+had the amount left blank"* — because a total that quietly omits some of your
+spending is worse than one that admits what it is missing.
+
+Figures are added up in the application rather than the database. PostgREST
+cannot `GROUP BY` without a stored function, and adding one would mean another
+migration to remember; at the scale of a small company's paperwork, selecting
+five columns and summing them costs nothing. It would need revisiting at tens of
+thousands of records.
+
 ## Document numbers
 
 ```
@@ -507,6 +551,8 @@ src/
       template.ts    the request, its CSS, and its own measured paginator
       parse.ts       as po/parse.ts, sharing its text validation
       actions.ts     server actions
+    spend/
+      types.ts       expenditure roll-up — the only place totals are decided
     client-pdf.ts    browser-side SVG → canvas → JPEG → PDF
     image-pdf.ts     minimal multi-page PDF writer (no dependencies)
     use-sheet-pdf.ts the render-and-file hook both document types use

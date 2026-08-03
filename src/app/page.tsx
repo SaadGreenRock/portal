@@ -107,6 +107,21 @@ export default async function Landing() {
           );
         })}
       </div>
+
+      {authed ? (
+        <Link
+          href="/spend"
+          className="card mt-4 flex items-center justify-between gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+        >
+          <div>
+            <div className="text-[15px] font-semibold">Expenditure</div>
+            <div className="mt-0.5 text-[13px] text-ink-soft">
+              Both companies together, and each on its own.
+            </div>
+          </div>
+          <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+        </Link>
+      ) : null}
     </main>
   );
 }
