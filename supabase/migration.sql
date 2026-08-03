@@ -115,6 +115,46 @@ create index if not exists po_company_vendor_idx
   on public.purchase_orders (company, vendor_name);
 
 -- ---------------------------------------------------------------------------
+-- Requests for quotation
+-- ---------------------------------------------------------------------------
+-- The opposite of a purchase order in the one way that matters: a PO states the
+-- prices, an RFQ leaves them blank for the vendor to fill in. So there is no
+-- money on this table and nothing to total -- item_count stands in where a
+-- purchase order keeps subtotal and total.
+create table if not exists public.requests_for_quotation (
+  id            uuid primary key,
+  rfq_no        text        not null unique,
+  company       text        not null,
+  status        text        not null default 'draft'
+                            check (status in ('draft', 'sent', 'closed', 'cancelled')),
+  seq           integer     not null,
+  period        text        not null,           -- yyyymm, e.g. 202608
+  internal_note text        not null default '',
+  doc           jsonb       not null,
+  subject       text        not null default '',
+  currency      text        not null default 'PKR',
+  item_count    integer     not null default 0,
+  rfq_date      date,
+  reply_by      date,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  sent_at       timestamptz,
+  closed_at     timestamptz,
+  -- Same reasoning as the others: the row stays so the number stays spent.
+  deleted_at    timestamptz,
+  pdf_key       text,
+  -- Older than updated_at means the stored PDF predates the current document.
+  pdf_at        timestamptz,
+  constraint requests_for_quotation_company_period_seq_key unique (company, period, seq)
+);
+
+create index if not exists rfq_company_status_idx
+  on public.requests_for_quotation (company, status);
+
+create index if not exists rfq_company_date_idx
+  on public.requests_for_quotation (company, rfq_date desc);
+
+-- ---------------------------------------------------------------------------
 -- Per-company settings
 -- ---------------------------------------------------------------------------
 -- One JSON document per company. A new module adds a section to the document
@@ -125,10 +165,11 @@ create table if not exists public.company_settings (
   updated_at timestamptz not null default now()
 );
 
-alter table public.vouchers         enable row level security;
-alter table public.signatories      enable row level security;
-alter table public.purchase_orders  enable row level security;
-alter table public.company_settings enable row level security;
+alter table public.vouchers               enable row level security;
+alter table public.signatories            enable row level security;
+alter table public.purchase_orders        enable row level security;
+alter table public.requests_for_quotation enable row level security;
+alter table public.company_settings       enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 

@@ -12,7 +12,7 @@ import type { Company } from "./companies";
  * database import (it is used by client components).
  */
 
-export type ModuleKey = "vouchers" | "po";
+export type ModuleKey = "vouchers" | "po" | "rfq";
 
 export interface ModuleTab {
   /** Appended to the module's base path. "" is the module's own index. */
@@ -57,6 +57,19 @@ export const MODULES: PortalModule[] = [
     tabs: [
       { segment: "new", label: "New PO" },
       { segment: "", label: "Open", badge: "po" },
+      { segment: "history", label: "History" },
+    ],
+  },
+  {
+    key: "rfq",
+    segment: "rfq",
+    label: "Quotations",
+    blurb:
+      "Requests for quotation \u2014 what you want priced, with the prices left blank for the vendor.",
+    home: "",
+    tabs: [
+      { segment: "new", label: "New request" },
+      { segment: "", label: "Open", badge: "rfq" },
       { segment: "history", label: "History" },
     ],
   },

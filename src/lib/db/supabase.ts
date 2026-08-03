@@ -1,22 +1,34 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { CompanySlug } from "../companies";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
+import {
+  RFQ_OPEN_STATUSES,
+  type RfqCounts,
+  type RfqDoc,
+  type RfqQuery,
+  type RfqStatus,
+} from "../rfq/types";
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewPurchaseOrder, NewVoucher, Store } from "./types";
+import type { NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
   denormalize,
   denormalizePo,
+  denormalizeRfq,
   formatPoNo,
+  formatRfqNo,
   formatVoucherNo,
   newId,
   periodOf,
   poStatusPatch,
+  rfqStatusPatch,
   rowToPo,
-  statusChangesDocument,
+  rowToRfq,
   rowToVoucher,
+  statusChangesDocument,
   vendorProfilesFrom,
   type PoRow,
+  type RfqRow,
   type VoucherRow,
 } from "./shared";
 
@@ -79,6 +91,7 @@ export function supabase(): SupabaseClient {
 const TABLE = "vouchers";
 const SIGNATORIES = "signatories";
 const POS = "purchase_orders";
+const RFQS = "requests_for_quotation";
 const SETTINGS = "company_settings";
 
 function toSignatory(r: {
@@ -541,6 +554,171 @@ export const supabaseStore: Store = {
       .limit(600);
     if (error) throw error;
     return vendorProfilesFrom((data ?? []) as Array<{ doc: PoDoc; created_at: string }>);
+  },
+
+  /* ---- requests for quotation ------------------------------------------ */
+
+  async createRfq({ company, internalNote, doc }: NewRfq) {
+    const db = supabase();
+    const period = periodOf();
+    const d = denormalizeRfq(doc);
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { data: highest, error: maxErr } = await db
+        .from(RFQS)
+        .select("seq")
+        .eq("company", company)
+        .eq("period", period)
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+      const now = new Date().toISOString();
+
+      const { data, error } = await db
+        .from(RFQS)
+        .insert({
+          id: newId(),
+          rfq_no: formatRfqNo(company, period, seq),
+          company,
+          status: "draft",
+          seq,
+          period,
+          internal_note: internalNote,
+          doc,
+          created_at: now,
+          updated_at: now,
+          ...d,
+        })
+        .select()
+        .single();
+
+      if (!error) return rowToRfq(data as RfqRow);
+      // 23505 = unique_violation -> someone took this number; recompute and retry.
+      if (error.code !== "23505" || attempt === 5) throw error;
+    }
+    throw new Error("Could not assign a request number after several attempts");
+  },
+
+  async getRfq(id) {
+    const { data, error } = await supabase().from(RFQS).select().eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToRfq(data as RfqRow) : null;
+  },
+
+  async updateRfq(id, doc: RfqDoc, internalNote: string) {
+    const { data, error } = await supabase()
+      .from(RFQS)
+      .update({
+        doc,
+        internal_note: internalNote,
+        updated_at: new Date().toISOString(),
+        ...denormalizeRfq(doc),
+      })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToRfq(data as RfqRow);
+  },
+
+  async setRfqStatus(id, status: RfqStatus) {
+    const db = supabase();
+    const { data, error: readErr } = await db.from(RFQS).select().eq("id", id).maybeSingle();
+    if (readErr) throw readErr;
+    if (!data) throw new Error("Request for quotation not found");
+
+    const { error } = await db
+      .from(RFQS)
+      .update(rfqStatusPatch(rowToRfq(data as RfqRow), status, new Date().toISOString()))
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async attachRfqPdf(id, pdfKey) {
+    // updated_at untouched: rendering is not an edit to the document.
+    const { error } = await supabase()
+      .from(RFQS)
+      .update({ pdf_key: pdfKey, pdf_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async softDeleteRfq(id) {
+    const { error } = await supabase()
+      .from(RFQS)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreRfq(id) {
+    const { error } = await supabase().from(RFQS).update({ deleted_at: null }).eq("id", id);
+    if (error) throw error;
+  },
+
+  async searchRfqs(query: RfqQuery) {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    let q = supabase().from(RFQS).select("*", { count: "exact" }).eq("company", query.company);
+
+    if (query.status === "deleted") {
+      q = q.not("deleted_at", "is", null);
+    } else {
+      q = q.is("deleted_at", null);
+      if (query.status === "open") {
+        q = q.in("status", RFQ_OPEN_STATUSES);
+      } else if (query.status && query.status !== "all") {
+        q = q.eq("status", query.status);
+      }
+    }
+    if (query.q?.trim()) {
+      // Commas and parentheses would be read as .or() syntax, not as text.
+      const term = query.q.trim().replace(/[%,()]/g, " ");
+      q = q.or(
+        [`rfq_no.ilike.%${term}%`, `subject.ilike.%${term}%`, `internal_note.ilike.%${term}%`].join(
+          ",",
+        ),
+      );
+    }
+    if (query.from) q = q.gte("rfq_date", query.from);
+    if (query.to) q = q.lte("rfq_date", query.to);
+
+    const { data, error, count } = await q
+      // nullsFirst matches SQLite, which puts NULLs last on a DESC sort.
+      .order("rfq_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return { rows: (data as RfqRow[]).map(rowToRfq), total: count ?? 0 };
+  },
+
+  async rfqCounts(company: CompanySlug): Promise<RfqCounts> {
+    const db = supabase();
+    const base = () =>
+      db
+        .from(RFQS)
+        .select("id", { count: "exact", head: true })
+        .eq("company", company)
+        .is("deleted_at", null);
+
+    const statuses: RfqStatus[] = ["draft", "sent", "closed", "cancelled"];
+    const results = await Promise.all(statuses.map((s) => base().eq("status", s)));
+    for (const r of results) if (r.error) throw r.error;
+
+    const [draft, sent, closed, cancelled] = results.map((r) => r.count ?? 0);
+    return {
+      draft,
+      sent,
+      closed,
+      cancelled,
+      open: draft + sent,
+      total: draft + sent + closed + cancelled,
+    };
   },
 
   /* ---- settings -------------------------------------------------------- */

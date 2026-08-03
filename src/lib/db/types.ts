@@ -7,6 +7,13 @@ import type {
   PurchaseOrder,
   VendorProfile,
 } from "../po/types";
+import type {
+  RequestForQuotation,
+  RfqCounts,
+  RfqDoc,
+  RfqQuery,
+  RfqStatus,
+} from "../rfq/types";
 import type { CompanySettings } from "../settings";
 import type { HistoryQuery, Signatory, Voucher, VoucherFields } from "../types";
 
@@ -125,6 +132,37 @@ export interface PoStore {
   listVendors(company: CompanySlug): Promise<VendorProfile[]>;
 }
 
+export interface NewRfq {
+  company: CompanySlug;
+  internalNote: string;
+  doc: RfqDoc;
+}
+
+export interface RfqStore {
+  /**
+   * Reserves the next request number for a company in the current month and
+   * writes the record. Safe against concurrent calls, like the others.
+   */
+  createRfq(input: NewRfq): Promise<RequestForQuotation>;
+
+  getRfq(id: string): Promise<RequestForQuotation | null>;
+
+  /** Replaces the document and the internal note. Number and status untouched. */
+  updateRfq(id: string, doc: RfqDoc, internalNote: string): Promise<RequestForQuotation>;
+
+  setRfqStatus(id: string, status: RfqStatus): Promise<void>;
+
+  attachRfqPdf(id: string, pdfKey: string): Promise<void>;
+
+  /** Same reasoning as the others: the row stays so the number stays spent. */
+  softDeleteRfq(id: string): Promise<void>;
+  restoreRfq(id: string): Promise<void>;
+
+  searchRfqs(query: RfqQuery): Promise<{ rows: RequestForQuotation[]; total: number }>;
+
+  rfqCounts(company: CompanySlug): Promise<RfqCounts>;
+}
+
 export interface SettingsStore {
   /** Always returns a complete object; unset fields fall back to the defaults. */
   getSettings(company: CompanySlug): Promise<CompanySettings>;
@@ -132,4 +170,4 @@ export interface SettingsStore {
   saveSettings(company: CompanySlug, patch: Partial<CompanySettings>): Promise<CompanySettings>;
 }
 
-export interface Store extends VoucherStore, PoStore, SettingsStore {}
+export interface Store extends VoucherStore, PoStore, RfqStore, SettingsStore {}

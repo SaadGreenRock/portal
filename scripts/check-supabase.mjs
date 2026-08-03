@@ -100,6 +100,7 @@ const TABLES = [
   ["vouchers", "id"],
   ["signatories", "id"],
   ["purchase_orders", "id"],
+  ["requests_for_quotation", "id"],
   ["company_settings", "company"],
 ];
 

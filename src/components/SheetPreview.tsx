@@ -144,12 +144,18 @@ export function usePreview(company: string, fields: unknown, delay = 350) {
 }
 
 /**
- * The multi-page equivalent, for purchase orders.
+ * The multi-page equivalent, for purchase orders and requests for quotation.
  *
- * A longer debounce than the voucher's: a PO render is several pages of layout
- * and the operator is typically typing a whole line item, not tweaking one word.
+ * A longer debounce than the voucher's: these renders are several pages of
+ * layout and the operator is typically typing a whole line item, not tweaking
+ * one word. The endpoint is a parameter because each document type validates and
+ * renders its own payload.
  */
-export function usePagesPreview(body: unknown, delay = 500) {
+export function usePagesPreview(
+  body: unknown,
+  delay = 500,
+  endpoint = "/api/po/preview",
+) {
   const [pages, setPages] = useState<string[]>([]);
   const [busy, setBusy] = useState(true);
   /**
@@ -165,7 +171,7 @@ export function usePagesPreview(body: unknown, delay = 500) {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch("/api/po/preview", {
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: serialized,
@@ -189,7 +195,7 @@ export function usePagesPreview(body: unknown, delay = 500) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [serialized, delay]);
+  }, [serialized, delay, endpoint]);
 
   return { pages, busy, rejected };
 }

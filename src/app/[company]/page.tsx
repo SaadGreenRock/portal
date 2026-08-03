@@ -44,11 +44,13 @@ export default async function WorkspaceOverview({
   if (!company) notFound();
 
   const db = await store();
-  const [counts, pending, poCounts, openPos] = await Promise.all([
+  const [counts, pending, poCounts, openPos, rfqCounts, openRfqs] = await Promise.all([
     db.counts(company.slug),
     db.listPending(company.slug),
     tryTable(() => db.poCounts(company.slug)),
     tryTable(() => db.searchPos({ company: company.slug, status: "open", limit: 200 })),
+    tryTable(() => db.rfqCounts(company.slug)),
+    tryTable(() => db.searchRfqs({ company: company.slug, status: "open", limit: 200 })),
   ]);
 
   /* ---- vouchers ---------------------------------------------------------- */
@@ -119,12 +121,44 @@ export default async function WorkspaceOverview({
     };
   }
 
+  /* ---- requests for quotation -------------------------------------------- */
+  let rfqSummary: ModuleSummary | null = null;
+  if (rfqCounts.ok && openRfqs.ok) {
+    const rows = openRfqs.value.rows;
+    const overdue = rows.filter(
+      (rfq) => rfq.status === "sent" && (dueIn(rfq.doc.replyBy)?.days ?? 0) < 0,
+    ).length;
+
+    rfqSummary = {
+      stats: [
+        { label: "awaiting replies", value: String(rfqCounts.value.sent) },
+        ...(overdue > 0
+          ? [{ label: "past their deadline", value: String(overdue), urgent: true }]
+          : []),
+        ...(rfqCounts.value.draft > 0
+          ? [{ label: "not yet sent", value: String(rfqCounts.value.draft) }]
+          : []),
+        { label: "raised in total", value: String(rfqCounts.value.total) },
+      ],
+      allClear:
+        rfqCounts.value.total === 0
+          ? "No requests raised yet."
+          : rfqCounts.value.open === 0
+            ? "No requests are out with vendors."
+            : undefined,
+    };
+  }
+
   const summaries: Partial<Record<ModuleKey, ModuleSummary | null>> = {
     vouchers: voucherSummary,
     po: poSummary,
+    rfq: rfqSummary,
   };
 
-  const needsAttention = counts.pending > 0 || (poCounts.ok && poCounts.value.open > 0);
+  const needsAttention =
+    counts.pending > 0 ||
+    (poCounts.ok && poCounts.value.open > 0) ||
+    (rfqCounts.ok && rfqCounts.value.open > 0);
 
   return (
     <>
@@ -137,7 +171,7 @@ export default async function WorkspaceOverview({
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {MODULES.map((module) => {
           const summary = summaries[module.key];
 

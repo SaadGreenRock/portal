@@ -7,6 +7,8 @@ and consistent. It currently does two things:
   with the signed scans kept in a searchable permanent record.
 - **Purchase orders** — priced, totalled orders raised on vendors, issued as a
   branded PDF and closed by filing the vendor's invoice.
+- **Requests for quotation** — the same list of items with the prices left
+  *blank*, for vendors to fill in and send back.
 
 Each company is its own workspace. They share nothing: separate numbering,
 separate history, separate settings.
@@ -32,7 +34,7 @@ password is `change-me` and the login screen says so.
 
 Requires Node 20+. Nothing else — no Chromium, no system packages.
 
-> **Upgrading an existing Supabase deployment?** Purchase orders add two tables.
+> **Upgrading an existing Supabase deployment?** Each module adds tables.
 > Re-run [`supabase/migration.sql`](supabase/migration.sql) — it is safe to
 > re-run — then `npm run check:supabase`. Until you do, the Purchase Orders tab
 > explains what to run and vouchers carry on working.
@@ -48,9 +50,9 @@ earns it by answering "what is waiting on me" first: vouchers without a signed
 scan and how long the oldest has waited, orders overdue on delivery, value still
 outstanding per currency.
 
-Below that, the header has two rows. The first picks the **module** — Vouchers or
-Purchase Orders — and holds Settings. The second is that module's screens. Badges
-count what is outstanding.
+Below that, the header has two rows. The first picks the **module** — Vouchers,
+Purchase Orders or Quotations — and holds Settings. The second is that module's
+screens. Badges count what is outstanding.
 
 The Overview draws its cards from the module registry, so a new module appears
 there automatically with its description and links; it gets counts of its own
@@ -232,11 +234,45 @@ table does not exist" is treated as unavailability. A permissions problem, a
 network failure or a missing *column* still surfaces as an error, because a
 broken deployment quietly showing zeroes is worse than one that crashes.
 
+## Requests for quotation
+
+| Screen | What it's for |
+|---|---|
+| **New request** | The editor. What you want, how much of it, when replies are due. A live preview shows every page as it will print. |
+| **Open** | Drafts and requests still out with vendors, soonest deadline first. |
+| **History** | Every request ever raised, searchable by number, subject or internal note. |
+
+A purchase order states the prices. A request for quotation is the opposite: the
+**Unit Price and Amount columns print as empty ruled boxes**, tinted so it is
+obvious they are to be written into, with a blank totals box headed *"to be
+completed by the vendor"*. There is nothing to add up, and no money is stored.
+
+**There is no vendor on the record.** One generic request is produced and you send
+it to whoever you like, by whatever means you already use. That is a deliberate
+limit, not an oversight — addressing a request per vendor, recording who replied,
+and comparing quotes side by side are three separate features, and none of them
+are half-built here.
+
+The signature block is inverted from a purchase order's: the **vendor** signs this
+one, so their side is ruled blank lines for company, name, signature and date,
+while ours just states who requested it.
+
+The lifecycle mirrors purchase orders — `Draft → Sent → Closed`, plus
+`Cancelled`, every transition reversible — and so do the details that matter: the
+PDF is stamped *DRAFT* until it is marked sent, editing re-renders it in place,
+and the "PDF on file is older than this request" warning only fires when the
+printed page would actually differ.
+
+Defaults live in **Settings → Quotation request defaults**: which currency to ask
+vendors to quote in, how many days they get to reply, where to send the answer,
+and the conditions of quoting printed at the foot.
+
 ## Document numbers
 
 ```
 GR-202607-014        a voucher
 GR-PO-202608-001     a purchase order
+GR-RFQ-202608-001    a request for quotation
 ```
 
 Company prefix, a document-type segment for anything that isn't a voucher, then
@@ -280,7 +316,7 @@ are rendered in the operator's browser. See [PDF rendering](#pdf-rendering).
 1. Create a Supabase project.
 
 2. Run [`supabase/migration.sql`](supabase/migration.sql) in the SQL editor. It
-   creates all four tables and a **private** `vouchers` storage bucket. Safe to
+   creates all five tables and a **private** `vouchers` storage bucket. Safe to
    re-run, and re-running is how an existing project picks up new tables and
    columns.
 
@@ -464,7 +500,13 @@ src/
       types.ts       the purchase order domain model
       totals.ts      line amounts, tax and the grand total — the only copy
       template.ts    the purchase order, its CSS, and the paginator
+      parse.ts       untrusted payload → a document, or a refusal
       actions.ts     server actions: create, save, status, settings
+    rfq/
+      types.ts       the quotation-request domain model
+      template.ts    the request, its CSS, and its own measured paginator
+      parse.ts       as po/parse.ts, sharing its text validation
+      actions.ts     server actions
     client-pdf.ts    browser-side SVG → canvas → JPEG → PDF
     image-pdf.ts     minimal multi-page PDF writer (no dependencies)
     use-sheet-pdf.ts the render-and-file hook both document types use

@@ -47,7 +47,9 @@
       "Bash(node --experimental-strip-types w-tmp.mts)",
       "Bash(cp __TRACKED_VAR__/out/apple.svg.png src/app/apple-icon.png)",
       "Bash(sips -g pixelWidth -g pixelHeight -g format src/app/apple-icon.png)",
-      "Bash(awk '{printf \"  %d bytes\\\\n\", $5}')"
+      "Bash(awk '{printf \"  %d bytes\\\\n\", $5}')",
+      "Bash(curl -s -o /dev/null -w ' reachable: HTTP %{http_code}\\\\n' http://__TRACKED_VAR__:3000/login)",
+      "Bash(git -c user.name=\"SaadGreenRock\" commit -q --amend --no-edit)"
     ]
   }
 }

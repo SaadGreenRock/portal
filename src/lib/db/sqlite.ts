@@ -3,22 +3,34 @@ import fs from "node:fs";
 import path from "node:path";
 import { COMPANIES, type CompanySlug } from "../companies";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
+import {
+  RFQ_OPEN_STATUSES,
+  type RfqCounts,
+  type RfqDoc,
+  type RfqQuery,
+  type RfqStatus,
+} from "../rfq/types";
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewPurchaseOrder, NewVoucher, Store } from "./types";
+import type { NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
   denormalize,
   denormalizePo,
+  denormalizeRfq,
   formatPoNo,
+  formatRfqNo,
   formatVoucherNo,
   newId,
   periodOf,
   poStatusPatch,
+  rfqStatusPatch,
   rowToPo,
+  rowToRfq,
   statusChangesDocument,
   rowToVoucher,
   vendorProfilesFrom,
   type PoRow,
+  type RfqRow,
   type VoucherRow,
 } from "./shared";
 
@@ -124,6 +136,34 @@ function connect(): Database.Database {
     CREATE INDEX IF NOT EXISTS po_company_status ON purchase_orders (company, status);
     CREATE INDEX IF NOT EXISTS po_company_date ON purchase_orders (company, po_date DESC);
     CREATE INDEX IF NOT EXISTS po_company_vendor ON purchase_orders (company, vendor_name);
+
+    CREATE TABLE IF NOT EXISTS requests_for_quotation (
+      id            TEXT PRIMARY KEY,
+      rfq_no        TEXT NOT NULL UNIQUE,
+      company       TEXT NOT NULL,
+      status        TEXT NOT NULL,
+      seq           INTEGER NOT NULL,
+      period        TEXT NOT NULL,
+      internal_note TEXT NOT NULL DEFAULT '',
+      doc           TEXT NOT NULL,
+      -- Lifted out of doc. A count, not a total: there is no money on an RFQ.
+      subject       TEXT NOT NULL DEFAULT '',
+      currency      TEXT NOT NULL DEFAULT 'PKR',
+      item_count    INTEGER NOT NULL DEFAULT 0,
+      rfq_date      TEXT,
+      reply_by      TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      sent_at       TEXT,
+      closed_at     TEXT,
+      deleted_at    TEXT,
+      pdf_key       TEXT,
+      pdf_at        TEXT,
+      UNIQUE (company, period, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS rfq_company_status ON requests_for_quotation (company, status);
+    CREATE INDEX IF NOT EXISTS rfq_company_date ON requests_for_quotation (company, rfq_date DESC);
 
     -- One JSON document of settings per company, so a new module can add a
     -- section without a schema change.
@@ -690,6 +730,205 @@ export const sqliteStore: Store = {
       )
       .all(company) as Array<{ doc: string; created_at: string }>;
     return vendorProfilesFrom(rows);
+  },
+
+  /* ---- requests for quotation ------------------------------------------ */
+
+  async createRfq({ company, internalNote, doc }: NewRfq) {
+    const handle = connect();
+    const period = periodOf();
+    const now = new Date().toISOString();
+
+    const insert = handle.prepare(`
+      INSERT INTO requests_for_quotation (
+        id, rfq_no, company, status, seq, period, internal_note, doc,
+        subject, currency, item_count, rfq_date, reply_by, created_at, updated_at
+      ) VALUES (
+        @id, @rfq_no, @company, 'draft', @seq, @period, @internal_note, @doc,
+        @subject, @currency, @item_count, @rfq_date, @reply_by, @created_at, @created_at
+      )
+    `);
+
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM requests_for_quotation
+        WHERE company = ? AND period = ?`,
+    );
+
+    // The UNIQUE (company, period, seq) constraint is the real guard.
+    const claim = handle.transaction((): RfqRow => {
+      const { seq } = nextSeq.get(company, period) as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        rfq_no: formatRfqNo(company, period, seq),
+        company,
+        seq,
+        period,
+        internal_note: internalNote,
+        doc: JSON.stringify(doc),
+        created_at: now,
+        ...denormalizeRfq(doc),
+      });
+      return handle
+        .prepare(`SELECT * FROM requests_for_quotation WHERE id = ?`)
+        .get(id) as RfqRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToRfq(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a request number after several attempts");
+  },
+
+  async getRfq(id) {
+    const row = connect()
+      .prepare(`SELECT * FROM requests_for_quotation WHERE id = ?`)
+      .get(id) as RfqRow | undefined;
+    return row ? rowToRfq(row) : null;
+  },
+
+  async updateRfq(id, doc: RfqDoc, internalNote: string) {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE requests_for_quotation SET
+            doc = @doc, internal_note = @internal_note, updated_at = @updated_at,
+            subject = @subject, currency = @currency, item_count = @item_count,
+            rfq_date = @rfq_date, reply_by = @reply_by
+          WHERE id = @id`,
+      )
+      .run({
+        id,
+        doc: JSON.stringify(doc),
+        internal_note: internalNote,
+        updated_at: new Date().toISOString(),
+        ...denormalizeRfq(doc),
+      });
+
+    const row = handle
+      .prepare(`SELECT * FROM requests_for_quotation WHERE id = ?`)
+      .get(id) as RfqRow | undefined;
+    if (!row) throw new Error("Request for quotation not found");
+    return rowToRfq(row);
+  },
+
+  async setRfqStatus(id, status: RfqStatus) {
+    const handle = connect();
+    const row = handle
+      .prepare(`SELECT * FROM requests_for_quotation WHERE id = ?`)
+      .get(id) as RfqRow | undefined;
+    if (!row) throw new Error("Request for quotation not found");
+
+    const patch = rfqStatusPatch(rowToRfq(row), status, new Date().toISOString());
+    // COALESCE, because the patch omits updated_at when the printed page is
+    // unchanged — every named parameter still has to be bound.
+    handle
+      .prepare(
+        `UPDATE requests_for_quotation
+            SET status = @status,
+                updated_at = COALESCE(@updated_at, updated_at),
+                sent_at = @sent_at, closed_at = @closed_at
+          WHERE id = @id`,
+      )
+      .run({ id, updated_at: null, ...patch });
+  },
+
+  async attachRfqPdf(id, pdfKey) {
+    // updated_at untouched: rendering is not an edit to the document.
+    connect()
+      .prepare(`UPDATE requests_for_quotation SET pdf_key = ?, pdf_at = ? WHERE id = ?`)
+      .run(pdfKey, new Date().toISOString(), id);
+  },
+
+  async softDeleteRfq(id) {
+    connect()
+      .prepare(
+        `UPDATE requests_for_quotation SET deleted_at = ?
+          WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .run(new Date().toISOString(), id);
+  },
+
+  async restoreRfq(id) {
+    connect()
+      .prepare(`UPDATE requests_for_quotation SET deleted_at = NULL WHERE id = ?`)
+      .run(id);
+  },
+
+  async searchRfqs(query: RfqQuery) {
+    const handle = connect();
+    const where: string[] = ["company = @company"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    if (query.status === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+      if (query.status === "open") {
+        where.push(`status IN (${RFQ_OPEN_STATUSES.map((s) => `'${s}'`).join(", ")})`);
+      } else if (query.status && query.status !== "all") {
+        where.push("status = @status");
+        params.status = query.status;
+      }
+    }
+    if (query.q?.trim()) {
+      where.push(`(
+        rfq_no        LIKE @q COLLATE NOCASE OR
+        subject       LIKE @q COLLATE NOCASE OR
+        internal_note LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+    if (query.from) {
+      where.push("rfq_date IS NOT NULL AND date(rfq_date) >= date(@from)");
+      params.from = query.from;
+    }
+    if (query.to) {
+      where.push("rfq_date IS NOT NULL AND date(rfq_date) <= date(@to)");
+      params.to = query.to;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM requests_for_quotation WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    const rows = handle
+      .prepare(
+        `SELECT * FROM requests_for_quotation WHERE ${clause}
+          ORDER BY rfq_date DESC, created_at DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as RfqRow[];
+
+    return { rows: rows.map(rowToRfq), total };
+  },
+
+  async rfqCounts(company: CompanySlug): Promise<RfqCounts> {
+    const rows = connect()
+      .prepare(
+        `SELECT status, COUNT(*) AS n FROM requests_for_quotation
+          WHERE company = ? AND deleted_at IS NULL
+          GROUP BY status`,
+      )
+      .all(company) as Array<{ status: string; n: number }>;
+
+    const of = (s: RfqStatus) => rows.find((r) => r.status === s)?.n ?? 0;
+    const draft = of("draft");
+    const sent = of("sent");
+    return {
+      draft,
+      sent,
+      closed: of("closed"),
+      cancelled: of("cancelled"),
+      open: draft + sent,
+      total: rows.reduce((sum, r) => sum + r.n, 0),
+    };
   },
 
   /* ---- settings -------------------------------------------------------- */

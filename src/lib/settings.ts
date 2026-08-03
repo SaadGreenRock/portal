@@ -29,8 +29,26 @@ export interface PoSettings {
   approvedBy: string;
 }
 
+/** Defaults applied to every new request for quotation. Editable per request. */
+export interface RfqSettings {
+  /** Currency vendors are asked to quote in. */
+  currency: string;
+  /** Default number of days vendors get to reply. */
+  replyWithinDays: number;
+  /** Where goods would be delivered — vendors need it to price freight. */
+  deliveryAddress: string;
+  /** Who the vendor sends the quotation back to. */
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  /** Conditions of quoting, printed at the foot of every request. */
+  terms: string;
+  preparedBy: string;
+}
+
 export interface CompanySettings {
   po: PoSettings;
+  rfq: RfqSettings;
 }
 
 const DEFAULT_TERMS = [
@@ -39,6 +57,14 @@ const DEFAULT_TERMS = [
   "3. Delivery must be made by the date stated. Delays must be notified in writing before that date.",
   "4. Invoices are payable only against a signed delivery receipt.",
   "5. Prices are firm for the duration of this order and include all charges unless stated otherwise.",
+].join("\n");
+
+const DEFAULT_RFQ_TERMS = [
+  "1. Please quote your best price per unit, in the currency stated above, inclusive of all charges.",
+  "2. State clearly any item you cannot supply, and any substitute you are offering in its place.",
+  "3. State your delivery lead time from the date of order for each item.",
+  "4. Quoted prices must remain valid for 30 days from the date of your quotation.",
+  "5. This request is not an order and places no obligation on either party.",
 ].join("\n");
 
 export const DEFAULT_SETTINGS: CompanySettings = {
@@ -52,6 +78,16 @@ export const DEFAULT_SETTINGS: CompanySettings = {
     terms: DEFAULT_TERMS,
     preparedBy: "",
     approvedBy: "",
+  },
+  rfq: {
+    currency: "PKR",
+    replyWithinDays: 7,
+    deliveryAddress: "",
+    contactName: "",
+    contactEmail: "",
+    contactPhone: "",
+    terms: DEFAULT_RFQ_TERMS,
+    preparedBy: "",
   },
 };
 
@@ -74,7 +110,9 @@ const num = (v: unknown, fallback: number) =>
 export function mergeSettings(stored: unknown): CompanySettings {
   if (!isRecord(stored)) return DEFAULT_SETTINGS;
   const po = isRecord(stored.po) ? stored.po : {};
+  const rfq = isRecord(stored.rfq) ? stored.rfq : {};
   const d = DEFAULT_SETTINGS.po;
+  const r = DEFAULT_SETTINGS.rfq;
 
   return {
     po: {
@@ -88,6 +126,17 @@ export function mergeSettings(stored: unknown): CompanySettings {
       terms: str(po.terms, d.terms),
       preparedBy: str(po.preparedBy, d.preparedBy),
       approvedBy: str(po.approvedBy, d.approvedBy),
+    },
+    rfq: {
+      currency: str(rfq.currency, r.currency).toUpperCase(),
+      // Clamped: a negative window would put the reply date in the past.
+      replyWithinDays: Math.min(365, Math.max(0, num(rfq.replyWithinDays, r.replyWithinDays))),
+      deliveryAddress: str(rfq.deliveryAddress, r.deliveryAddress),
+      contactName: str(rfq.contactName, r.contactName),
+      contactEmail: str(rfq.contactEmail, r.contactEmail),
+      contactPhone: str(rfq.contactPhone, r.contactPhone),
+      terms: str(rfq.terms, r.terms),
+      preparedBy: str(rfq.preparedBy, r.preparedBy),
     },
   };
 }

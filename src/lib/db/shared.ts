@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { COMPANIES, type CompanySlug } from "../companies";
 import { poTotals } from "../po/totals";
 import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
+import {
+  rfqWatermarkFor,
+  type RequestForQuotation,
+  type RfqDoc,
+  type RfqStatus,
+} from "../rfq/types";
 import type { Voucher, VoucherFields, VoucherStatus } from "../types";
 
 export const newId = () => randomUUID();
@@ -33,6 +39,9 @@ export const formatVoucherNo = (company: CompanySlug, period: string, seq: numbe
 
 export const formatPoNo = (company: CompanySlug, period: string, seq: number) =>
   formatDocNo(company, period, seq, "PO");
+
+export const formatRfqNo = (company: CompanySlug, period: string, seq: number) =>
+  formatDocNo(company, period, seq, "RFQ");
 
 /* -------------------------------------------------------------------------
  * Vouchers
@@ -237,4 +246,88 @@ export function vendorProfilesFrom(
   }
 
   return [...byKey.values()].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
+}
+
+/* -------------------------------------------------------------------------
+ * Requests for quotation
+ * ---------------------------------------------------------------------------*/
+
+/** Shape of a request row as stored, in either backend. */
+export interface RfqRow {
+  id: string;
+  rfq_no: string;
+  company: string;
+  status: string;
+  seq: number;
+  period: string;
+  internal_note: string | null;
+  doc: string | RfqDoc;
+  /** Lifted out of `doc` so lists and filters don't deserialise every row. */
+  subject: string | null;
+  currency: string | null;
+  item_count: number | null;
+  rfq_date: string | null;
+  reply_by: string | null;
+  created_at: string;
+  updated_at: string;
+  sent_at: string | null;
+  closed_at: string | null;
+  deleted_at: string | null;
+  pdf_key: string | null;
+  pdf_at: string | null;
+}
+
+/** The columns derived from a document, written on every insert and update. */
+export function denormalizeRfq(doc: RfqDoc) {
+  return {
+    subject: doc.subject.trim(),
+    currency: doc.currency,
+    // A count rather than a total: there is no money on this document.
+    item_count: doc.items.filter((i) => i.description.trim() || i.code.trim()).length,
+    rfq_date: doc.rfqDate || null,
+    reply_by: doc.replyBy || null,
+  };
+}
+
+export function rowToRfq(r: RfqRow): RequestForQuotation {
+  const doc = typeof r.doc === "string" ? (JSON.parse(r.doc) as RfqDoc) : r.doc;
+  return {
+    id: r.id,
+    rfqNo: r.rfq_no,
+    company: r.company as CompanySlug,
+    status: r.status as RfqStatus,
+    seq: r.seq,
+    period: r.period,
+    internalNote: r.internal_note ?? "",
+    doc,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    sentAt: r.sent_at,
+    closedAt: r.closed_at,
+    deletedAt: r.deleted_at ?? null,
+    pdfKey: r.pdf_key,
+    pdfAt: r.pdf_at ?? null,
+  };
+}
+
+/** Only the watermark depends on status, so sent → closed leaves the PDF alone. */
+export const rfqStatusChangesDocument = (from: RfqStatus, to: RfqStatus) =>
+  rfqWatermarkFor(from) !== rfqWatermarkFor(to);
+
+/**
+ * The columns a status change writes. Same reasoning as purchase orders:
+ * sentAt records the first time it went out, and updatedAt only moves when the
+ * printed page would actually differ.
+ */
+export function rfqStatusPatch(
+  current: RequestForQuotation,
+  status: RfqStatus,
+  now: string,
+) {
+  return {
+    status,
+    ...(rfqStatusChangesDocument(current.status, status) ? { updated_at: now } : {}),
+    sent_at: status === "draft" ? null : (current.sentAt ?? (status === "sent" ? now : null)),
+    closed_at: status === "closed" ? now : null,
+  };
 }

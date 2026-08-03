@@ -33,9 +33,10 @@ export default async function CompanyLayout({
   // The purchase order count is tolerated rather than awaited outright. It is
   // decoration on a tab; if that module isn't migrated on this database, the
   // badge disappears and vouchers carry on working.
-  const [counts, poCounts] = await Promise.all([
+  const [counts, poCounts, rfqCounts] = await Promise.all([
     db.counts(company.slug),
     tryTable(() => db.poCounts(company.slug)),
+    tryTable(() => db.rfqCounts(company.slug)),
   ]);
 
   async function signOut() {
@@ -83,7 +84,11 @@ export default async function CompanyLayout({
 
         <WorkspaceNav
           slug={company.slug}
-          badges={{ vouchers: counts.pending, po: poCounts.ok ? poCounts.value.open : 0 }}
+          badges={{
+            vouchers: counts.pending,
+            po: poCounts.ok ? poCounts.value.open : 0,
+            rfq: rfqCounts.ok ? rfqCounts.value.open : 0,
+          }}
         />
       </header>
 

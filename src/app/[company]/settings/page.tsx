@@ -6,6 +6,7 @@ import { tryTable } from "@/lib/db/resilience";
 import { periodOf } from "@/lib/db/shared";
 import { CURRENCY_LIST } from "@/lib/money";
 import { savePoSettings } from "@/lib/po/actions";
+import { saveRfqSettings } from "@/lib/rfq/actions";
 
 export default async function Settings({
   params,
@@ -22,19 +23,24 @@ export default async function Settings({
   const db = await store();
   // The voucher half of this screen must keep working even when the purchase
   // order module has never been migrated onto this database.
-  const [signatories, counts, poCountsResult, settingsResult] = await Promise.all([
-    db.listSignatories(company.slug),
-    db.counts(company.slug),
-    tryTable(() => db.poCounts(company.slug)),
-    tryTable(() => db.getSettings(company.slug)),
-  ]);
+  const [signatories, counts, poCountsResult, rfqCountsResult, settingsResult] =
+    await Promise.all([
+      db.listSignatories(company.slug),
+      db.counts(company.slug),
+      tryTable(() => db.poCounts(company.slug)),
+      tryTable(() => db.rfqCounts(company.slug)),
+      tryTable(() => db.getSettings(company.slug)),
+    ]);
   const poCounts = poCountsResult.ok ? poCountsResult.value : null;
+  const rfqCounts = rfqCountsResult.ok ? rfqCountsResult.value : null;
   const settings = settingsResult.ok ? settingsResult.value : null;
 
   const add = addSignatory.bind(null, company.slug);
   const savePo = savePoSettings.bind(null, company.slug);
+  const saveRfq = saveRfqSettings.bind(null, company.slug);
   const period = periodOf();
   const po = settings?.po ?? null;
+  const rfq = settings?.rfq ?? null;
 
   return (
     <>
@@ -50,7 +56,9 @@ export default async function Settings({
           className="mb-5 rounded-xl border p-4"
           style={{ borderColor: "var(--accent)", background: "var(--accent-wash)" }}
         >
-          <p className="text-[13.5px] font-medium">Saved. New purchase orders will use these.</p>
+          <p className="text-[13.5px] font-medium">
+            Saved. New {saved === "rfq" ? "requests" : "purchase orders"} will use these.
+          </p>
         </div>
       ) : null}
 
@@ -181,6 +189,104 @@ export default async function Settings({
           )}
         </section>
 
+        {/* ---- quotation request defaults ------------------------------ */}
+        <section className="card overflow-hidden">
+          <header className="border-b border-ink-line px-5 py-4">
+            <h2 className="text-[15px] font-semibold">Quotation request defaults</h2>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-soft">
+              What every new request starts with. There is no vendor on an RFQ, so this is
+              mostly about where vendors send their replies.
+            </p>
+          </header>
+
+          {!rfq ? (
+            <p className="px-5 py-6 text-[13.5px] leading-relaxed text-ink-soft">
+              Quotations are not set up on this database yet. Run{" "}
+              <code className="rounded bg-[#f4f4f2] px-1.5 py-0.5 font-mono text-[12.5px] text-ink">
+                supabase/migration.sql
+              </code>{" "}
+              and reload.
+            </p>
+          ) : (
+            <form action={saveRfq} className="space-y-4 p-5">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="label">Ask vendors to quote in</span>
+                  <select name="currency" defaultValue={rfq.currency} className="input mt-1.5">
+                    {CURRENCY_LIST.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} — {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="label">Reply window (days)</span>
+                  <span className="mt-0.5 block text-[12px] text-ink-soft">
+                    Sets the default deadline. 0 for none.
+                  </span>
+                  <input
+                    name="replyWithinDays"
+                    defaultValue={rfq.replyWithinDays}
+                    inputMode="numeric"
+                    className="input mt-1.5 text-right"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="block">
+                  <span className="label">Contact name</span>
+                  <input name="contactName" defaultValue={rfq.contactName} className="input mt-1.5" />
+                </label>
+                <label className="block">
+                  <span className="label">Email</span>
+                  <input name="contactEmail" defaultValue={rfq.contactEmail} className="input mt-1.5" />
+                </label>
+                <label className="block">
+                  <span className="label">Phone</span>
+                  <input name="contactPhone" defaultValue={rfq.contactPhone} className="input mt-1.5" />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="label">Default delivery location</span>
+                <span className="mt-0.5 block text-[12px] text-ink-soft">
+                  Vendors need it to price freight.
+                </span>
+                <textarea
+                  name="deliveryAddress"
+                  defaultValue={rfq.deliveryAddress}
+                  rows={3}
+                  className="input mt-1.5 resize-y"
+                />
+              </label>
+
+              <label className="block">
+                <span className="label">Requested by</span>
+                <input name="preparedBy" defaultValue={rfq.preparedBy} className="input mt-1.5" />
+              </label>
+
+              <label className="block">
+                <span className="label">Conditions of quoting</span>
+                <span className="mt-0.5 block text-[12px] text-ink-soft">
+                  Printed at the foot of every request. One numbered clause per line.
+                </span>
+                <textarea
+                  name="terms"
+                  defaultValue={rfq.terms}
+                  rows={8}
+                  className="input mt-1.5 resize-y text-[13px]"
+                />
+              </label>
+
+              <button type="submit" className="btn btn-primary">
+                Save quotation request defaults
+              </button>
+            </form>
+          )}
+        </section>
+
         {/* ---- signatories --------------------------------------------- */}
         <section className="card overflow-hidden">
           <header className="border-b border-ink-line px-5 py-4">
@@ -239,6 +345,7 @@ export default async function Settings({
             <div className="mono mt-3.5 space-y-1.5 rounded-lg bg-[#f7f7f5] px-3.5 py-3 text-[14px]">
               <div>{company.prefix}-{period}-001</div>
               <div>{company.prefix}-PO-{period}-001</div>
+              <div>{company.prefix}-RFQ-{period}-001</div>
             </div>
           </div>
 
@@ -249,6 +356,8 @@ export default async function Settings({
               <Line label="Awaiting signed scan" value={counts.pending} />
               <Line label="Purchase orders raised" value={poCounts?.total ?? "—"} />
               <Line label="Orders still open" value={poCounts?.open ?? "—"} />
+              <Line label="Quotation requests raised" value={rfqCounts?.total ?? "—"} />
+              <Line label="Requests awaiting replies" value={rfqCounts?.sent ?? "—"} />
               <div className="flex justify-between gap-3 border-t border-ink-line pt-2">
                 <dt className="text-ink-soft">Storage</dt>
                 <dd className="mono">

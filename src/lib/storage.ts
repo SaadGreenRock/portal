@@ -106,6 +106,8 @@ export const storageKeys = {
   poPdf: (company: string, poNo: string) => `${company}/${poNo}/purchase-order.pdf`,
   poInvoice: (company: string, poNo: string, ext: string) =>
     `${company}/${poNo}/invoice${ext.startsWith(".") ? ext : `.${ext}`}`,
+  /** Overwritten in place on every re-render, as a purchase order's PDF is. */
+  rfqPdf: (company: string, rfqNo: string) => `${company}/${rfqNo}/request-for-quotation.pdf`,
 };
 
 /**
