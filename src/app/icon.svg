@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Company Portal">
+  <!--
+    The portal's mark: a document on the Green Rock teal.
+
+    One mark for the whole portal rather than one per company. A favicon is the
+    site's identity, and swapping it per workspace would make the same tab look
+    like two different tools.
+
+    Drawn for 16px first, because that is the only size a browser tab shows and
+    every other size then looks after itself. Three things learnt by rendering
+    it at 16, 20, 24, 32 and 48 rather than guessing:
+
+      · the sheet has to fill most of the tile, or it turns to mush;
+      · two marks inside, not three — a third became a smudge;
+      · nothing thinner than ~5% of the height survives.
+
+    The warm band is the voucher's own amount block (#dab99b, lifted from the
+    approved template), so the icon is a small picture of the real document
+    instead of a generic page glyph.
+  -->
+  <rect width="64" height="64" rx="13" fill="#104751" />
+
+  <!-- The sheet, with its top-right corner turned down. -->
+  <path
+    d="M14 10h22l10 10v32a3 3 0 0 1-3 3H17a3 3 0 0 1-3-3V13a3 3 0 0 1 3-3z"
+    fill="#f6f4ef"
+  />
+  <path d="M36 10l10 10H36z" fill="#cfc9bd" />
+
+  <!-- The amount block, and the signature rule under it. -->
+  <rect x="20" y="31" width="22" height="11" rx="3" fill="#dab99b" />
+  <rect x="20" y="47" width="14" height="5" rx="2.5" fill="#104751" opacity="0.22" />
+</svg>

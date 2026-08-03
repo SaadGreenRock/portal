@@ -44,7 +44,10 @@
       "Bash(rm -rf .data)",
       "Bash(ipconfig getifaddr *)",
       "Bash(curl -s -o /dev/null -w '  reachable over LAN: HTTP %{http_code}\\\\n' http://__CMDSUB_OUTPUT__:3000/login)",
-      "Bash(node --experimental-strip-types w-tmp.mts)"
+      "Bash(node --experimental-strip-types w-tmp.mts)",
+      "Bash(cp __TRACKED_VAR__/out/apple.svg.png src/app/apple-icon.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight -g format src/app/apple-icon.png)",
+      "Bash(awk '{printf \"  %d bytes\\\\n\", $5}')"
     ]
   }
 }

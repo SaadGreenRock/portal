@@ -398,6 +398,23 @@ engine.
 
 ---
 
+## The icon
+
+`src/app/icon.svg` and `src/app/apple-icon.png` — Next picks both up by file
+convention, so there is no link tag to maintain.
+
+One mark for the whole portal rather than one per company: a favicon is the
+site's identity, and swapping it per workspace would make the same tab look like
+two different tools. The warm band in it is the voucher's own amount block, so
+it is a small picture of the real document rather than a generic page glyph.
+
+It was drawn for **16px** and checked at 16, 20, 24, 32 and 48 before being
+chosen over three other attempts — at tab size the sheet has to fill most of the
+tile, two marks inside is the limit before the third becomes a smudge, and
+nothing thinner than about 5% of the height survives. The Apple icon is the same
+artwork with square corners, because iOS applies its own rounded mask and a
+rounded tile inside that gives you corners inside corners.
+
 ## Adding a third company
 
 Add one entry to `COMPANIES` in `src/lib/companies.ts` — name, prefix, logo
