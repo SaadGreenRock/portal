@@ -23,9 +23,12 @@ export interface PoSettings {
   deliveryAddress: string;
   /** Terms and conditions printed at the foot of every PO. */
   terms: string;
-  /** Name on the "Prepared By" signature line. */
-  preparedBy: string;
-  /** Name on the "Approved By" signature line. */
+  /**
+   * Name on the "Approved By" signature line — the only one a PO carries.
+   *
+   * A `preparedBy` used to sit beside it. Settings documents written before it
+   * was removed still contain the key; mergeSettings ignores it.
+   */
   approvedBy: string;
 }
 
@@ -76,7 +79,6 @@ export const DEFAULT_SETTINGS: CompanySettings = {
     paymentTerms: "30 days from invoice",
     deliveryAddress: "",
     terms: DEFAULT_TERMS,
-    preparedBy: "",
     approvedBy: "",
   },
   rfq: {
@@ -124,7 +126,6 @@ export function mergeSettings(stored: unknown): CompanySettings {
       paymentTerms: str(po.paymentTerms, d.paymentTerms),
       deliveryAddress: str(po.deliveryAddress, d.deliveryAddress),
       terms: str(po.terms, d.terms),
-      preparedBy: str(po.preparedBy, d.preparedBy),
       approvedBy: str(po.approvedBy, d.approvedBy),
     },
     rfq: {

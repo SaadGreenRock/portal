@@ -1,5 +1,16 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type {
+  AllotFields,
+  AssetCounts,
+  AssetFields,
+  AssetHolding,
+  AssetQuery,
+  EmployeeProfile,
+  HoldingQuery,
+  ReturnFields,
+} from "../assets/types";
 import type { CompanySlug } from "../companies";
+import { todayIso } from "../format";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
   RFQ_OPEN_STATUSES,
@@ -11,23 +22,34 @@ import {
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
+import type { NewAsset, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
   denormalize,
   denormalizePo,
   denormalizeRfq,
+  employeeKey,
+  employeeProfilesFrom,
+  formatAssetNo,
   formatPoNo,
   formatRfqNo,
   formatVoucherNo,
+  holderColumns,
+  IN_STOCK_COLUMNS,
   newId,
   periodOf,
   poStatusPatch,
   rfqStatusPatch,
+  rowToAsset,
+  rowToHolding,
+  rowToHoldingWithAsset,
   rowToPo,
   rowToRfq,
   rowToVoucher,
   statusChangesDocument,
   vendorProfilesFrom,
+  type AssetRow,
+  type HoldingRow,
+  type HoldingWithAssetRow,
   type PoRow,
   type RfqRow,
   type VoucherRow,
@@ -93,7 +115,29 @@ const TABLE = "vouchers";
 const SIGNATORIES = "signatories";
 const POS = "purchase_orders";
 const RFQS = "requests_for_quotation";
+const ASSETS = "assets";
+const HOLDINGS = "asset_holdings";
 const SETTINGS = "company_settings";
+
+/**
+ * The one holding on an asset that has not been returned, if any.
+ *
+ * A partial unique index guarantees there is at most one, so this can safely
+ * take the first row rather than reasoning about which of several is current.
+ */
+async function openHolding(
+  db: SupabaseClient,
+  assetId: string,
+): Promise<{ id: string } | null> {
+  const { data, error } = await db
+    .from(HOLDINGS)
+    .select("id")
+    .eq("asset_id", assetId)
+    .is("returned_on", null)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { id: string } | null) ?? null;
+}
 
 function toSignatory(r: {
   id: string;
@@ -721,6 +765,376 @@ export const supabaseStore: Store = {
       total: draft + sent + closed + cancelled,
     };
   },
+
+  /* ---- asset register --------------------------------------------------- */
+  //
+  // Postgres has no transaction available through PostgREST, so the two writes
+  // that an allotment or a return needs happen in sequence. The order is chosen
+  // so a failure between them leaves the *history* short rather than wrong: the
+  // holdings table is the authority, and re-running the same action from the
+  // record screen puts the pair back in step. The partial unique index on
+  // (asset_id) WHERE returned_on IS NULL is what actually prevents two people
+  // holding the same asset at once, whatever the application does.
+
+  async createAsset({ company, fields, allot }: NewAsset) {
+    const db = supabase();
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      // No period filter, and deleted rows count: a number written on an item
+      // is spent even if the row was binned.
+      const { data: highest, error: maxErr } = await db
+        .from(ASSETS)
+        .select("seq")
+        .eq("company", company)
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+      const now = new Date().toISOString();
+      const id = newId();
+
+      const { data, error } = await db
+        .from(ASSETS)
+        .insert({
+          id,
+          asset_no: formatAssetNo(company, seq),
+          company,
+          seq,
+          asset_name: fields.assetName,
+          condition: "good",
+          created_at: now,
+          updated_at: now,
+          ...holderColumns(allot),
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // 23505 = unique_violation -> someone took this number; recompute.
+        if (error.code !== "23505" || attempt === 5) throw error;
+        continue;
+      }
+
+      // The asset owns the number, so it goes in first; the holding references it.
+      const { error: holdErr } = await db.from(HOLDINGS).insert({
+        id: newId(),
+        asset_id: id,
+        company,
+        employee_name: allot.employeeName,
+        employee_no: allot.employeeNo,
+        allotted_on: allot.allottedOn || null,
+        returned_on: null,
+        condition: "good",
+        note: "",
+        created_at: now,
+        updated_at: now,
+      });
+      if (holdErr) throw holdErr;
+
+      return rowToAsset(data as AssetRow);
+    }
+    throw new Error("Could not assign an asset number after several attempts");
+  },
+
+  async getAsset(id) {
+    const { data, error } = await supabase().from(ASSETS).select().eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToAsset(data as AssetRow) : null;
+  },
+
+  async updateAsset(id, fields: AssetFields, holder: AllotFields | null) {
+    const db = supabase();
+    const now = new Date().toISOString();
+
+    // Only the open holding is editable, and only when there is one: a
+    // correction to who has it now must not rewrite a closed period.
+    const open = holder ? await openHolding(db, id) : null;
+
+    if (open && holder) {
+      const { error } = await db
+        .from(HOLDINGS)
+        .update({
+          employee_name: holder.employeeName,
+          employee_no: holder.employeeNo,
+          allotted_on: holder.allottedOn || null,
+          updated_at: now,
+        })
+        .eq("id", open.id);
+      if (error) throw error;
+    }
+
+    const { data, error } = await db
+      .from(ASSETS)
+      .update({
+        asset_name: fields.assetName,
+        updated_at: now,
+        ...(open && holder ? holderColumns(holder) : {}),
+      })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToAsset(data as AssetRow);
+  },
+
+  async returnAsset(id, fields: ReturnFields) {
+    const db = supabase();
+    const now = new Date().toISOString();
+
+    const open = await openHolding(db, id);
+    if (!open) throw new Error("That asset is already in stock — nobody has it to return.");
+
+    const { error: closeErr } = await db
+      .from(HOLDINGS)
+      .update({
+        // Stored rather than left null so a closed holding always has an end —
+        // a null returned_on is what marks a holding open.
+        returned_on: fields.returnedOn || todayIso(),
+        condition: fields.condition,
+        note: fields.note,
+        updated_at: now,
+      })
+      .eq("id", open.id);
+    if (closeErr) throw closeErr;
+
+    const { data, error } = await db
+      .from(ASSETS)
+      .update({
+        ...IN_STOCK_COLUMNS,
+        condition: fields.condition,
+        updated_at: now,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToAsset(data as AssetRow);
+  },
+
+  async allotAsset(id, allot: AllotFields) {
+    const db = supabase();
+    const now = new Date().toISOString();
+
+    const { data: current, error: readErr } = await db
+      .from(ASSETS)
+      .select()
+      .eq("id", id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!current) throw new Error("Asset not found");
+
+    const asset = current as AssetRow;
+    if (asset.holder_name) {
+      throw new Error(`${asset.asset_no} is with ${asset.holder_name}. Record its return first.`);
+    }
+
+    const { error: holdErr } = await db.from(HOLDINGS).insert({
+      id: newId(),
+      asset_id: id,
+      company: asset.company,
+      employee_name: allot.employeeName,
+      employee_no: allot.employeeNo,
+      allotted_on: allot.allottedOn || null,
+      returned_on: null,
+      condition: "good",
+      note: "",
+      created_at: now,
+      updated_at: now,
+    });
+    if (holdErr) throw holdErr;
+
+    const { data, error } = await db
+      .from(ASSETS)
+      .update({ updated_at: now, ...holderColumns(allot) })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToAsset(data as AssetRow);
+  },
+
+  async softDeleteAsset(id) {
+    const { error } = await supabase()
+      .from(ASSETS)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreAsset(id) {
+    const { error } = await supabase().from(ASSETS).update({ deleted_at: null }).eq("id", id);
+    if (error) throw error;
+  },
+
+  async searchAssets(query: AssetQuery) {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    let q = supabase().from(ASSETS).select("*", { count: "exact" }).eq("company", query.company);
+
+    if (query.view === "deleted") {
+      q = q.not("deleted_at", "is", null);
+    } else {
+      q = q.is("deleted_at", null);
+      if (query.view === "out") q = q.neq("holder_name", "");
+      else if (query.view === "stock") q = q.eq("holder_name", "");
+    }
+
+    if (query.q?.trim()) {
+      // Commas and parentheses would be read as .or() syntax, not as text.
+      const term = query.q.trim().replace(/[%,()]/g, " ");
+      q = q.or(
+        [
+          `asset_no.ilike.%${term}%`,
+          `asset_name.ilike.%${term}%`,
+          `holder_name.ilike.%${term}%`,
+          `holder_no.ilike.%${term}%`,
+        ].join(","),
+      );
+    }
+
+    // Assets out first, then by how long they have been out; then stock. Matches
+    // the SQLite ordering, which sorts on (holder_name = '') ascending.
+    const { data, error, count } = await q
+      .order("holder_name", { ascending: false })
+      .order("held_since", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return { rows: (data as AssetRow[]).map(rowToAsset), total: count ?? 0 };
+  },
+
+  async assetCounts(company: CompanySlug): Promise<AssetCounts> {
+    // Three columns, reduced in the app. PostgREST cannot COUNT(DISTINCT …)
+    // without a stored function, and the same reasoning as spendRows applies:
+    // adding one is another migration the operator has to remember to run, and
+    // at this scale three columns per asset costs nothing.
+    const { data, error } = await supabase()
+      .from(ASSETS)
+      .select("holder_name, holder_no, condition")
+      .eq("company", company)
+      .is("deleted_at", null)
+      .limit(5000);
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<{
+      holder_name: string | null;
+      holder_no: string | null;
+      condition: string | null;
+    }>;
+
+    const people = new Set<string>();
+    let out = 0;
+    let flagged = 0;
+    for (const r of rows) {
+      const name = r.holder_name ?? "";
+      if (name) {
+        out += 1;
+        people.add(employeeKey(name, r.holder_no ?? ""));
+      }
+      if ((r.condition ?? "good") !== "good") flagged += 1;
+    }
+
+    return {
+      total: rows.length,
+      out,
+      stock: rows.length - out,
+      employees: people.size,
+      flagged,
+    };
+  },
+
+  async listHoldings(assetId: string): Promise<AssetHolding[]> {
+    const { data, error } = await supabase()
+      .from(HOLDINGS)
+      .select()
+      .eq("asset_id", assetId)
+      // Open first, then newest. nullsFirst puts the open holding at the top.
+      .order("returned_on", { ascending: true, nullsFirst: true })
+      .order("allotted_on", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data as HoldingRow[]).map(rowToHolding);
+  },
+
+  async searchHoldings(query: HoldingQuery) {
+    const db = supabase();
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    // !inner so a holding whose asset is deleted drops out, matching the JOIN
+    // the SQLite backend uses.
+    let q = db
+      .from(HOLDINGS)
+      .select("*, assets!inner(asset_no, asset_name, deleted_at)", { count: "exact" })
+      .eq("company", query.company)
+      .is("assets.deleted_at", null);
+
+    if (query.view === "open") q = q.is("returned_on", null);
+    else if (query.view === "closed") q = q.not("returned_on", "is", null);
+
+    if (query.q?.trim()) {
+      const term = query.q.trim().replace(/[%,()]/g, " ");
+      // PostgREST cannot put an embedded table's column inside .or(), so the
+      // asset half of the search is resolved to ids first and matched on
+      // asset_id. Bounded by the assets table, which is small.
+      const { data: hits, error: hitErr } = await db
+        .from(ASSETS)
+        .select("id")
+        .eq("company", query.company)
+        .or(`asset_no.ilike.%${term}%,asset_name.ilike.%${term}%`)
+        .limit(1000);
+      if (hitErr) throw hitErr;
+
+      const ids = (hits ?? []).map((r) => (r as { id: string }).id);
+      const clauses = [`employee_name.ilike.%${term}%`, `employee_no.ilike.%${term}%`];
+      if (ids.length) clauses.push(`asset_id.in.(${ids.join(",")})`);
+      q = q.or(clauses.join(","));
+    }
+
+    // Overlap, not containment: a holding that started in July and is still open
+    // is part of "who had something in August". Two periods overlap when each
+    // starts before the other ends — plain comparisons against the generated
+    // span columns, so this needs no second OR group. Deliberately not another
+    // .or(): one `or=` query parameter per request is the pattern the rest of
+    // this backend uses, and it is the one whose behaviour is not in question.
+    if (query.from) q = q.gte("span_end", query.from);
+    if (query.to) q = q.lte("span_start", query.to);
+
+    const { data, error, count } = await q
+      .order("allotted_on", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return {
+      rows: (data as HoldingWithAssetRow[]).map(rowToHoldingWithAsset),
+      total: count ?? 0,
+    };
+  },
+
+  async listEmployees(company: CompanySlug): Promise<EmployeeProfile[]> {
+    // Capped like the vendor list; see the note in the SQLite backend.
+    const { data, error } = await supabase()
+      .from(HOLDINGS)
+      .select("employee_name, employee_no, returned_on, created_at")
+      .eq("company", company)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+    return employeeProfilesFrom(
+      (data ?? []) as Array<{
+        employee_name: string;
+        employee_no: string;
+        returned_on: string | null;
+        created_at: string;
+      }>,
+    );
+  },
+
 
   /* ---- expenditure ------------------------------------------------------ */
 

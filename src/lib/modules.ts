@@ -12,7 +12,7 @@ import type { Company } from "./companies";
  * database import (it is used by client components).
  */
 
-export type ModuleKey = "vouchers" | "po" | "rfq";
+export type ModuleKey = "vouchers" | "po" | "rfq" | "assets";
 
 export interface ModuleTab {
   /** Appended to the module's base path. "" is the module's own index. */
@@ -70,6 +70,21 @@ export const MODULES: PortalModule[] = [
     tabs: [
       { segment: "new", label: "New request" },
       { segment: "", label: "Open", badge: "rfq" },
+      { segment: "history", label: "History" },
+    ],
+  },
+  {
+    key: "assets",
+    segment: "assets",
+    label: "Assets",
+    blurb: "Which numbered asset is with which employee, and everyone who had it before.",
+    home: "",
+    // No badge: an asset being out with somebody is the normal state of an
+    // asset, not a task waiting on the operator, and a count that is always
+    // lit teaches you to stop reading it.
+    tabs: [
+      { segment: "", label: "Register" },
+      { segment: "new", label: "Log an asset" },
       { segment: "history", label: "History" },
     ],
   },

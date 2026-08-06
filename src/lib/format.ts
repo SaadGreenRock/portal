@@ -42,6 +42,40 @@ export function ageInDays(iso: string): string {
   return `${days} days`;
 }
 
+/** A yyyy-mm-dd date as local midnight, or null if it isn't one. */
+function parseIso(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d).getTime();
+}
+
+/**
+ * How long a period lasted — "12 days", "3 months". Returns "" when either end
+ * is missing, since a span with one end is not a span.
+ *
+ * An empty `to` means the period is still running, so it is measured to today.
+ * Months rather than days past a couple of months: "487 days" is a number the
+ * reader has to divide, and nobody holding a laptop cares about the remainder.
+ */
+export function spanInDays(from: string | null | undefined, to: string | null | undefined): string {
+  const start = parseIso(from);
+  if (start == null) return "";
+
+  const now = new Date();
+  const end = to ? parseIso(to) : new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (end == null || end < start) return "";
+
+  const days = Math.round((end - start) / 86_400_000);
+  if (days === 0) return "same day";
+  if (days === 1) return "1 day";
+  if (days < 60) return `${days} days`;
+
+  const months = Math.round(days / 30.44);
+  if (months < 24) return `${months} months`;
+  return `${(days / 365.25).toFixed(1)} years`;
+}
+
 /**
  * How overdue a date is, or how long until it. Returns null for no date.
  * Negative days are in the past, which is what "overdue" means for a delivery.

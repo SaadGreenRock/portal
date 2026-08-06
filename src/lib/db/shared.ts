@@ -1,4 +1,12 @@
 import { randomUUID } from "node:crypto";
+import {
+  isCondition,
+  type AllotFields,
+  type Asset,
+  type AssetHolding,
+  type EmployeeProfile,
+  type HoldingWithAsset,
+} from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
 import { poTotals } from "../po/totals";
 import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
@@ -42,6 +50,19 @@ export const formatPoNo = (company: CompanySlug, period: string, seq: number) =>
 
 export const formatRfqNo = (company: CompanySlug, period: string, seq: number) =>
   formatDocNo(company, period, seq, "RFQ");
+
+/**
+ * `GR-A-001` — prefix, the asset marker, and a running sequence.
+ *
+ * Deliberately without the year+month every other number carries. An asset
+ * number is written on the thing itself and outlives the month it was bought in,
+ * so a sequence that restarted monthly would put two `-001` labels on two
+ * different laptops. The sequence therefore never resets, and the padding is a
+ * minimum rather than a limit: the thousandth asset is `GR-A-1000`.
+ */
+export function formatAssetNo(company: CompanySlug, seq: number): string {
+  return `${COMPANIES[company].prefix}-A-${String(seq).padStart(3, "0")}`;
+}
 
 /* -------------------------------------------------------------------------
  * Vouchers
@@ -330,4 +351,169 @@ export function rfqStatusPatch(
     sent_at: status === "draft" ? null : (current.sentAt ?? (status === "sent" ? now : null)),
     closed_at: status === "closed" ? now : null,
   };
+}
+
+
+/* -------------------------------------------------------------------------
+ * Asset register
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * Shape of an asset row as stored, in either backend.
+ *
+ * No `doc` column, unlike the three document modules: every field here is
+ * something the register searches or sorts on, so putting them in JSON would
+ * mean denormalising all of them straight back out again.
+ *
+ * No `period` either — the number carries no month, so there is nothing to store.
+ */
+export interface AssetRow {
+  id: string;
+  asset_no: string;
+  company: string;
+  seq: number;
+  asset_name: string;
+  condition: string;
+  /** Cache of the open holding. Empty name means in stock. */
+  holder_name: string;
+  holder_no: string;
+  held_since: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function rowToAsset(r: AssetRow): Asset {
+  return {
+    id: r.id,
+    assetNo: r.asset_no,
+    company: r.company as CompanySlug,
+    seq: r.seq,
+    assetName: r.asset_name ?? "",
+    condition: isCondition(r.condition) ? r.condition : "good",
+    holderName: r.holder_name ?? "",
+    holderNo: r.holder_no ?? "",
+    heldSince: r.held_since ?? "",
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at ?? null,
+  };
+}
+
+/** Shape of a holding row as stored, in either backend. */
+export interface HoldingRow {
+  id: string;
+  asset_id: string;
+  company: string;
+  employee_name: string;
+  employee_no: string;
+  allotted_on: string | null;
+  /** NULL while the holding is open. */
+  returned_on: string | null;
+  condition: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function rowToHolding(r: HoldingRow): AssetHolding {
+  return {
+    id: r.id,
+    assetId: r.asset_id,
+    company: r.company as CompanySlug,
+    employeeName: r.employee_name ?? "",
+    employeeNo: r.employee_no ?? "",
+    allottedOn: r.allotted_on ?? "",
+    returnedOn: r.returned_on ?? "",
+    condition: isCondition(r.condition) ? r.condition : "good",
+    note: r.note ?? "",
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+/**
+ * A history row carries its asset's identity, joined on in the backends.
+ *
+ * Supabase returns the embedded asset as a nested object; SQLite returns the two
+ * columns flat. Both are normalised to the same shape here.
+ */
+export interface HoldingWithAssetRow extends HoldingRow {
+  asset_no?: string | null;
+  asset_name?: string | null;
+  assets?: { asset_no?: string | null; asset_name?: string | null } | null;
+}
+
+export function rowToHoldingWithAsset(r: HoldingWithAssetRow): HoldingWithAsset {
+  return {
+    ...rowToHolding(r),
+    assetNo: r.asset_no ?? r.assets?.asset_no ?? "",
+    assetName: r.asset_name ?? r.assets?.asset_name ?? "",
+  };
+}
+
+/** The columns an open holding writes onto its asset. */
+export function holderColumns(a: AllotFields) {
+  return {
+    holder_name: a.employeeName,
+    holder_no: a.employeeNo,
+    held_since: a.allottedOn || null,
+  };
+}
+
+/** What the asset row looks like with nobody holding it. */
+export const IN_STOCK_COLUMNS = {
+  holder_name: "",
+  holder_no: "",
+  held_since: null,
+} as const;
+
+/**
+ * Who counts as the same person.
+ *
+ * The employee number when there is one, because that is what the company
+ * issued and it survives a name typed two different ways. Falling back to the
+ * name means a row with no number still groups with itself rather than merging
+ * every unnumbered employee into one.
+ */
+export const employeeKey = (name: string, no: string): string =>
+  no.trim() ? `no:${no.trim().toLowerCase()}` : `name:${name.trim().toLowerCase()}`;
+
+/**
+ * Builds the employee list from holdings.
+ *
+ * Same approach as the vendor list on purchase orders: there is no employee
+ * table to maintain, so the form offers back what has already been typed. The
+ * most recent holding wins for the spelling of a name — a correction should not
+ * be undone by a suggestion from an older row. Rows must arrive newest first.
+ *
+ * `holding` counts only open holdings, so the hint beside a suggested name reads
+ * as what they have now rather than everything they have ever been given.
+ */
+export function employeeProfilesFrom(
+  rows: Array<{
+    employee_name: string;
+    employee_no: string;
+    returned_on: string | null;
+    created_at: string;
+  }>,
+): EmployeeProfile[] {
+  const byKey = new Map<string, EmployeeProfile>();
+
+  for (const row of rows) {
+    const name = (row.employee_name ?? "").trim();
+    const no = (row.employee_no ?? "").trim();
+    if (!name && !no) continue;
+
+    const open = !row.returned_on;
+    const key = employeeKey(name, no);
+    const seen = byKey.get(key);
+    if (seen) {
+      if (open) seen.holding += 1;
+      continue;
+    }
+    byKey.set(key, { name, no, holding: open ? 1 : 0, lastUsed: row.created_at });
+  }
+
+  return [...byKey.values()].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
 }

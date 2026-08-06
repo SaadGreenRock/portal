@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
-import { ageInDays, dueIn } from "@/lib/format";
+import { ageInDays, dueIn, formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 import { MODULES, moduleHome, modulePath, type ModuleKey } from "@/lib/modules";
 
@@ -44,14 +44,16 @@ export default async function WorkspaceOverview({
   if (!company) notFound();
 
   const db = await store();
-  const [counts, pending, poCounts, openPos, rfqCounts, openRfqs] = await Promise.all([
-    db.counts(company.slug),
-    db.listPending(company.slug),
-    tryTable(() => db.poCounts(company.slug)),
-    tryTable(() => db.searchPos({ company: company.slug, status: "open", limit: 200 })),
-    tryTable(() => db.rfqCounts(company.slug)),
-    tryTable(() => db.searchRfqs({ company: company.slug, status: "open", limit: 200 })),
-  ]);
+  const [counts, pending, poCounts, openPos, rfqCounts, openRfqs, assetCounts] =
+    await Promise.all([
+      db.counts(company.slug),
+      db.listPending(company.slug),
+      tryTable(() => db.poCounts(company.slug)),
+      tryTable(() => db.searchPos({ company: company.slug, status: "open", limit: 200 })),
+      tryTable(() => db.rfqCounts(company.slug)),
+      tryTable(() => db.searchRfqs({ company: company.slug, status: "open", limit: 200 })),
+      tryTable(() => db.assetCounts(company.slug)),
+    ]);
 
   /* ---- vouchers ---------------------------------------------------------- */
   const oldestPending = pending[0];
@@ -149,10 +151,36 @@ export default async function WorkspaceOverview({
     };
   }
 
+  /* ---- asset register ---------------------------------------------------- */
+  // An asset being out is not late — nothing here is a deadline. The one thing
+  // worth flagging is a return that came back damaged or a loss, because that is
+  // a fact somebody has to act on rather than a number to watch.
+  let assetSummary: ModuleSummary | null = null;
+  if (assetCounts.ok) {
+    const c = assetCounts.value;
+    assetSummary = {
+      stats: [
+        { label: "out with employees", value: String(c.out) },
+        { label: "in stock", value: String(c.stock) },
+        ...(c.flagged > 0
+          ? [{ label: "damaged or lost", value: String(c.flagged), urgent: true }]
+          : []),
+        { label: "on the register", value: String(c.total) },
+      ],
+      allClear:
+        c.total === 0
+          ? "Nothing on the register yet."
+          : c.out === 0
+            ? "Every asset is back in stock."
+            : undefined,
+    };
+  }
+
   const summaries: Partial<Record<ModuleKey, ModuleSummary | null>> = {
     vouchers: voucherSummary,
     po: poSummary,
     rfq: rfqSummary,
+    assets: assetSummary,
   };
 
   const needsAttention =

@@ -158,16 +158,13 @@ export default async function Settings({
               />
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="label">Prepared by</span>
-                <input name="preparedBy" defaultValue={po.preparedBy} className="input mt-1.5" />
-              </label>
-              <label className="block">
-                <span className="label">Approved by</span>
-                <input name="approvedBy" defaultValue={po.approvedBy} className="input mt-1.5" />
-              </label>
-            </div>
+            <label className="block">
+              <span className="label">Approved by</span>
+              <span className="mt-0.5 block text-[12px] text-ink-soft">
+                Prefills the one signature line on every new order.
+              </span>
+              <input name="approvedBy" defaultValue={po.approvedBy} className="input mt-1.5" />
+            </label>
 
             <label className="block">
               <span className="label">Terms and conditions</span>

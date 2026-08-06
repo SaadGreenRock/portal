@@ -111,6 +111,19 @@ const NOTES_LINE_H = 0.155;
 const TERMS_PAD = 0.32;
 const TERMS_LINE_H = 0.145;
 const SIGNS_H = 1.05;
+/**
+ * Width of the signature block.
+ *
+ * A purchase order carries one signature: Approved By. There were three — a
+ * "Prepared By" line that named an author nobody needed, and an "Accepted By —
+ * Vendor" line asking for a countersignature on the copy the vendor keeps, which
+ * therefore never came back filled in.
+ *
+ * This is the width one of those three equal columns had, kept so the remaining
+ * rule is still a signature-sized line rather than one stretched across the page.
+ * The block's height is unchanged, so the pagination arithmetic above still holds.
+ */
+const SIGN_W = (CONTENT_W - 2 * 0.3) / 3;
 
 /** Column widths, in inches. Description takes whatever is left. */
 const COLS = { n: 0.34, qty: 0.72, unit: 0.62, rate: 1.05, amount: 1.17 };
@@ -431,21 +444,9 @@ function tailBlock(po: PoRenderable, company: Company): string {
     <div class="signs">
       <div class="sign">
         <div class="sign-rule"></div>
-        <div class="sign-title">Prepared By</div>
-        <div class="sign-name">${orBlank(d.preparedBy)}</div>
-        <div class="sign-org">${esc(company.legalName)}</div>
-      </div>
-      <div class="sign">
-        <div class="sign-rule"></div>
         <div class="sign-title">Approved By</div>
         <div class="sign-name">${orBlank(d.approvedBy)}</div>
         <div class="sign-org">${esc(company.legalName)}</div>
-      </div>
-      <div class="sign">
-        <div class="sign-rule"></div>
-        <div class="sign-title">Accepted By — Vendor</div>
-        <div class="sign-name">${nbsp}</div>
-        <div class="sign-org">Signature, name and date</div>
       </div>
     </div>
   </div>`;
@@ -763,7 +764,16 @@ function renderPage(input: PageInput): string {
   }
 
   .signs { display: flex; gap: 0.3in; margin-top: ${GAP}in; height: ${SIGNS_H}in; }
-  .sign { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+  /* Fixed at the width the three columns used to be, rather than stretching to
+     fill the page. A signature rule 7.7in wide reads as a ruled line to write a
+     paragraph on, not as somewhere to sign. */
+  .sign {
+    flex: 0 0 ${SIGN_W}in;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
   .sign-rule { border-top: 0.75pt solid #333; }
   .sign-title {
     margin-top: 0.05in;

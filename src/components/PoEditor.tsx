@@ -626,22 +626,14 @@ export default function PoEditor({
               />
             </Field>
 
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <Field label="Prepared by">
-                <input
-                  value={doc.preparedBy}
-                  onChange={(e) => set("preparedBy", e.target.value)}
-                  className="input"
-                />
-              </Field>
-              <Field label="Approved by">
-                <input
-                  value={doc.approvedBy}
-                  onChange={(e) => set("approvedBy", e.target.value)}
-                  className="input"
-                />
-              </Field>
-            </div>
+            {/* The only signature the order carries. */}
+            <Field label="Approved by">
+              <input
+                value={doc.approvedBy}
+                onChange={(e) => set("approvedBy", e.target.value)}
+                className="input"
+              />
+            </Field>
 
             <Field
               label="Internal note"

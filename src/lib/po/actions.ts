@@ -212,7 +212,6 @@ export async function savePoSettings(companySlug: string, form: FormData) {
       paymentTerms: text(form.get("paymentTerms"), 300, "Payment terms"),
       deliveryAddress: text(form.get("deliveryAddress"), 600, "Delivery address"),
       terms: text(form.get("terms"), 8000, "Terms and conditions"),
-      preparedBy: text(form.get("preparedBy"), 160, "Prepared by"),
       approvedBy: text(form.get("approvedBy"), 160, "Approved by"),
     },
   });

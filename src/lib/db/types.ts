@@ -1,3 +1,15 @@
+import type {
+  AllotFields,
+  Asset,
+  AssetCounts,
+  AssetFields,
+  AssetHolding,
+  AssetQuery,
+  EmployeeProfile,
+  HoldingQuery,
+  HoldingWithAsset,
+  ReturnFields,
+} from "../assets/types";
 import type { CompanySlug } from "../companies";
 import type {
   PoCounts,
@@ -164,6 +176,78 @@ export interface RfqStore {
   rfqCounts(company: CompanySlug): Promise<RfqCounts>;
 }
 
+export interface NewAsset {
+  company: CompanySlug;
+  fields: AssetFields;
+  /** The first holding. An asset is logged as it is handed to someone. */
+  allot: AllotFields;
+}
+
+export interface AssetStore {
+  /**
+   * Reserves the next asset number for a company, writes the asset, and opens
+   * its first holding. The sequence is per company and never resets, so the
+   * number is the permanent label for the physical item. Safe against
+   * concurrent calls, like the others.
+   */
+  createAsset(input: NewAsset): Promise<Asset>;
+
+  getAsset(id: string): Promise<Asset | null>;
+
+  /**
+   * Corrects the asset and, when it is out, the open holding — the two things
+   * the record screen shows as editable. Neither the number nor the holding
+   * history before the open one is touched.
+   */
+  updateAsset(id: string, fields: AssetFields, holder: AllotFields | null): Promise<Asset>;
+
+  /**
+   * Closes the open holding and puts the asset back in stock, recording the
+   * condition it came back in against both the holding and the asset.
+   *
+   * Throws when the asset is already in stock: returning something nobody has
+   * would write a holding period out of nothing.
+   */
+  returnAsset(id: string, fields: ReturnFields): Promise<Asset>;
+
+  /**
+   * Opens a new holding on an asset that is in stock.
+   *
+   * Throws when somebody already has it. An asset is returned before it goes to
+   * the next person, so allowing this would leave two overlapping holdings and
+   * no way to say which one the register's cached holder refers to.
+   */
+  allotAsset(id: string, allot: AllotFields): Promise<Asset>;
+
+  /**
+   * Same reasoning as every other module: the row stays, so the number stays
+   * spent. Here it matters more than elsewhere — the number is stencilled on a
+   * laptop, and reissuing it would label two things the same.
+   */
+  softDeleteAsset(id: string): Promise<void>;
+  restoreAsset(id: string): Promise<void>;
+
+  /** Filtered register, newest first, plus a total count for paging. */
+  searchAssets(query: AssetQuery): Promise<{ rows: Asset[]; total: number }>;
+
+  assetCounts(company: CompanySlug): Promise<AssetCounts>;
+
+  /** One asset's holdings, newest first — the timeline on its record. */
+  listHoldings(assetId: string): Promise<AssetHolding[]>;
+
+  /**
+   * Every holding, for the company-wide history: who had what, from when to
+   * when. Newest first, paged, with each asset's number and name attached.
+   */
+  searchHoldings(query: HoldingQuery): Promise<{ rows: HoldingWithAsset[]; total: number }>;
+
+  /**
+   * Employees as last allotted to, newest first. Assembled from the holdings
+   * themselves, so there is no employee list to keep up to date.
+   */
+  listEmployees(company: CompanySlug): Promise<EmployeeProfile[]>;
+}
+
 export interface SpendStore {
   /**
    * Every non-deleted voucher and purchase order for a company, reduced to what
@@ -185,4 +269,10 @@ export interface SettingsStore {
   saveSettings(company: CompanySlug, patch: Partial<CompanySettings>): Promise<CompanySettings>;
 }
 
-export interface Store extends VoucherStore, PoStore, RfqStore, SpendStore, SettingsStore {}
+export interface Store
+  extends VoucherStore,
+    PoStore,
+    RfqStore,
+    AssetStore,
+    SpendStore,
+    SettingsStore {}

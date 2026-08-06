@@ -114,7 +114,6 @@ export function readPoDoc(raw: unknown): PoDoc {
     items,
     notes: text(r.notes, 4000, "Notes"),
     terms: text(r.terms, 8000, "Terms and conditions"),
-    preparedBy: text(r.preparedBy, 160, "Prepared by"),
     approvedBy: text(r.approvedBy, 160, "Approved by"),
   };
 }

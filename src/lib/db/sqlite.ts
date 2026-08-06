@@ -1,6 +1,16 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import type {
+  AllotFields,
+  AssetCounts,
+  AssetFields,
+  AssetHolding,
+  AssetQuery,
+  EmployeeProfile,
+  HoldingQuery,
+  ReturnFields,
+} from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
@@ -10,26 +20,37 @@ import {
   type RfqQuery,
   type RfqStatus,
 } from "../rfq/types";
+import { todayIso } from "../format";
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
+import type { NewAsset, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
   denormalize,
   denormalizePo,
   denormalizeRfq,
+  employeeKey,
+  employeeProfilesFrom,
+  formatAssetNo,
   formatPoNo,
   formatRfqNo,
   formatVoucherNo,
+  holderColumns,
   newId,
   periodOf,
   poStatusPatch,
   rfqStatusPatch,
+  rowToAsset,
+  rowToHolding,
+  rowToHoldingWithAsset,
   rowToPo,
   rowToRfq,
   statusChangesDocument,
   rowToVoucher,
   vendorProfilesFrom,
+  type AssetRow,
+  type HoldingRow,
+  type HoldingWithAssetRow,
   type PoRow,
   type RfqRow,
   type VoucherRow,
@@ -165,6 +186,73 @@ function connect(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS rfq_company_status ON requests_for_quotation (company, status);
     CREATE INDEX IF NOT EXISTS rfq_company_date ON requests_for_quotation (company, rfq_date DESC);
+
+    -- The asset register: the thing itself. Plain columns rather than a doc,
+    -- because every field here is searched or sorted on. No period column
+    -- either -- an asset number carries no month.
+    CREATE TABLE IF NOT EXISTS assets (
+      id            TEXT PRIMARY KEY,
+      asset_no      TEXT NOT NULL UNIQUE,
+      company       TEXT NOT NULL,
+      -- Running, per company, never reset. GR-A-001 is on the item itself.
+      seq           INTEGER NOT NULL,
+      asset_name    TEXT NOT NULL DEFAULT '',
+      -- From the last return. A fact about the thing, not about a holding.
+      condition     TEXT NOT NULL DEFAULT 'good',
+      -- Cache of the open holding in asset_holdings, so the register can list
+      -- and search current holders without touching a second table. Empty
+      -- holder_name means in stock.
+      holder_name   TEXT NOT NULL DEFAULT '',
+      holder_no     TEXT NOT NULL DEFAULT '',
+      held_since    TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      deleted_at    TEXT,
+      -- Company + seq, not company + period + seq: the sequence spans all time.
+      UNIQUE (company, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS assets_company_holder ON assets (company, holder_no);
+    CREATE INDEX IF NOT EXISTS assets_company_created ON assets (company, created_at DESC);
+
+    -- One row per period in one person's possession. The authority on history;
+    -- the holder columns on assets are derived from the open row here.
+    CREATE TABLE IF NOT EXISTS asset_holdings (
+      id            TEXT PRIMARY KEY,
+      asset_id      TEXT NOT NULL REFERENCES assets (id),
+      -- Denormalised so the history screen can filter by company without a
+      -- join. An asset never moves between companies, so it cannot go stale.
+      company       TEXT NOT NULL,
+      employee_name TEXT NOT NULL DEFAULT '',
+      employee_no   TEXT NOT NULL DEFAULT '',
+      allotted_on   TEXT,
+      -- NULL while they still have it.
+      returned_on   TEXT,
+      condition     TEXT NOT NULL DEFAULT 'good',
+      note          TEXT NOT NULL DEFAULT '',
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      -- The holding's period with both ends filled in, so the history screen's
+      -- overlap filter is two plain comparisons rather than a pair of
+      -- OR-with-NULL clauses. That matters for the Supabase backend, where every
+      -- OR group is a separate query parameter, and it keeps the two backends
+      -- filtering identically. An open holding runs to the far future; an
+      -- undated one is treated as having always been in progress.
+      span_start    TEXT GENERATED ALWAYS AS (COALESCE(allotted_on, '0001-01-01')) VIRTUAL,
+      span_end      TEXT GENERATED ALWAYS AS (COALESCE(returned_on, '9999-12-31')) VIRTUAL
+    );
+
+    CREATE INDEX IF NOT EXISTS holdings_asset ON asset_holdings (asset_id, allotted_on DESC);
+    CREATE INDEX IF NOT EXISTS holdings_company_date
+      ON asset_holdings (company, allotted_on DESC);
+    CREATE INDEX IF NOT EXISTS holdings_company_employee
+      ON asset_holdings (company, employee_no);
+    -- An asset is returned before it goes to anyone else, so only one holding
+    -- per asset may be open. A partial unique index makes that the database's
+    -- rule rather than something the application has to remember.
+    CREATE UNIQUE INDEX IF NOT EXISTS holdings_one_open
+      ON asset_holdings (asset_id) WHERE returned_on IS NULL;
+    CREATE INDEX IF NOT EXISTS holdings_span ON asset_holdings (company, span_end, span_start);
 
     -- One JSON document of settings per company, so a new module can add a
     -- section without a schema change.
@@ -931,6 +1019,405 @@ export const sqliteStore: Store = {
       total: rows.reduce((sum, r) => sum + r.n, 0),
     };
   },
+
+  /* ---- asset register --------------------------------------------------- */
+
+  async createAsset({ company, fields, allot }: NewAsset) {
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const insertAsset = handle.prepare(`
+      INSERT INTO assets (
+        id, asset_no, company, seq, asset_name, condition,
+        holder_name, holder_no, held_since, created_at, updated_at
+      ) VALUES (
+        @id, @asset_no, @company, @seq, @asset_name, 'good',
+        @holder_name, @holder_no, @held_since, @created_at, @created_at
+      )
+    `);
+
+    const insertHolding = handle.prepare(`
+      INSERT INTO asset_holdings (
+        id, asset_id, company, employee_name, employee_no, allotted_on,
+        returned_on, condition, note, created_at, updated_at
+      ) VALUES (
+        @id, @asset_id, @company, @employee_name, @employee_no, @allotted_on,
+        NULL, 'good', '', @created_at, @created_at
+      )
+    `);
+
+    // No period filter, and deleted rows are deliberately counted: a number
+    // that has been written on an item is spent even if the row was binned.
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM assets WHERE company = ?`,
+    );
+
+    // The asset and its first holding in one transaction, so the register can
+    // never show a holder the history does not have. UNIQUE (company, seq) is
+    // the real guard on the number.
+    const claim = handle.transaction((): AssetRow => {
+      const { seq } = nextSeq.get(company) as { seq: number };
+      const id = newId();
+      insertAsset.run({
+        id,
+        asset_no: formatAssetNo(company, seq),
+        company,
+        seq,
+        asset_name: fields.assetName,
+        created_at: now,
+        ...holderColumns(allot),
+      });
+      insertHolding.run({
+        id: newId(),
+        asset_id: id,
+        company,
+        employee_name: allot.employeeName,
+        employee_no: allot.employeeNo,
+        allotted_on: allot.allottedOn || null,
+        created_at: now,
+      });
+      return handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as AssetRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToAsset(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign an asset number after several attempts");
+  },
+
+  async getAsset(id) {
+    const row = connect().prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as
+      | AssetRow
+      | undefined;
+    return row ? rowToAsset(row) : null;
+  },
+
+  async updateAsset(id, fields: AssetFields, holder: AllotFields | null) {
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const apply = handle.transaction((): AssetRow => {
+      const current = handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as
+        | AssetRow
+        | undefined;
+      if (!current) throw new Error("Asset not found");
+
+      // Only the open holding is editable, and only when there is one. A
+      // correction to who has it now must not rewrite a closed period.
+      const open = holder
+        ? (handle
+            .prepare(`SELECT id FROM asset_holdings WHERE asset_id = ? AND returned_on IS NULL`)
+            .get(id) as { id: string } | undefined)
+        : undefined;
+
+      handle
+        .prepare(
+          `UPDATE assets SET
+              asset_name = @asset_name, updated_at = @updated_at,
+              holder_name = @holder_name, holder_no = @holder_no, held_since = @held_since
+            WHERE id = @id`,
+        )
+        .run({
+          id,
+          asset_name: fields.assetName,
+          updated_at: now,
+          ...(open && holder
+            ? holderColumns(holder)
+            : {
+                holder_name: current.holder_name,
+                holder_no: current.holder_no,
+                held_since: current.held_since,
+              }),
+        });
+
+      if (open && holder) {
+        handle
+          .prepare(
+            `UPDATE asset_holdings SET
+                employee_name = @employee_name, employee_no = @employee_no,
+                allotted_on = @allotted_on, updated_at = @updated_at
+              WHERE id = @id`,
+          )
+          .run({
+            id: open.id,
+            employee_name: holder.employeeName,
+            employee_no: holder.employeeNo,
+            allotted_on: holder.allottedOn || null,
+            updated_at: now,
+          });
+      }
+
+      return handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as AssetRow;
+    });
+
+    return rowToAsset(apply());
+  },
+
+  async returnAsset(id, fields: ReturnFields) {
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const apply = handle.transaction((): AssetRow => {
+      const open = handle
+        .prepare(`SELECT id FROM asset_holdings WHERE asset_id = ? AND returned_on IS NULL`)
+        .get(id) as { id: string } | undefined;
+      if (!open) throw new Error("That asset is already in stock — nobody has it to return.");
+
+      handle
+        .prepare(
+          `UPDATE asset_holdings SET
+              returned_on = @returned_on, condition = @condition, note = @note,
+              updated_at = @updated_at
+            WHERE id = @id`,
+        )
+        .run({
+          id: open.id,
+          // Stored rather than left null so a closed holding always has an end.
+          returned_on: fields.returnedOn || todayIso(),
+          condition: fields.condition,
+          note: fields.note,
+          updated_at: now,
+        });
+
+      handle
+        .prepare(
+          `UPDATE assets SET
+              holder_name = '', holder_no = '', held_since = NULL,
+              condition = @condition, updated_at = @updated_at
+            WHERE id = @id`,
+        )
+        .run({ id, condition: fields.condition, updated_at: now });
+
+      return handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as AssetRow;
+    });
+
+    return rowToAsset(apply());
+  },
+
+  async allotAsset(id, allot: AllotFields) {
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const apply = handle.transaction((): AssetRow => {
+      const current = handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as
+        | AssetRow
+        | undefined;
+      if (!current) throw new Error("Asset not found");
+      if (current.holder_name) {
+        throw new Error(
+          `${current.asset_no} is with ${current.holder_name}. Record its return first.`,
+        );
+      }
+
+      handle
+        .prepare(
+          `INSERT INTO asset_holdings (
+              id, asset_id, company, employee_name, employee_no, allotted_on,
+              returned_on, condition, note, created_at, updated_at
+            ) VALUES (
+              @id, @asset_id, @company, @employee_name, @employee_no, @allotted_on,
+              NULL, 'good', '', @created_at, @created_at
+            )`,
+        )
+        .run({
+          id: newId(),
+          asset_id: id,
+          company: current.company,
+          employee_name: allot.employeeName,
+          employee_no: allot.employeeNo,
+          allotted_on: allot.allottedOn || null,
+          created_at: now,
+        });
+
+      handle
+        .prepare(
+          `UPDATE assets SET
+              holder_name = @holder_name, holder_no = @holder_no, held_since = @held_since,
+              updated_at = @updated_at
+            WHERE id = @id`,
+        )
+        .run({ id, updated_at: now, ...holderColumns(allot) });
+
+      return handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as AssetRow;
+    });
+
+    return rowToAsset(apply());
+  },
+
+  async softDeleteAsset(id) {
+    connect()
+      .prepare(`UPDATE assets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async restoreAsset(id) {
+    connect().prepare(`UPDATE assets SET deleted_at = NULL WHERE id = ?`).run(id);
+  },
+
+  async searchAssets(query: AssetQuery) {
+    const handle = connect();
+    const where: string[] = ["company = @company"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    if (query.view === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+      if (query.view === "out") where.push("holder_name <> ''");
+      else if (query.view === "stock") where.push("holder_name = ''");
+    }
+
+    if (query.q?.trim()) {
+      where.push(`(
+        asset_no    LIKE @q COLLATE NOCASE OR
+        asset_name  LIKE @q COLLATE NOCASE OR
+        holder_name LIKE @q COLLATE NOCASE OR
+        holder_no   LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM assets WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    // Assets out first, then by how long they have been out; then stock. The
+    // register is read to find something, and what is out is what moves.
+    const rows = handle
+      .prepare(
+        `SELECT * FROM assets WHERE ${clause}
+          ORDER BY (holder_name = '') ASC, held_since DESC, created_at DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as AssetRow[];
+
+    return { rows: rows.map(rowToAsset), total };
+  },
+
+  async assetCounts(company: CompanySlug): Promise<AssetCounts> {
+    const handle = connect();
+    const rows = handle
+      .prepare(
+        `SELECT holder_name, holder_no, condition FROM assets
+          WHERE company = ? AND deleted_at IS NULL`,
+      )
+      .all(company) as Array<{ holder_name: string; holder_no: string; condition: string }>;
+
+    // Reduced in the app rather than with COUNT(DISTINCT …) so both backends
+    // agree on what "the same employee" means — see employeeKey.
+    const people = new Set<string>();
+    let out = 0;
+    let flagged = 0;
+    for (const r of rows) {
+      if (r.holder_name) {
+        out += 1;
+        people.add(employeeKey(r.holder_name, r.holder_no));
+      }
+      if (r.condition !== "good") flagged += 1;
+    }
+
+    return {
+      total: rows.length,
+      out,
+      stock: rows.length - out,
+      employees: people.size,
+      flagged,
+    };
+  },
+
+  async listHoldings(assetId: string): Promise<AssetHolding[]> {
+    const rows = connect()
+      .prepare(
+        `SELECT * FROM asset_holdings WHERE asset_id = ?
+          ORDER BY (returned_on IS NULL) DESC, allotted_on DESC, created_at DESC`,
+      )
+      .all(assetId) as HoldingRow[];
+    return rows.map(rowToHolding);
+  },
+
+  async searchHoldings(query: HoldingQuery) {
+    const handle = connect();
+    const where: string[] = ["h.company = @company", "a.deleted_at IS NULL"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    if (query.view === "open") where.push("h.returned_on IS NULL");
+    else if (query.view === "closed") where.push("h.returned_on IS NOT NULL");
+
+    if (query.q?.trim()) {
+      where.push(`(
+        h.employee_name LIKE @q COLLATE NOCASE OR
+        h.employee_no   LIKE @q COLLATE NOCASE OR
+        a.asset_no      LIKE @q COLLATE NOCASE OR
+        a.asset_name    LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+
+    // Overlap, not containment: a holding that started in July and is still open
+    // is part of "who had something in August". Two periods overlap when each
+    // starts before the other ends, which the generated span columns make a
+    // plain comparison — no NULL cases to spell out.
+    if (query.from) {
+      where.push("date(h.span_end) >= date(@from)");
+      params.from = query.from;
+    }
+    if (query.to) {
+      where.push("date(h.span_start) <= date(@to)");
+      params.to = query.to;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(
+        `SELECT COUNT(*) AS total FROM asset_holdings h
+           JOIN assets a ON a.id = h.asset_id
+          WHERE ${clause}`,
+      )
+      .get(params) as { total: number };
+
+    const rows = handle
+      .prepare(
+        `SELECT h.*, a.asset_no, a.asset_name FROM asset_holdings h
+           JOIN assets a ON a.id = h.asset_id
+          WHERE ${clause}
+          ORDER BY h.allotted_on DESC, h.created_at DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({
+        ...params,
+        limit: query.limit ?? 50,
+        offset: query.offset ?? 0,
+      }) as HoldingWithAssetRow[];
+
+    return { rows: rows.map(rowToHoldingWithAsset), total };
+  },
+
+  async listEmployees(company: CompanySlug): Promise<EmployeeProfile[]> {
+    // Capped like the vendor list. Past this many holdings the suggestions are
+    // already more than a person will scroll, and the count beside a name is a
+    // hint rather than a figure anyone reports on.
+    const rows = connect()
+      .prepare(
+        `SELECT employee_name, employee_no, returned_on, created_at FROM asset_holdings
+          WHERE company = ?
+          ORDER BY created_at DESC
+          LIMIT 1000`,
+      )
+      .all(company) as Array<{
+      employee_name: string;
+      employee_no: string;
+      returned_on: string | null;
+      created_at: string;
+    }>;
+    return employeeProfilesFrom(rows);
+  },
+
 
   /* ---- expenditure ------------------------------------------------------ */
 

@@ -155,6 +155,100 @@ create index if not exists rfq_company_date_idx
   on public.requests_for_quotation (company, rfq_date desc);
 
 -- ---------------------------------------------------------------------------
+-- Asset register
+-- ---------------------------------------------------------------------------
+-- Two records, not one. An asset is a *thing* -- a laptop keeps its number and
+-- its identity when it changes hands -- and a holding is one period in someone's
+-- possession. Putting the employee on the asset itself would make "who has it"
+-- and "who had it" the same field, so recording a return would overwrite the
+-- only copy of who it was with.
+--
+-- Nothing here is printed, so there is no jsonb doc, no status and no pdf_key.
+--
+-- The number is `GR-A-001` -- no year+month, unlike every other number in the
+-- portal. An asset number is written on the item itself and outlives the month
+-- it was bought in, so the sequence spans all time and never resets.
+create table if not exists public.assets (
+  id            uuid primary key,
+  asset_no      text        not null unique,
+  company       text        not null,
+  -- Running, per company. Hence (company, seq) and not (company, period, seq).
+  seq           integer     not null,
+  asset_name    text        not null default '',
+  -- From the last return. A fact about the thing, not about a holding, and what
+  -- makes "which of our returned laptops are broken" answerable from this table.
+  condition     text        not null default 'good'
+                            check (condition in ('good', 'damaged', 'lost')),
+  -- Cache of the open row in asset_holdings, so the register can list and search
+  -- current holders without a join. Empty holder_name means the asset is in
+  -- stock. asset_holdings is the authority; these are rewritten by allotting and
+  -- by returning.
+  holder_name   text        not null default '',
+  holder_no     text        not null default '',
+  held_since    date,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  -- Same reasoning as the others, and it matters more here: the number is on a
+  -- physical label, so reissuing it would tag two things identically.
+  deleted_at    timestamptz,
+  constraint assets_company_seq_key unique (company, seq)
+);
+
+create index if not exists assets_company_holder_idx
+  on public.assets (company, holder_no);
+
+create index if not exists assets_company_created_idx
+  on public.assets (company, created_at desc);
+
+-- One row per period in one person's possession. The authority on history.
+create table if not exists public.asset_holdings (
+  id            uuid primary key,
+  asset_id      uuid        not null references public.assets (id),
+  -- Denormalised so the history screen can filter by company without a join. An
+  -- asset never moves between companies, so this cannot go stale.
+  company       text        not null,
+  employee_name text        not null default '',
+  -- The number the company already issued the employee. Not generated here.
+  employee_no   text        not null default '',
+  allotted_on   date,
+  -- NULL while they still have it. This is what marks a holding open.
+  returned_on   date,
+  condition     text        not null default 'good'
+                            check (condition in ('good', 'damaged', 'lost')),
+  note          text        not null default '',
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  -- The holding's period with both ends filled in, so the history screen's
+  -- overlap filter is two plain comparisons rather than a pair of OR-with-NULL
+  -- clauses. PostgREST puts each OR group in its own query parameter, and one
+  -- `or=` per request is the pattern the rest of this schema is queried with.
+  -- An open holding runs to the far future; an undated one is treated as having
+  -- always been in progress.
+  span_start    date generated always as (coalesce(allotted_on, date '0001-01-01')) stored,
+  span_end      date generated always as (coalesce(returned_on, date '9999-12-31')) stored
+);
+
+create index if not exists holdings_asset_idx
+  on public.asset_holdings (asset_id, allotted_on desc);
+
+create index if not exists holdings_company_date_idx
+  on public.asset_holdings (company, allotted_on desc);
+
+-- Backs both the free-text search and the employee suggestions on the form.
+create index if not exists holdings_company_employee_idx
+  on public.asset_holdings (company, employee_no);
+
+-- An asset is returned before it goes to anyone else, so only one holding per
+-- asset may be open. This partial unique index, not application logic, is what
+-- guarantees two people can never hold the same asset at once.
+create unique index if not exists holdings_one_open_idx
+  on public.asset_holdings (asset_id) where returned_on is null;
+
+-- Backs the overlap filter on the history screen.
+create index if not exists holdings_span_idx
+  on public.asset_holdings (company, span_end, span_start);
+
+-- ---------------------------------------------------------------------------
 -- Per-company settings
 -- ---------------------------------------------------------------------------
 -- One JSON document per company. A new module adds a section to the document
@@ -169,6 +263,8 @@ alter table public.vouchers               enable row level security;
 alter table public.signatories            enable row level security;
 alter table public.purchase_orders        enable row level security;
 alter table public.requests_for_quotation enable row level security;
+alter table public.assets                 enable row level security;
+alter table public.asset_holdings         enable row level security;
 alter table public.company_settings       enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.

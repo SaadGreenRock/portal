@@ -289,7 +289,6 @@ export default async function PurchaseOrderDetail({
               <Detail label="Deliver to" value={po.doc.deliveryAddress} />
               <Detail label="Payment terms" value={po.doc.paymentTerms} />
               <Detail label="Reference" value={po.doc.reference} />
-              <Detail label="Prepared by" value={po.doc.preparedBy} />
               <Detail label="Approved by" value={po.doc.approvedBy} />
               <Detail label="Notes" value={po.doc.notes} />
               <Detail label="Internal note" value={po.internalNote} privateNote />

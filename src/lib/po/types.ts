@@ -100,7 +100,15 @@ export interface PoDoc {
   notes: string;
   /** Terms and conditions block. */
   terms: string;
-  preparedBy: string;
+  /**
+   * Name on the one signature line the order carries.
+   *
+   * There was a "Prepared By" line and a vendor acceptance line beside it. Both
+   * were dropped: the order is authorised by whoever approves it, and that is the
+   * only signature it needs. Orders written before then still have a
+   * `preparedBy` in their stored document; it is ignored, and disappears the next
+   * time the order is saved.
+   */
   approvedBy: string;
 }
 
@@ -212,7 +220,6 @@ export function emptyPoDoc(today: string, s: PoSettings): PoDoc {
     items: [emptyItem()],
     notes: "",
     terms: s.terms,
-    preparedBy: s.preparedBy,
     approvedBy: s.approvedBy,
   };
 }
