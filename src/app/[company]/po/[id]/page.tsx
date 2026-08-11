@@ -4,6 +4,7 @@ import BuildPoPdfButton from "@/components/BuildPoPdfButton";
 import ConfirmDelete from "@/components/ConfirmDelete";
 import PoStatusActions from "@/components/PoStatusActions";
 import PrintButton from "@/components/PrintButton";
+import ScanPreview from "@/components/ScanPreview";
 import UploadFile from "@/components/UploadFile";
 import { SheetStack } from "@/components/SheetPreview";
 import { getCompany } from "@/lib/companies";
@@ -309,45 +310,13 @@ export default async function PurchaseOrderDetail({
 
               {po.invoiceKey ? (
                 <div className="space-y-2.5">
-                  {po.invoiceKey.endsWith(".pdf") ? (
-                    <div className="card grid place-items-center px-6 py-10 text-center">
-                      <div>
-                        <p className="text-[15px] font-medium">Invoice on file</p>
-                        <p className="mt-1.5 text-[13.5px] text-ink-soft">Uploaded as a PDF.</p>
-                        <div className="mt-5 flex flex-wrap justify-center gap-2">
-                          <a
-                            href={fileUrl(po.invoiceKey, { v: po.invoiceAt })}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn btn-primary"
-                          >
-                            Open invoice
-                          </a>
-                          <a
-                            href={fileUrl(po.invoiceKey, { v: po.invoiceAt, download: true })}
-                            download
-                            className="btn btn-ghost"
-                          >
-                            Download
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <a
-                      href={fileUrl(po.invoiceKey, { v: po.invoiceAt })}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={fileUrl(po.invoiceKey, { v: po.invoiceAt })}
-                        alt={`Invoice for ${po.poNo}`}
-                        className="max-h-[560px] w-full rounded-lg border border-ink-line bg-white object-contain"
-                      />
-                    </a>
-                  )}
+                  <ScanPreview
+                    fileKey={po.invoiceKey}
+                    version={po.invoiceAt}
+                    alt={`Invoice for ${po.poNo}`}
+                    openLabel="Open invoice"
+                    maxHeight="560px"
+                  />
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="truncate text-[12.5px] text-ink-soft">{po.invoiceName}</span>
                     <form action={detachInvoice}>

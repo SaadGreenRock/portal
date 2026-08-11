@@ -101,6 +101,8 @@ const TABLES = [
   ["signatories", "id"],
   ["purchase_orders", "id"],
   ["requests_for_quotation", "id"],
+  ["assets", "id"],
+  ["asset_holdings", "id"],
   ["company_settings", "company"],
 ];
 
@@ -132,6 +134,13 @@ if (tablesExist) {
   for (const [table, column] of [
     ["vouchers", "deleted_at"],
     ["purchase_orders", "pdf_at"],
+    // The asset register's holding periods with both ends filled in. Generated
+    // columns, so CREATE TABLE IF NOT EXISTS would not add them to a table
+    // created by an earlier draft of the migration — and the history screen's
+    // date filter reads them directly, so their absence breaks that filter
+    // rather than announcing itself.
+    ["asset_holdings", "span_start"],
+    ["asset_holdings", "span_end"],
   ]) {
     const { error } = await db.from(table).select(column).limit(1);
     if (error) {

@@ -4,6 +4,7 @@ import BuildPdfButton from "@/components/BuildPdfButton";
 import ConfirmDelete from "@/components/ConfirmDelete";
 import PrintButton from "@/components/PrintButton";
 import SheetPreview from "@/components/SheetPreview";
+import ScanPreview from "@/components/ScanPreview";
 import UploadFile from "@/components/UploadFile";
 import { deleteVoucher, removeScan, restoreVoucher, uploadScan } from "@/lib/actions";
 import { amountInWords, formatAmount } from "@/lib/amount-words";
@@ -164,38 +165,13 @@ export default async function VoucherDetail({
           <h2 className="mb-2.5 text-[15px] font-semibold">Signed scan</h2>
           {v.scanKey ? (
             <div className="space-y-2.5">
-              {v.scanKey.endsWith(".pdf") ? (
-                <div className="card grid place-items-center px-6 py-16 text-center">
-                  <div>
-                    <p className="text-[15px] font-medium">Signed scan on file</p>
-                    <p className="mt-1.5 text-[13.5px] text-ink-soft">
-                      Uploaded as a PDF.
-                    </p>
-                    <div className="mt-5 flex flex-wrap justify-center gap-2">
-                      <a
-                        href={fileUrl(v.scanKey)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn btn-primary"
-                      >
-                        Open scan
-                      </a>
-                      <a href={fileUrl(v.scanKey, { download: true })} download className="btn btn-ghost">
-                        Download
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <a href={fileUrl(v.scanKey)} target="_blank" rel="noreferrer" className="block">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={fileUrl(v.scanKey)}
-                    alt={`Signed scan of ${v.voucherNo}`}
-                    className="max-h-[900px] w-full rounded-lg border border-ink-line bg-white object-contain"
-                  />
-                </a>
-              )}
+              <ScanPreview
+                fileKey={v.scanKey}
+                version={v.uploadedAt}
+                alt={`Signed scan of ${v.voucherNo}`}
+                openLabel="Open scan"
+                maxHeight="900px"
+              />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="truncate text-[12.5px] text-ink-soft">{v.scanName}</span>
                 <form action={detach}>
