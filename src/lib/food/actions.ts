@@ -1,11 +1,14 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "../auth";
 import { store } from "../db";
 import { todayIso } from "../format";
 import { text } from "../po/parse";
+import { deleteFile, putFile, storageKeys } from "../storage";
+import { readUpload } from "../uploads";
 import { isFoodStatus, isPaymentType, type FoodExpense, type FoodFields } from "./types";
 
 /**
@@ -140,6 +143,24 @@ export async function saveFood(id: string, form: FormData) {
   redirect(`/food/${id}?saved=1`);
 }
 
+/**
+ * Files the receipt, if one was chosen, and returns what to record against the
+ * entries. Returns null when the field was left empty, which is the normal case
+ * for a payment whose paperwork arrives later.
+ *
+ * The settlement id is fresh per call, so two payments to the same café never
+ * write to the same key and a re-settle cannot overwrite last month's proof.
+ */
+async function fileReceipt(form: FormData): Promise<{ key: string; name: string } | null> {
+  const chosen = form.get("receipt");
+  if (!(chosen instanceof File) || chosen.size === 0) return null;
+
+  const { file, ext } = readUpload(form, "receipt");
+  const key = storageKeys.foodReceipt(randomUUID(), ext);
+  await putFile(key, Buffer.from(await file.arrayBuffer()), file.type || "application/octet-stream");
+  return { key, name: file.name };
+}
+
 /** Squares up a single entry, from its own record screen. */
 export async function markFoodPaid(id: string, form: FormData) {
   await requireAuth();
@@ -152,10 +173,58 @@ export async function markFoodPaid(id: string, form: FormData) {
     [id],
     isoDate(form.get("paidAt")) || todayIso(),
     text(form.get("reference"), 120, "Reference") || null,
+    await fileReceipt(form),
   );
 
   revalidateFood(id);
   redirect(`/food/${id}?settled=1`);
+}
+
+/**
+ * Files proof against an entry that is already settled — the paperwork that
+ * turned up after the payment, and every entry imported from the spreadsheet,
+ * which recorded no documents at all.
+ */
+export async function attachFoodReceipt(id: string, form: FormData) {
+  await requireAuth();
+  const db = await store();
+  const existing = await db.getFood(id);
+  if (!existing) throw new Error("Food entry not found");
+  requireLive(existing);
+
+  const receipt = await fileReceipt(form);
+  if (!receipt) throw new Error("Choose a receipt to attach.");
+
+  // Unlink the old one first, so the file it pointed at can be cleaned up if
+  // nothing else was using it. Replacing without this leaves an orphan behind.
+  const previous = await db.detachFoodReceipt(id);
+  if (previous.key && !previous.stillReferenced) await deleteFile(previous.key);
+
+  await db.attachFoodReceipt(id, receipt);
+
+  revalidateFood(id);
+  redirect(`/food/${id}?filed=1`);
+}
+
+/**
+ * Takes the receipt off an entry.
+ *
+ * The stored file goes only when no other entry still points at it. One cheque
+ * clears a whole tab, so a dozen entries can share one document, and deleting it
+ * on the strength of one of them would blank the proof on the other eleven.
+ */
+export async function removeFoodReceipt(id: string) {
+  await requireAuth();
+  const db = await store();
+  const existing = await db.getFood(id);
+  if (!existing) throw new Error("Food entry not found");
+  requireLive(existing);
+
+  const { key, stillReferenced } = await db.detachFoodReceipt(id);
+  if (key && !stillReferenced) await deleteFile(key);
+
+  revalidateFood(id);
+  redirect(`/food/${id}?unfiled=1`);
 }
 
 /** Puts a settled entry back to pending — the undo for a mistaken settle. */
@@ -190,10 +259,15 @@ export async function settleSelected(form: FormData) {
   if (ids.length === 0) throw new Error("Tick at least one entry to settle.");
 
   const db = await store();
+  // Filed once and shared by every entry in the payment — one cheque, one
+  // document. Uploaded before the update so a storage failure means nothing was
+  // marked paid, rather than a settlement with proof that never arrived.
+  const receipt = await fileReceipt(form);
   const settled = await db.settleFood(
     ids,
     isoDate(form.get("paidAt")) || todayIso(),
     text(form.get("reference"), 120, "Reference") || null,
+    receipt,
   );
 
   revalidateFood();

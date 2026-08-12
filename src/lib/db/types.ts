@@ -297,10 +297,36 @@ export interface FoodStore {
    * call idempotent: a resubmitted settle form — the browser-back-then-refresh
    * that every operator eventually does — cannot rewrite the payment date of
    * something already settled last week.
+   *
+   * `receipt` is the proof of that one payment, already in storage. Every entry
+   * in the settlement gets the same key: one cheque, one document, a dozen
+   * entries pointing at it.
    */
-  settleFood(ids: string[], paidAt: string, reference: string | null): Promise<number>;
+  settleFood(
+    ids: string[],
+    paidAt: string,
+    reference: string | null,
+    receipt: { key: string; name: string } | null,
+  ): Promise<number>;
 
-  /** Puts a settled entry back to pending, clearing the payment it recorded. */
+  /** Files proof against one already-settled entry, replacing anything there. */
+  attachFoodReceipt(id: string, receipt: { key: string; name: string }): Promise<FoodExpense>;
+
+  /**
+   * Unlinks the receipt from one entry, and reports whether any other live entry
+   * still points at the same file.
+   *
+   * The caller deletes the file only when nothing does. A receipt is shared by
+   * everything settled in the same payment, so deleting it on the strength of
+   * one entry would blank the proof on the other eleven.
+   */
+  detachFoodReceipt(id: string): Promise<{ key: string | null; stillReferenced: boolean }>;
+
+  /**
+   * Puts a settled entry back to pending, clearing the payment it recorded —
+   * including its proof, which was evidence of that payment. The stored file is
+   * left alone, for the reason `detachFoodReceipt` gives.
+   */
   unsettleFood(id: string): Promise<FoodExpense>;
 
   /**

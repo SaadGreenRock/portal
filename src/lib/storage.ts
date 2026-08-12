@@ -108,6 +108,19 @@ export const storageKeys = {
     `${company}/${poNo}/invoice${ext.startsWith(".") ? ext : `.${ext}`}`,
   /** Overwritten in place on every re-render, as a purchase order's PDF is. */
   rfqPdf: (company: string, rfqNo: string) => `${company}/${rfqNo}/request-for-quotation.pdf`,
+  /**
+   * Proof of one food payment.
+   *
+   * Keyed on a settlement id rather than an entry number, because one cheque
+   * clears a whole café tab: a dozen entries share the single receipt, and every
+   * one of them stores this same key. Keying it on an entry would either
+   * duplicate the file a dozen times or make one entry the arbitrary owner of a
+   * document that belongs to all of them.
+   *
+   * No company segment. A food entry has none — see src/lib/food/types.ts.
+   */
+  foodReceipt: (settlementId: string, ext: string) =>
+    `food/settlements/${settlementId}/receipt${ext.startsWith(".") ? ext : `.${ext}`}`,
 };
 
 /**

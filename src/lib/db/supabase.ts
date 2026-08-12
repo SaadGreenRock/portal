@@ -1292,23 +1292,35 @@ export const supabaseStore: Store = {
     return (data as FoodRow[]).map(rowToFood);
   },
 
-  async settleFood(ids: string[], paidAt: string, reference: string | null): Promise<number> {
+  async settleFood(
+    ids: string[],
+    paidAt: string,
+    reference: string | null,
+    receipt: { key: string; name: string } | null,
+  ): Promise<number> {
     if (ids.length === 0) return 0;
+    const now = new Date().toISOString();
 
     // The status and deleted_at filters make this idempotent: a resubmitted
     // settle form matches nothing rather than stamping today's date over a
     // payment made last week. `.select()` returns only the rows that changed,
     // which is what the caller reports back.
     //
-    // `reference` is applied only when one was typed. PostgREST has no
-    // COALESCE in an update, so the column is left out of the patch entirely
-    // rather than being nulled — matching the SQLite COALESCE(?, reference).
+    // `reference` and the receipt are applied only when supplied. PostgREST has
+    // no COALESCE in an update, so an absent value is left out of the patch
+    // entirely rather than being nulled — matching the SQLite COALESCE and
+    // keeping a settle-without-attachment from wiping proof already on file.
     const patch: Record<string, unknown> = {
       status: "paid",
       paid_at: paidAt,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
     if (reference) patch.reference = reference;
+    if (receipt) {
+      patch.receipt_key = receipt.key;
+      patch.receipt_name = receipt.name;
+      patch.receipt_at = now;
+    }
 
     const { data, error } = await supabase()
       .from(FOOD)
@@ -1321,10 +1333,65 @@ export const supabaseStore: Store = {
     return (data ?? []).length;
   },
 
-  async unsettleFood(id: string): Promise<FoodExpense> {
+  async attachFoodReceipt(id: string, receipt: { key: string; name: string }) {
+    const now = new Date().toISOString();
     const { data, error } = await supabase()
       .from(FOOD)
-      .update({ status: "pending", paid_at: null, updated_at: new Date().toISOString() })
+      .update({
+        receipt_key: receipt.key,
+        receipt_name: receipt.name,
+        receipt_at: now,
+        updated_at: now,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToFood(data as FoodRow);
+  },
+
+  async detachFoodReceipt(id: string) {
+    const db = supabase();
+    const current = await db.from(FOOD).select("receipt_key").eq("id", id).maybeSingle();
+    if (current.error) throw current.error;
+    const key = (current.data?.receipt_key as string | null) ?? null;
+    if (!key) return { key: null, stillReferenced: false };
+
+    const { error } = await db
+      .from(FOOD)
+      .update({
+        receipt_key: null,
+        receipt_name: null,
+        receipt_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) throw error;
+
+    // Counted after the unlink, so this entry cannot count itself.
+    const rest = await db
+      .from(FOOD)
+      .select("id", { count: "exact", head: true })
+      .eq("receipt_key", key)
+      .is("deleted_at", null);
+    if (rest.error) throw rest.error;
+
+    return { key, stillReferenced: (rest.count ?? 0) > 0 };
+  },
+
+  async unsettleFood(id: string): Promise<FoodExpense> {
+    // The receipt goes with the payment it was proof of. The stored file is left
+    // alone — the rest of the settlement may still be pointing at it.
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .update({
+        status: "pending",
+        paid_at: null,
+        receipt_key: null,
+        receipt_name: null,
+        receipt_at: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id)
       .select()
       .single();

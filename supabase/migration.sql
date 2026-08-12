@@ -300,6 +300,13 @@ create table if not exists public.food_expenses (
   -- Cheque number, transfer reference. Filled in by the settle flow.
   reference     text,
   notes         text,
+  -- Proof of payment: the receipt or invoice filed when this was settled.
+  -- Deliberately shareable — one cheque clears a whole cafe tab, so every entry
+  -- in that settlement carries the same key and the file is stored once. That is
+  -- why removing one has to check for other references before deleting the file.
+  receipt_key   text,
+  receipt_name  text,
+  receipt_at    timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   -- Same reasoning as the others: the row stays, so the number stays spent and a
@@ -310,8 +317,19 @@ create table if not exists public.food_expenses (
   constraint food_period_seq_key unique (period, seq)
 );
 
+-- Receipts arrived after the food log did, and `create table if not exists`
+-- above will not touch a table that already holds entries.
+alter table public.food_expenses add column if not exists receipt_key  text;
+alter table public.food_expenses add column if not exists receipt_name text;
+alter table public.food_expenses add column if not exists receipt_at   timestamptz;
+
 create index if not exists food_date_idx
   on public.food_expenses (date desc);
+
+-- Backs the "is anything else still using this receipt" check that runs before
+-- a shared file is deleted.
+create index if not exists food_receipt_idx
+  on public.food_expenses (receipt_key) where receipt_key is not null;
 
 -- Backs the outstanding screen's only query: pending rows, split by who fronted
 -- the money.

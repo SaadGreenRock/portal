@@ -1,3 +1,4 @@
+import ReceiptField from "@/components/ReceiptField";
 import { settleSelected } from "@/lib/food/actions";
 import type { OwedGroup } from "@/lib/food/types";
 import { formatDate, spanInDays } from "@/lib/format";
@@ -31,6 +32,10 @@ export default function SettleForm({
 }) {
   const waiting = spanInDays(group.since, "");
   const employee = group.paymentType === "employee-paid";
+  // Payee names carry spaces and accents — "Kick Start Café" — and these end up
+  // in `id`/`htmlFor`, where a bare name would produce duplicate or invalid ids
+  // across two groups whose names differ only in punctuation.
+  const slug = group.payee.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
   return (
     <section className="card overflow-hidden">
@@ -77,40 +82,49 @@ export default function SettleForm({
           ))}
         </ul>
 
-        <div className="flex flex-wrap items-end gap-3 border-t border-ink-line bg-[#fbfbfa] px-5 py-4">
-          <div className="min-w-[9rem]">
-            <label className="label mb-1.5" htmlFor={`paidAt-${group.payee}`}>
-              Paid on
-            </label>
-            <input
-              id={`paidAt-${group.payee}`}
-              name="paidAt"
-              type="date"
-              defaultValue={today}
-              className="input"
-            />
+        <div className="border-t border-ink-line bg-[#fbfbfa] px-5 py-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-[9rem]">
+              <label className="label mb-1.5" htmlFor={`paidAt-${slug}`}>
+                Paid on
+              </label>
+              <input
+                id={`paidAt-${slug}`}
+                name="paidAt"
+                type="date"
+                defaultValue={today}
+                className="input"
+              />
+            </div>
+
+            <div className="min-w-[10rem] flex-1">
+              <label className="label mb-1.5" htmlFor={`reference-${slug}`}>
+                Reference <span className="font-normal normal-case">— optional</span>
+              </label>
+              <input
+                id={`reference-${slug}`}
+                name="reference"
+                maxLength={120}
+                placeholder={employee ? "Payroll run, transfer no." : "Cheque or transfer no."}
+                className="input mono"
+              />
+            </div>
+
+            {/* The proof and the payment it proves go in one submission: filing
+                the receipt later is how a settled tab ends up with nothing
+                behind it. One file covers every entry ticked above. */}
+            <ReceiptField id={`receipt-${slug}`} />
           </div>
 
-          <div className="min-w-[10rem] flex-1">
-            <label className="label mb-1.5" htmlFor={`reference-${group.payee}`}>
-              Reference <span className="font-normal normal-case">— optional</span>
-            </label>
-            <input
-              id={`reference-${group.payee}`}
-              name="reference"
-              maxLength={120}
-              placeholder={employee ? "Payroll run, transfer no." : "Cheque or transfer no."}
-              className="input mono"
-            />
+          <div className="mt-4">
+            {/* "Ticked", not the group's total. Without client JavaScript the
+                figure on the button cannot follow the checkboxes, and a button
+                reading ₨32,970 after unticking half the list would be a lie. The
+                total the operator is checking against sits in the header. */}
+            <button type="submit" className="btn btn-primary">
+              {employee ? "Reimburse ticked" : "Settle ticked"}
+            </button>
           </div>
-
-          {/* "Ticked", not the group's total. Without client JavaScript the
-              figure on the button cannot follow the checkboxes, and a button
-              reading ₨32,970 after unticking half the list would be a lie. The
-              total the operator is checking against sits in the header. */}
-          <button type="submit" className="btn btn-primary">
-            {employee ? "Reimburse ticked" : "Settle ticked"}
-          </button>
         </div>
       </form>
     </section>

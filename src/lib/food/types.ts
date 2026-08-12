@@ -108,10 +108,29 @@ export interface FoodExpense extends FoodFields {
   seq: number;
   /** yyyymm, from the date the entry was logged. */
   period: string;
+  /**
+   * Proof of payment: the receipt or invoice filed when this was settled.
+   *
+   * Not part of `FoodFields`, because it is not typed into the entry form — it
+   * is attached by settling, the same way a voucher's signed scan is attached
+   * rather than edited.
+   *
+   * Deliberately shareable. One cheque clears a whole café tab, so every entry
+   * in that settlement carries the same key and the file is stored once. That is
+   * why removing a receipt has to check whether anything else still points at it
+   * before deleting the file.
+   */
+  receiptKey: string | null;
+  receiptName: string | null;
+  /** When the receipt was filed. Doubles as the preview's cache-buster. */
+  receiptAt: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
 }
+
+/** True when the payment has a document behind it. */
+export const hasReceipt = (e: FoodExpense): boolean => Boolean(e.receiptKey);
 
 /** True while somebody is still owed for this. */
 export const isOwed = (e: FoodExpense): boolean => e.status === "pending";

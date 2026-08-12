@@ -561,6 +561,10 @@ export interface FoodRow {
   paid_at: string | null;
   reference: string | null;
   notes: string | null;
+  /** Proof of payment. Shared by every entry settled in the same payment. */
+  receipt_key: string | null;
+  receipt_name: string | null;
+  receipt_at: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -587,6 +591,9 @@ export function rowToFood(r: FoodRow): FoodExpense {
     paidAt: r.paid_at ?? null,
     reference: r.reference ?? null,
     notes: r.notes ?? null,
+    receiptKey: r.receipt_key ?? null,
+    receiptName: r.receipt_name ?? null,
+    receiptAt: r.receipt_at ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     deletedAt: r.deleted_at ?? null,

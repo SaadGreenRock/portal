@@ -294,6 +294,11 @@ function connect(): Database.Database {
       paid_at       TEXT,
       reference     TEXT,
       notes         TEXT,
+      -- Proof of payment. Shared by every entry settled in the same payment, so
+      -- a dozen rows can carry the same key and the file is stored once.
+      receipt_key   TEXT,
+      receipt_name  TEXT,
+      receipt_at    TEXT,
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL,
       deleted_at    TEXT,
@@ -305,6 +310,9 @@ function connect(): Database.Database {
     CREATE INDEX IF NOT EXISTS food_date ON food_expenses (date DESC);
     -- The outstanding screen's only query: pending rows, split by who fronted it.
     CREATE INDEX IF NOT EXISTS food_status_type ON food_expenses (status, payment_type);
+    -- The index on receipt_key is created in migrate(), not here: this block
+    -- runs first, and on a database that predates the column an index over it
+    -- would fail with "no such column" before the migration could add it.
 
     -- One JSON document of settings per company, so a new module can add a
     -- section without a schema change.
@@ -334,6 +342,11 @@ const ADDED_COLUMNS: Array<[table: string, column: string, type: string]> = [
   ["purchase_orders", "invoice_key", "TEXT"],
   ["purchase_orders", "invoice_name", "TEXT"],
   ["purchase_orders", "invoice_at", "TEXT"],
+  // Receipts arrived after the food log did, so a database created between the
+  // two has the table but not these.
+  ["food_expenses", "receipt_key", "TEXT"],
+  ["food_expenses", "receipt_name", "TEXT"],
+  ["food_expenses", "receipt_at", "TEXT"],
 ];
 
 /** Brings a database created by an earlier version up to date. */
@@ -357,6 +370,14 @@ function migrate(handle: Database.Database) {
       existing.add(column);
     }
   }
+
+  // Indexes over added columns, which can only be built once the columns above
+  // exist. Backs the "is anything else still using this receipt" check that runs
+  // before a shared file is deleted.
+  handle.exec(
+    `CREATE INDEX IF NOT EXISTS food_receipt ON food_expenses (receipt_key)
+       WHERE receipt_key IS NOT NULL`,
+  );
 }
 
 /** Puts each company's configured starting signatories in place, once. */
@@ -1644,31 +1665,100 @@ export const sqliteStore: Store = {
     return rows.map(rowToFood);
   },
 
-  async settleFood(ids: string[], paidAt: string, reference: string | null): Promise<number> {
+  async settleFood(
+    ids: string[],
+    paidAt: string,
+    reference: string | null,
+    receipt: { key: string; name: string } | null,
+  ): Promise<number> {
     if (ids.length === 0) return 0;
     const handle = connect();
     const placeholders = ids.map(() => "?").join(", ");
+    const now = new Date().toISOString();
 
     // The status and deleted_at conditions are what make this idempotent: a
     // resubmitted settle form touches nothing, rather than stamping today's date
     // over a payment made last week.
+    //
+    // COALESCE on the receipt columns for the same reason as `reference`:
+    // settling without attaching anything must not wipe proof already on file.
     const result = handle
       .prepare(
         `UPDATE food_expenses SET
-            status = 'paid', paid_at = ?, reference = COALESCE(?, reference), updated_at = ?
+            status = 'paid', paid_at = ?, reference = COALESCE(?, reference),
+            receipt_key = COALESCE(?, receipt_key),
+            receipt_name = COALESCE(?, receipt_name),
+            receipt_at = CASE WHEN ? IS NULL THEN receipt_at ELSE ? END,
+            updated_at = ?
           WHERE id IN (${placeholders}) AND status = 'pending' AND deleted_at IS NULL`,
       )
-      .run(paidAt, reference, new Date().toISOString(), ...ids);
+      .run(
+        paidAt,
+        reference,
+        receipt?.key ?? null,
+        receipt?.name ?? null,
+        receipt?.key ?? null,
+        now,
+        now,
+        ...ids,
+      );
 
     return result.changes;
   },
 
-  async unsettleFood(id: string): Promise<FoodExpense> {
+  async attachFoodReceipt(id: string, receipt: { key: string; name: string }) {
     const handle = connect();
     handle
       .prepare(
         `UPDATE food_expenses SET
-            status = 'pending', paid_at = NULL, updated_at = ?
+            receipt_key = ?, receipt_name = ?, receipt_at = ?, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(receipt.key, receipt.name, new Date().toISOString(), new Date().toISOString(), id);
+
+    const row = handle.prepare(`SELECT * FROM food_expenses WHERE id = ?`).get(id) as
+      | FoodRow
+      | undefined;
+    if (!row) throw new Error("Food entry not found");
+    return rowToFood(row);
+  },
+
+  async detachFoodReceipt(id: string) {
+    const handle = connect();
+    const current = handle
+      .prepare(`SELECT receipt_key FROM food_expenses WHERE id = ?`)
+      .get(id) as { receipt_key: string | null } | undefined;
+    const key = current?.receipt_key ?? null;
+    if (!key) return { key: null, stillReferenced: false };
+
+    handle
+      .prepare(
+        `UPDATE food_expenses SET
+            receipt_key = NULL, receipt_name = NULL, receipt_at = NULL, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(new Date().toISOString(), id);
+
+    // Counted after the unlink, so this entry cannot count itself.
+    const { n } = handle
+      .prepare(
+        `SELECT COUNT(*) AS n FROM food_expenses WHERE receipt_key = ? AND deleted_at IS NULL`,
+      )
+      .get(key) as { n: number };
+
+    return { key, stillReferenced: n > 0 };
+  },
+
+  async unsettleFood(id: string): Promise<FoodExpense> {
+    const handle = connect();
+    // The receipt goes with the payment it was proof of. The stored file is left
+    // alone — the rest of the settlement may still be pointing at it.
+    handle
+      .prepare(
+        `UPDATE food_expenses SET
+            status = 'pending', paid_at = NULL,
+            receipt_key = NULL, receipt_name = NULL, receipt_at = NULL,
+            updated_at = ?
           WHERE id = ?`,
       )
       .run(new Date().toISOString(), id);

@@ -3,12 +3,16 @@ import { notFound } from "next/navigation";
 import ConfirmDelete from "@/components/ConfirmDelete";
 import FoodForm from "@/components/FoodForm";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
+import ReceiptField from "@/components/ReceiptField";
+import ScanPreview from "@/components/ScanPreview";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import {
+  attachFoodReceipt,
   deleteFood,
   markFoodPaid,
   markFoodPending,
+  removeFoodReceipt,
   restoreFood,
   saveFood,
 } from "@/lib/food/actions";
@@ -37,6 +41,8 @@ export default async function FoodRecord({
     saved?: string;
     settled?: string;
     reopened?: string;
+    filed?: string;
+    unfiled?: string;
   }>;
 }) {
   const { id } = await params;
@@ -64,16 +70,24 @@ export default async function FoodRecord({
   const save = saveFood.bind(null, entry.id);
   const settle = markFoodPaid.bind(null, entry.id);
   const reopen = markFoodPending.bind(null, entry.id);
+  const file = attachFoodReceipt.bind(null, entry.id);
+  const unfile = removeFoodReceipt.bind(null, entry.id);
 
   const banner = sp.created
     ? `Logged as ${entry.entryNo}.`
     : sp.settled
-      ? "Marked paid."
+      ? entry.receiptKey
+        ? "Marked paid, with the receipt filed against it."
+        : "Marked paid. No receipt was attached — you can add one below."
       : sp.reopened
-        ? "Put back to pending. It is owed again, and the payment date was cleared."
-        : sp.saved
-          ? "Saved."
-          : null;
+        ? "Put back to pending. It is owed again, and the payment date and receipt were cleared."
+        : sp.filed
+          ? "Receipt filed."
+          : sp.unfiled
+            ? "Receipt removed."
+            : sp.saved
+              ? "Saved."
+              : null;
 
   return (
     <>
@@ -179,47 +193,109 @@ export default async function FoodRecord({
             </p>
           </header>
 
-          <form action={settle} className="flex flex-wrap items-end gap-3 px-5 py-4">
-            <div className="min-w-[9rem]">
-              <label className="label mb-1.5" htmlFor="paidAt">
-                Paid on
-              </label>
-              <input
-                id="paidAt"
-                name="paidAt"
-                type="date"
-                defaultValue={todayIso()}
-                className="input"
-              />
+          <form action={settle} className="px-5 py-4">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-[9rem]">
+                <label className="label mb-1.5" htmlFor="paidAt">
+                  Paid on
+                </label>
+                <input
+                  id="paidAt"
+                  name="paidAt"
+                  type="date"
+                  defaultValue={todayIso()}
+                  className="input"
+                />
+              </div>
+              <div className="min-w-[10rem] flex-1">
+                <label className="label mb-1.5" htmlFor="reference">
+                  Reference <span className="font-normal normal-case">— optional</span>
+                </label>
+                <input
+                  id="reference"
+                  name="reference"
+                  maxLength={120}
+                  placeholder="Cheque or transfer no."
+                  className="input mono"
+                />
+              </div>
+              <ReceiptField id="receipt" />
             </div>
-            <div className="min-w-[10rem] flex-1">
-              <label className="label mb-1.5" htmlFor="reference">
-                Reference <span className="font-normal normal-case">— optional</span>
-              </label>
-              <input
-                id="reference"
-                name="reference"
-                maxLength={120}
-                placeholder="Cheque or transfer no."
-                className="input mono"
-              />
+            <div className="mt-4">
+              <button type="submit" className="btn btn-primary">
+                Mark paid
+              </button>
             </div>
-            <button type="submit" className="btn btn-primary">
-              Mark paid
-            </button>
           </form>
         </section>
       ) : (
-        <section className="card mb-5 flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <p className="text-[13.5px] text-ink-soft">
-            Settled. If that was a mistake, put it back and it will show as owed again.
-          </p>
-          <form action={reopen}>
-            <button type="submit" className="btn btn-ghost">
-              Put back to pending
-            </button>
-          </form>
-        </section>
+        <>
+          <section className="card mb-5 overflow-hidden">
+            <header className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-line px-5 py-4">
+              <div className="min-w-0">
+                <h3 className="text-[16px] font-semibold">Proof of payment</h3>
+                <p className="mt-0.5 text-[12.5px] text-ink-soft">
+                  {entry.receiptKey ? (
+                    <>
+                      <span className="mono">{entry.receiptName}</span>, filed{" "}
+                      {stamp(entry.receiptAt)}.
+                    </>
+                  ) : (
+                    "Nothing on file for this payment."
+                  )}
+                </p>
+              </div>
+              {entry.receiptKey ? (
+                <form action={unfile} className="shrink-0">
+                  <button type="submit" className="btn btn-quiet px-3 py-2 text-[13px]">
+                    Remove
+                  </button>
+                </form>
+              ) : null}
+            </header>
+
+            {entry.receiptKey ? (
+              <div className="px-5 py-4">
+                <ScanPreview
+                  fileKey={entry.receiptKey}
+                  version={entry.receiptAt}
+                  alt={`Receipt for ${entry.entryNo}`}
+                  openLabel="Open receipt"
+                  maxHeight="520px"
+                />
+              </div>
+            ) : null}
+
+            {/* Offered whether or not something is already filed: the imported
+                entries carry no documents at all, and a receipt photographed
+                badly the first time should be replaceable without unsettling
+                the payment. */}
+            <form action={file} className="border-t border-ink-line bg-[#fbfbfa] px-5 py-4">
+              <div className="flex flex-wrap items-start gap-3">
+                <ReceiptField
+                  id="attach"
+                  label={entry.receiptKey ? "Replace it" : "Attach a receipt"}
+                  hint="Photo or PDF — photos are shrunk automatically."
+                />
+                <button type="submit" className="btn btn-ghost mt-[1.6rem]">
+                  {entry.receiptKey ? "Replace" : "Attach"}
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="card mb-5 flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+            <p className="text-[13.5px] text-ink-soft">
+              Settled. If that was a mistake, put it back and it will show as owed again — the
+              receipt comes off with it, since it was proof of this payment.
+            </p>
+            <form action={reopen}>
+              <button type="submit" className="btn btn-ghost">
+                Put back to pending
+              </button>
+            </form>
+          </section>
+        </>
       )}
 
       {/* ---- correct it ---------------------------------------------------- */}

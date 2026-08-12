@@ -68,6 +68,18 @@ export default function FoodEntryRow({ entry }: { entry: FoodExpense }) {
           </>
         ) : (
           <>
+            {/* Only on a settled entry, and only when something is filed. A
+                pending order has no payment to have proof of, and marking every
+                settled one "no receipt" would shout at rows imported from the
+                spreadsheet, which never had documents to begin with. */}
+            {!pending && entry.receiptKey ? (
+              <span
+                title={`Receipt on file: ${entry.receiptName ?? "attached"}`}
+                className="chip bg-[#ececeb] text-ink"
+              >
+                Receipt
+              </span>
+            ) : null}
             <span className={`chip ${pending ? "chip-pending" : "chip-completed"}`}>
               {pending ? "Pending" : "Paid"}
             </span>
