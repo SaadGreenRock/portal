@@ -21,11 +21,15 @@ import {
  * which belongs to neither workspace. Each company's own total sits underneath,
  * so "separately, and together" is one screen rather than three.
  *
- * The report shows Paid out and Committed on separate lines before combining
- * them, because they are different claims: a voucher is money that has left and
- * been signed for, while a purchase order is money promised to a vendor that may
- * not have been paid yet. A single blended number would read as authoritative
- * and mean neither thing.
+ * Each kind of document gets its own line before they are combined, because they
+ * are different claims: a voucher is money that has left and been signed for, a
+ * purchase order is money promised to a vendor that may not have been paid yet,
+ * and food is money already eaten whether settled or not. A single blended
+ * number would read as authoritative and mean three things at once.
+ *
+ * The lines are labelled with the document names alone — "Vouchers", not "Paid
+ * out — vouchers". The reader knows what a voucher is; the gloss was the page
+ * explaining itself in a place meant for figures.
  */
 
 const RANGES: SpendRange[] = ["all", "year", "month"];
@@ -226,11 +230,11 @@ function CompanyCard({
 }
 
 /**
- * The three lines, per currency.
+ * One line per kind of document, per currency.
  *
- * Paid and Committed are separate because they answer different questions, and
- * the combined line sits under a rule so it reads as their sum rather than as a
- * fourth independent figure.
+ * They stay separate because they answer different questions, and the combined
+ * line sits under a rule so it reads as their sum rather than as a further
+ * independent figure.
  */
 function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boolean }) {
   const { byCurrency, counts } = summary;
@@ -252,8 +256,8 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
           ) : null}
 
           <dl className="space-y-1.5">
-            <Line label="Paid out — vouchers" value={t.paid} currency={t.currency} />
-            <Line label="Committed — purchase orders" value={t.committed} currency={t.currency} />
+            <Line label="Vouchers" value={t.paid} currency={t.currency} />
+            <Line label="Purchase orders" value={t.committed} currency={t.currency} />
             {/* Only when there is any. The per-company cards never receive food
                 rows, so this line simply does not appear on them — which is
                 right: food is not attributed to a company. */}

@@ -399,13 +399,17 @@ The report refuses to give you one blended number, and that is the whole point o
 it:
 
 ```
-Paid out — vouchers            PKR   246,000     money that has left
-Committed — purchase orders    PKR 1,910,420     promised to a vendor
+Vouchers                       PKR   246,000     money that has left
+Purchase orders                PKR 1,910,420     promised to a vendor
 Food & refreshments            PKR   119,038     eaten, settled or not
 ─────────────────────────────────────────────
 Combined                       PKR 2,275,458
 Draft orders, not counted      PKR    69,384     promised to nobody yet
 ```
+
+The lines carry the document names alone. What each one *means* is the note in
+the right-hand column above, which belongs in this README rather than printed
+beside every figure on the screen.
 
 A voucher is money someone has signed for. A purchase order is money committed
 that may not have been paid. Food is a third claim and neither of those: the
