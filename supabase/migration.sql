@@ -249,6 +249,76 @@ create index if not exists holdings_span_idx
   on public.asset_holdings (company, span_end, span_start);
 
 -- ---------------------------------------------------------------------------
+-- Food and refreshments log
+-- ---------------------------------------------------------------------------
+-- The one table here with no company column, and that is the point. Roughly a
+-- quarter of the entries this replaces were ordered for "Green Rock + Sportech"
+-- -- one lunch, two companies at the table -- so an entry has no single owner.
+-- `ordered_for` records what was written on the order as a label, and nothing is
+-- ever split between the companies on the strength of it.
+--
+-- Two facts about an entry are independent, and conflating them was the flaw in
+-- the spreadsheet this replaces:
+--
+--   payment_type  who fronted the money -- the vendor's tab, or an employee's
+--                 own pocket.
+--   status        whether that person or vendor has been squared up yet.
+--
+-- The cross of the two gives the two outstanding figures: deferred + pending is
+-- money owed to a cafe, employee-paid + pending is a reimbursement someone is
+-- waiting on, and they are settled by different people on different days.
+--
+-- Nothing here is printed, so there is no jsonb doc and no pdf_key.
+--
+-- The number is `F-202608-001` -- no company prefix, because the entry has no
+-- company to take one from. It is the only number in the portal without one.
+create table if not exists public.food_expenses (
+  id            uuid primary key,
+  entry_no      text        not null unique,
+  seq           integer     not null,
+  period        text        not null,
+  -- When the food was ordered, which is not when the row was created: the log is
+  -- often caught up on a few days late.
+  date          date        not null,
+  -- A label, never parsed into companies. Free text on purpose: a guest, a site
+  -- team or a third company must not need a migration before lunch can be logged.
+  ordered_for   text        not null default '',
+  vendor        text        not null default '',
+  details       text        not null default '',
+  amount        numeric(14, 2) not null default 0,
+  currency      text        not null default 'PKR',
+  payment_type  text        not null default 'deferred'
+                            check (payment_type in ('deferred', 'employee-paid')),
+  -- The employee owed a reimbursement. NULL on a deferred order, where the
+  -- company never handed anything over and there is nobody to reimburse.
+  paid_by       text,
+  status        text        not null default 'pending'
+                            check (status in ('pending', 'paid')),
+  -- NULL while pending, and also NULL on entries imported from the spreadsheet
+  -- as paid without a date. Absence means unknown, not today.
+  paid_at       date,
+  -- Cheque number, transfer reference. Filled in by the settle flow.
+  reference     text,
+  notes         text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  -- Same reasoning as the others: the row stays, so the number stays spent and a
+  -- deleted entry's figures remain reconstructable.
+  deleted_at    timestamptz,
+  -- Period + seq, with no company to key on. Guarantees a number is never handed
+  -- out twice in a month even if two requests race.
+  constraint food_period_seq_key unique (period, seq)
+);
+
+create index if not exists food_date_idx
+  on public.food_expenses (date desc);
+
+-- Backs the outstanding screen's only query: pending rows, split by who fronted
+-- the money.
+create index if not exists food_status_type_idx
+  on public.food_expenses (status, payment_type);
+
+-- ---------------------------------------------------------------------------
 -- Per-company settings
 -- ---------------------------------------------------------------------------
 -- One JSON document per company. A new module adds a section to the document
@@ -265,6 +335,7 @@ alter table public.purchase_orders        enable row level security;
 alter table public.requests_for_quotation enable row level security;
 alter table public.assets                 enable row level security;
 alter table public.asset_holdings         enable row level security;
+alter table public.food_expenses          enable row level security;
 alter table public.company_settings       enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.

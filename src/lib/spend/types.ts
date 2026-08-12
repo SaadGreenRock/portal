@@ -16,9 +16,15 @@ import type { CompanySlug } from "../companies";
 
 /** One document, reduced to what a total needs. */
 export interface SpendRow {
-  kind: "voucher" | "po";
-  company: CompanySlug;
-  /** Voucher: pending | completed. Order: draft | issued | closed | cancelled. */
+  kind: "voucher" | "po" | "food";
+  /**
+   * null on food, which belongs to neither workspace — roughly a quarter of the
+   * entries are one lunch ordered for both companies. Rather than split those on
+   * a rule nobody agreed to, food is reported as a single combined figure and
+   * left out of the per-company cards entirely.
+   */
+  company: CompanySlug | null;
+  /** Voucher: pending | completed. Order: draft | issued | closed | cancelled. Food: pending | paid. */
   status: string;
   currency: string;
   /**
@@ -47,7 +53,16 @@ export interface CurrencyTotal {
   committed: number;
   /** Orders still in draft. Shown, but deliberately not in the total. */
   draft: number;
-  /** paid + committed. Drafts and cancellations are excluded. */
+  /**
+   * Food and refreshments, counted in full whether settled or not.
+   *
+   * A third claim, and neither of the two above. Unlike a voucher the money may
+   * not have moved — most of it is on a café's tab — and unlike a purchase order
+   * it is not a promise about the future: the food was eaten, so the expense was
+   * incurred. What is still owed is reported separately, under `foodPending`.
+   */
+  food: number;
+  /** paid + committed + food. Drafts and cancellations are excluded. */
   total: number;
 }
 
@@ -62,6 +77,10 @@ export interface SpendSummary {
     ordersCommitted: number;
     ordersDraft: number;
     ordersCancelled: number;
+    foodEntries: number;
+    /** Food entries still owed to a vendor or an employee, and how much. */
+    foodPending: number;
+    foodPendingAmount: number;
   };
 }
 
@@ -89,7 +108,7 @@ export function summarise(rows: SpendRow[]): SpendSummary {
   const bucket = (currency: string): CurrencyTotal => {
     let t = byCurrency.get(currency);
     if (!t) {
-      t = { currency, paid: 0, committed: 0, draft: 0, total: 0 };
+      t = { currency, paid: 0, committed: 0, draft: 0, food: 0, total: 0 };
       byCurrency.set(currency, t);
     }
     return t;
@@ -101,9 +120,24 @@ export function summarise(rows: SpendRow[]): SpendSummary {
     ordersCommitted: 0,
     ordersDraft: 0,
     ordersCancelled: 0,
+    foodEntries: 0,
+    foodPending: 0,
+    foodPendingAmount: 0,
   };
 
   for (const row of rows) {
+    // Food counts in full regardless of status. A pending entry is food already
+    // eaten on a café's tab — the expense happened, only the settlement has not.
+    if (row.kind === "food") {
+      counts.foodEntries += 1;
+      bucket(row.currency).food += row.amount ?? 0;
+      if (row.status === "pending") {
+        counts.foodPending += 1;
+        counts.foodPendingAmount += row.amount ?? 0;
+      }
+      continue;
+    }
+
     if (row.kind === "voucher") {
       counts.vouchers += 1;
       if (row.amount == null) {
@@ -134,7 +168,8 @@ export function summarise(rows: SpendRow[]): SpendSummary {
       paid: money(t.paid),
       committed: money(t.committed),
       draft: money(t.draft),
-      total: money(t.paid + t.committed),
+      food: money(t.food),
+      total: money(t.paid + t.committed + t.food),
     }))
     // Largest first, so the currency that matters leads.
     .sort((a, b) => b.total - a.total);

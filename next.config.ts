@@ -27,15 +27,24 @@ const nextConfig: NextConfig = {
    * The voucher screens used to sit directly under /[company]. They moved under
    * /[company]/vouchers when purchase orders arrived and the workspace needed
    * more than one module. These keep existing bookmarks and phone shortcuts
-   * working — :company matches a single segment, so /green-rock/po/… can never
-   * be caught by them.
+   * working.
+   *
+   * `:company` is pinned to the real slugs rather than left to match any single
+   * segment. Unpinned, `/:company/new` also matches `/food/new` — any top-level
+   * section with a two-segment page is silently swallowed, and the symptom is a
+   * 308 to a page that does not exist rather than an error anyone can read.
+   *
+   * Keep the list in step with COMPANIES in src/lib/companies.ts. It is not
+   * imported from there because next.config.ts is loaded before the app's module
+   * graph and path aliases are available.
    */
   async redirects() {
+    const company = ":company(green-rock|sportech)";
     return [
-      { source: "/:company/new", destination: "/:company/vouchers/new", permanent: true },
-      { source: "/:company/pending", destination: "/:company/vouchers/pending", permanent: true },
-      { source: "/:company/history", destination: "/:company/vouchers/history", permanent: true },
-      { source: "/:company/v/:id", destination: "/:company/vouchers/:id", permanent: true },
+      { source: `/${company}/new`, destination: "/:company/vouchers/new", permanent: true },
+      { source: `/${company}/pending`, destination: "/:company/vouchers/pending", permanent: true },
+      { source: `/${company}/history`, destination: "/:company/vouchers/history", permanent: true },
+      { source: `/${company}/v/:id`, destination: "/:company/vouchers/:id", permanent: true },
     ];
   },
 };

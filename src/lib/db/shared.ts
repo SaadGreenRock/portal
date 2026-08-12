@@ -8,6 +8,7 @@ import {
   type HoldingWithAsset,
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
+import { isFoodStatus, isPaymentType, type FoodExpense, type FoodFields } from "../food/types";
 import { poTotals } from "../po/totals";
 import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
 import {
@@ -62,6 +63,17 @@ export const formatRfqNo = (company: CompanySlug, period: string, seq: number) =
  */
 export function formatAssetNo(company: CompanySlug, seq: number): string {
   return `${COMPANIES[company].prefix}-A-${String(seq).padStart(3, "0")}`;
+}
+
+/**
+ * `F-202608-001` — the food marker, year+month, and the month's sequence.
+ *
+ * The only number in the portal with no company prefix, because a lunch ordered
+ * for both companies has no company to take one from. `formatDocNo` cannot be
+ * reused for the same reason: its first argument is a `CompanySlug`.
+ */
+export function formatFoodNo(period: string, seq: number): string {
+  return `F-${period}-${String(seq).padStart(3, "0")}`;
 }
 
 /* -------------------------------------------------------------------------
@@ -516,4 +528,128 @@ export function employeeProfilesFrom(
   }
 
   return [...byKey.values()].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
+}
+
+/* -------------------------------------------------------------------------
+ * Food
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * Shape of a food row as stored, in either backend.
+ *
+ * Every field is a column; there is no JSON document to denormalise out of, the
+ * same as assets. An entry is a dozen flat values and all but the notes are
+ * searched, filtered or summed on.
+ *
+ * No `company` column — deliberately, and it is the one structural difference
+ * from every other table here. See `src/lib/food/types.ts`.
+ */
+export interface FoodRow {
+  id: string;
+  entry_no: string;
+  seq: number;
+  period: string;
+  date: string;
+  ordered_for: string;
+  vendor: string;
+  details: string;
+  amount: number;
+  currency: string;
+  payment_type: string;
+  paid_by: string | null;
+  status: string;
+  paid_at: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function rowToFood(r: FoodRow): FoodExpense {
+  return {
+    id: r.id,
+    entryNo: r.entry_no,
+    seq: r.seq,
+    period: r.period,
+    date: r.date,
+    orderedFor: r.ordered_for ?? "",
+    vendor: r.vendor ?? "",
+    details: r.details ?? "",
+    // Postgres `numeric` comes back through PostgREST as a string. Coercing here
+    // rather than at every call site is what stops the totals from being string
+    // concatenation on one backend and addition on the other.
+    amount: Number(r.amount) || 0,
+    currency: r.currency || "PKR",
+    paymentType: isPaymentType(r.payment_type) ? r.payment_type : "deferred",
+    paidBy: r.paid_by ?? null,
+    status: isFoodStatus(r.status) ? r.status : "pending",
+    paidAt: r.paid_at ?? null,
+    reference: r.reference ?? null,
+    notes: r.notes ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at ?? null,
+  };
+}
+
+/**
+ * A food entry's editable fields as columns, for an insert or an update.
+ *
+ * The two normalisations that must not be left to a call site:
+ *
+ *   `paid_by` is forced to NULL on a deferred order. Nobody paid out of pocket,
+ *   so a name left behind by switching the payment type would put a phantom
+ *   reimbursement on the outstanding screen.
+ *
+ *   `paid_at` is forced to NULL while pending, so a stale date cannot survive an
+ *   entry being put back to unpaid and claim it was settled.
+ */
+export function foodColumns(f: FoodFields) {
+  const deferred = f.paymentType === "deferred";
+  return {
+    date: f.date,
+    ordered_for: f.orderedFor,
+    vendor: f.vendor,
+    details: f.details,
+    amount: f.amount,
+    currency: f.currency || "PKR",
+    payment_type: f.paymentType,
+    paid_by: deferred ? null : (f.paidBy?.trim() || null),
+    status: f.status,
+    paid_at: f.status === "paid" ? (f.paidAt || null) : null,
+    reference: f.reference?.trim() || null,
+    notes: f.notes?.trim() || null,
+  };
+}
+
+/**
+ * The name lists the entry form offers back, newest use first.
+ *
+ * Same approach as vendors on purchase orders and employees on the register:
+ * nothing to maintain, and the spelling from the most recent entry wins so a
+ * correction is not undone by a suggestion from an older row. Rows must arrive
+ * newest first.
+ */
+export function foodNamesFrom(rows: FoodRow[]): {
+  vendors: string[];
+  payers: string[];
+  orderedFor: string[];
+} {
+  const pick = (get: (r: FoodRow) => string | null): string[] => {
+    const seen = new Map<string, string>();
+    for (const row of rows) {
+      const value = (get(row) ?? "").trim();
+      if (!value) continue;
+      const key = value.toLowerCase();
+      if (!seen.has(key)) seen.set(key, value);
+    }
+    return [...seen.values()];
+  };
+
+  return {
+    vendors: pick((r) => r.vendor),
+    payers: pick((r) => r.paid_by),
+    orderedFor: pick((r) => r.ordered_for),
+  };
 }

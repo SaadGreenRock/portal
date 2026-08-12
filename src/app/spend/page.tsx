@@ -55,7 +55,14 @@ export default async function Expenditure({
     }),
   );
 
-  const everything: SpendRow[] = perCompany.flatMap((c) => c.rows);
+  // Food is fetched once, not per company: a lunch ordered for both belongs to
+  // neither, so it joins the combined figure and stays out of the two cards.
+  const foodResult = await tryTable(() => db.foodSpendRows());
+  const foodRows = (foodResult.ok ? foodResult.value : []).filter((r) =>
+    withinRange(r, range, now),
+  );
+
+  const everything: SpendRow[] = [...perCompany.flatMap((c) => c.rows), ...foodRows];
   const combined = summarise(everything);
   const anyMissing = perCompany.some((c) => !c.available);
 
@@ -65,7 +72,8 @@ export default async function Expenditure({
         <div>
           <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
           <p className="mt-1 text-[14px] text-ink-soft">
-            Both companies together, and each on its own. From vouchers and purchase orders.
+            Both companies together, and each on its own. From vouchers, purchase orders and the
+            food log.
           </p>
         </div>
         <Link href="/" className="btn btn-ghost">
@@ -109,7 +117,10 @@ export default async function Expenditure({
 
         <Totals summary={combined} emphasis />
 
-        {/* The breakdown that makes the combined figure checkable. */}
+        {/* The breakdown that makes the combined figure checkable. Food has its
+            own line rather than being left out: without it the two company
+            figures no longer add up to Combined, and a total that cannot be
+            checked against its parts is the one thing this page must not be. */}
         <div className="border-t border-ink-line">
           <p className="label px-5 pt-4">Split by company</p>
           <dl className="divide-y divide-ink-line">
@@ -140,6 +151,27 @@ export default async function Expenditure({
                 </div>
               );
             })}
+
+            {/* Not attributed to either workspace — see the note above. */}
+            {foodRows.length > 0 ? (
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3">
+                <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
+                  <span
+                    aria-hidden
+                    className="block h-2.5 w-2.5 shrink-0 rounded-full bg-[#b8894a]"
+                  />
+                  Food &amp; refreshments
+                  <span className="text-[12.5px] font-normal text-ink-soft">
+                    — both companies
+                  </span>
+                </dt>
+                <dd className="mono text-[13.5px] font-semibold">
+                  {summarise(foodRows)
+                    .byCurrency.map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
+                    .join("  ·  ")}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </div>
       </section>
@@ -153,7 +185,9 @@ export default async function Expenditure({
 
       <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
         Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
-        nothing has been promised to a vendor yet. Currencies are never added together.
+        nothing has been promised to a vendor yet. Food is counted whether it has been settled or
+        not, and belongs to neither company on its own, so it appears only in the combined figure.
+        Currencies are never added together.
       </p>
     </main>
   );
@@ -220,6 +254,12 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
           <dl className="space-y-1.5">
             <Line label="Paid out — vouchers" value={t.paid} currency={t.currency} />
             <Line label="Committed — purchase orders" value={t.committed} currency={t.currency} />
+            {/* Only when there is any. The per-company cards never receive food
+                rows, so this line simply does not appear on them — which is
+                right: food is not attributed to a company. */}
+            {t.food > 0 ? (
+              <Line label="Food & refreshments" value={t.food} currency={t.currency} />
+            ) : null}
 
             <div className="flex items-baseline justify-between gap-4 border-t border-ink-line pt-2.5">
               <dt className={`font-semibold ${emphasis ? "text-[15px]" : "text-[13.5px]"}`}>
@@ -243,7 +283,9 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
       ))}
 
       {/* The gap in the figure, stated rather than hidden. */}
-      {counts.vouchersWithoutAmount > 0 || counts.ordersCancelled > 0 ? (
+      {counts.vouchersWithoutAmount > 0 ||
+      counts.ordersCancelled > 0 ||
+      counts.foodPending > 0 ? (
         <div className="border-t border-ink-line bg-[#fbfbfa] px-5 py-3">
           {counts.vouchersWithoutAmount > 0 ? (
             <p className="text-[12.5px] leading-snug text-amber-800">
@@ -258,6 +300,17 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
             <p className="mt-1 text-[12.5px] text-ink-soft">
               {counts.ordersCancelled} cancelled {counts.ordersCancelled === 1 ? "order" : "orders"}{" "}
               excluded.
+            </p>
+          ) : null}
+          {/* Counted in the figure above, unlike the two caveats before it —
+              this says how much of it has not been handed over yet. */}
+          {counts.foodPending > 0 ? (
+            <p className="mt-1 text-[12.5px] text-ink-soft">
+              Food is counted in full when ordered.{" "}
+              <Link href="/food/outstanding" className="underline">
+                {counts.foodPending} {counts.foodPending === 1 ? "entry" : "entries"}
+              </Link>{" "}
+              of it, {formatMoney(counts.foodPendingAmount)}, is still owed.
             </p>
           ) : null}
         </div>

@@ -10,6 +10,13 @@ import type {
   ReturnFields,
 } from "../assets/types";
 import type { CompanySlug } from "../companies";
+import {
+  summariseFood,
+  type FoodCounts,
+  type FoodExpense,
+  type FoodFields,
+  type FoodQuery,
+} from "../food/types";
 import { todayIso } from "../format";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
@@ -29,7 +36,10 @@ import {
   denormalizeRfq,
   employeeKey,
   employeeProfilesFrom,
+  foodColumns,
+  foodNamesFrom,
   formatAssetNo,
+  formatFoodNo,
   formatPoNo,
   formatRfqNo,
   formatVoucherNo,
@@ -40,6 +50,7 @@ import {
   poStatusPatch,
   rfqStatusPatch,
   rowToAsset,
+  rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
   rowToPo,
@@ -48,6 +59,7 @@ import {
   statusChangesDocument,
   vendorProfilesFrom,
   type AssetRow,
+  type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
   type PoRow,
@@ -117,6 +129,7 @@ const POS = "purchase_orders";
 const RFQS = "requests_for_quotation";
 const ASSETS = "assets";
 const HOLDINGS = "asset_holdings";
+const FOOD = "food_expenses";
 const SETTINGS = "company_settings";
 
 /**
@@ -1135,6 +1148,235 @@ export const supabaseStore: Store = {
     );
   },
 
+
+  /* ---- food ------------------------------------------------------------- */
+
+  async createFood(fields: FoodFields): Promise<FoodExpense> {
+    const db = supabase();
+    const period = periodOf();
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      // Deleted rows count, as elsewhere: a number already quoted to a café is
+      // spent even if the row was binned.
+      const { data: highest, error: maxErr } = await db
+        .from(FOOD)
+        .select("seq")
+        .eq("period", period)
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+      const now = new Date().toISOString();
+
+      const { data, error } = await db
+        .from(FOOD)
+        .insert({
+          id: newId(),
+          entry_no: formatFoodNo(period, seq),
+          seq,
+          period,
+          created_at: now,
+          updated_at: now,
+          ...foodColumns(fields),
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // 23505 = unique_violation -> someone took this number; recompute.
+        if (error.code !== "23505" || attempt === 5) throw error;
+        continue;
+      }
+
+      return rowToFood(data as FoodRow);
+    }
+    throw new Error("Could not assign a food entry number after several attempts");
+  },
+
+  async getFood(id) {
+    const { data, error } = await supabase().from(FOOD).select().eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToFood(data as FoodRow) : null;
+  },
+
+  async updateFood(id, fields: FoodFields): Promise<FoodExpense> {
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .update({ updated_at: new Date().toISOString(), ...foodColumns(fields) })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToFood(data as FoodRow);
+  },
+
+  async searchFood(query: FoodQuery) {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    let q = supabase().from(FOOD).select("*", { count: "exact" });
+
+    if (query.view === "deleted") {
+      q = q.not("deleted_at", "is", null);
+    } else {
+      q = q.is("deleted_at", null);
+      if (query.view === "pending") q = q.eq("status", "pending");
+      else if (query.view === "paid") q = q.eq("status", "paid");
+    }
+
+    if (query.q?.trim()) {
+      // Commas and parentheses would be read as .or() syntax, not as text.
+      const term = query.q.trim().replace(/[%,()]/g, " ");
+      q = q.or(
+        [
+          `entry_no.ilike.%${term}%`,
+          `vendor.ilike.%${term}%`,
+          `details.ilike.%${term}%`,
+          `ordered_for.ilike.%${term}%`,
+          `paid_by.ilike.%${term}%`,
+          `reference.ilike.%${term}%`,
+        ].join(","),
+      );
+    }
+
+    if (query.from) q = q.gte("date", query.from);
+    if (query.to) q = q.lte("date", query.to);
+
+    // Matches the SQLite ordering: by order date, then by number within a day.
+    const { data, error, count } = await q
+      .order("date", { ascending: false })
+      .order("seq", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return { rows: (data as FoodRow[]).map(rowToFood), total: count ?? 0 };
+  },
+
+  async foodCounts(): Promise<FoodCounts> {
+    // Reduced in the app rather than with SUMIFS-in-SQL, for the reason
+    // spendRows gives: PostgREST cannot aggregate without a stored function, and
+    // that is another migration the operator has to remember to run.
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .select()
+      .is("deleted_at", null)
+      .limit(5000);
+    if (error) throw error;
+    return summariseFood((data as FoodRow[]).map(rowToFood));
+  },
+
+  async pendingFood(): Promise<FoodExpense[]> {
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .select()
+      .is("deleted_at", null)
+      .eq("status", "pending")
+      .order("date", { ascending: true })
+      .order("seq", { ascending: true })
+      .limit(2000);
+    if (error) throw error;
+    return (data as FoodRow[]).map(rowToFood);
+  },
+
+  async foodInRange(from: string | null, to: string | null): Promise<FoodExpense[]> {
+    let q = supabase().from(FOOD).select().is("deleted_at", null);
+    if (from) q = q.gte("date", from);
+    if (to) q = q.lte("date", to);
+
+    const { data, error } = await q
+      .order("date", { ascending: true })
+      .order("seq", { ascending: true })
+      .limit(5000);
+    if (error) throw error;
+    return (data as FoodRow[]).map(rowToFood);
+  },
+
+  async settleFood(ids: string[], paidAt: string, reference: string | null): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    // The status and deleted_at filters make this idempotent: a resubmitted
+    // settle form matches nothing rather than stamping today's date over a
+    // payment made last week. `.select()` returns only the rows that changed,
+    // which is what the caller reports back.
+    //
+    // `reference` is applied only when one was typed. PostgREST has no
+    // COALESCE in an update, so the column is left out of the patch entirely
+    // rather than being nulled — matching the SQLite COALESCE(?, reference).
+    const patch: Record<string, unknown> = {
+      status: "paid",
+      paid_at: paidAt,
+      updated_at: new Date().toISOString(),
+    };
+    if (reference) patch.reference = reference;
+
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .update(patch)
+      .in("id", ids)
+      .eq("status", "pending")
+      .is("deleted_at", null)
+      .select("id");
+    if (error) throw error;
+    return (data ?? []).length;
+  },
+
+  async unsettleFood(id: string): Promise<FoodExpense> {
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .update({ status: "pending", paid_at: null, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToFood(data as FoodRow);
+  },
+
+  async softDeleteFood(id) {
+    const { error } = await supabase()
+      .from(FOOD)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreFood(id) {
+    const { error } = await supabase().from(FOOD).update({ deleted_at: null }).eq("id", id);
+    if (error) throw error;
+  },
+
+  async foodNames() {
+    // Newest first, because the most recent spelling of a name wins.
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .select()
+      .is("deleted_at", null)
+      .order("date", { ascending: false })
+      .order("seq", { ascending: false })
+      .limit(400);
+    if (error) throw error;
+    return foodNamesFrom(data as FoodRow[]);
+  },
+
+  async foodSpendRows(): Promise<SpendRow[]> {
+    const { data, error } = await supabase()
+      .from(FOOD)
+      .select("status, currency, amount, date")
+      .is("deleted_at", null)
+      .limit(5000);
+    if (error) throw error;
+
+    return (data ?? []).map((r) => ({
+      kind: "food" as const,
+      // No company: a shared lunch belongs to neither workspace.
+      company: null,
+      status: String(r.status),
+      currency: String(r.currency || "PKR"),
+      amount: r.amount == null ? null : Number(r.amount),
+      date: String(r.date).slice(0, 10),
+    }));
+  },
 
   /* ---- expenditure ------------------------------------------------------ */
 

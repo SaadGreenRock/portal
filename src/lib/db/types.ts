@@ -11,6 +11,7 @@ import type {
   ReturnFields,
 } from "../assets/types";
 import type { CompanySlug } from "../companies";
+import type { FoodCounts, FoodExpense, FoodFields, FoodQuery } from "../food/types";
 import type {
   PoCounts,
   PoDoc,
@@ -248,6 +249,81 @@ export interface AssetStore {
   listEmployees(company: CompanySlug): Promise<EmployeeProfile[]>;
 }
 
+export interface FoodStore {
+  /**
+   * Reserves the next entry number for the current month and writes the record.
+   * Safe against concurrent calls, like the others.
+   *
+   * No `CompanySlug` parameter, here or anywhere else in this interface. A lunch
+   * ordered for both companies belongs to neither workspace, and a signature
+   * that demanded one would force every caller to invent an answer.
+   */
+  createFood(fields: FoodFields): Promise<FoodExpense>;
+
+  getFood(id: string): Promise<FoodExpense | null>;
+
+  /** Corrects an entry. The number and the audit stamps are not touched. */
+  updateFood(id: string, fields: FoodFields): Promise<FoodExpense>;
+
+  /** Filtered log, newest first, plus a total count for paging. */
+  searchFood(query: FoodQuery): Promise<{ rows: FoodExpense[]; total: number }>;
+
+  /**
+   * The four running figures — spent, owed to vendors, owed to employees, and
+   * everything outstanding.
+   */
+  foodCounts(): Promise<FoodCounts>;
+
+  /**
+   * Every live pending entry, for the outstanding screen.
+   *
+   * Unpaged on purpose. This is the set of things somebody is still waiting to
+   * be paid for; if it ever grew past a screenful the answer is to settle them,
+   * not to page through them.
+   */
+  pendingFood(): Promise<FoodExpense[]>;
+
+  /**
+   * Every live entry whose order date falls in the window, for the report.
+   * Both bounds inclusive, and either may be null for no bound.
+   */
+  foodInRange(from: string | null, to: string | null): Promise<FoodExpense[]>;
+
+  /**
+   * Marks many entries paid in one statement, and returns how many actually
+   * changed.
+   *
+   * Only touches rows that are still pending and still live, which makes the
+   * call idempotent: a resubmitted settle form — the browser-back-then-refresh
+   * that every operator eventually does — cannot rewrite the payment date of
+   * something already settled last week.
+   */
+  settleFood(ids: string[], paidAt: string, reference: string | null): Promise<number>;
+
+  /** Puts a settled entry back to pending, clearing the payment it recorded. */
+  unsettleFood(id: string): Promise<FoodExpense>;
+
+  /**
+   * The row stays, so the number stays spent — the same reasoning as everywhere
+   * else, and it keeps a deleted entry's figures reconstructable.
+   */
+  softDeleteFood(id: string): Promise<void>;
+  restoreFood(id: string): Promise<void>;
+
+  /**
+   * Vendor and payer names as already typed, most recent first, for the form's
+   * datalists. Assembled from the entries themselves — the same reasoning as the
+   * vendor list on purchase orders, so there is no list to keep up to date.
+   */
+  foodNames(): Promise<{ vendors: string[]; payers: string[]; orderedFor: string[] }>;
+
+  /**
+   * Every live entry reduced to what a total needs, for the expenditure report.
+   * Not company-keyed, unlike `spendRows` — food belongs to neither workspace.
+   */
+  foodSpendRows(): Promise<SpendRow[]>;
+}
+
 export interface SpendStore {
   /**
    * Every non-deleted voucher and purchase order for a company, reduced to what
@@ -274,5 +350,6 @@ export interface Store
     PoStore,
     RfqStore,
     AssetStore,
+    FoodStore,
     SpendStore,
     SettingsStore {}

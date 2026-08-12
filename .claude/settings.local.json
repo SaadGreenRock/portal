@@ -82,7 +82,25 @@
       "Bash(awk '{print $2}')",
       "Bash(grep -iE \"migration|\\\\.sql$|db/\")",
       "Bash(node --check scripts/check-supabase.mjs)",
-      "Bash(node -e 'import\\(\"./scripts/check-supabase.mjs\"\\).catch\\(e=>console.log\\(\"import err \\(expected, needs env\\):\",e.message\\)\\)')"
+      "Bash(node -e 'import\\(\"./scripts/check-supabase.mjs\"\\).catch\\(e=>console.log\\(\"import err \\(expected, needs env\\):\",e.message\\)\\)')",
+      "Bash(rm -rf /tmp/food-check)",
+      "Bash(mkdir -p /tmp/food-check)",
+      "Bash(BACKEND=local DATA_DIR=/tmp/food-check node -e ' *)",
+      "Bash(BACKEND=local DATA_DIR=/tmp/food-check node scripts/import-food.mjs)",
+      "Bash(BACKEND=local DATA_DIR=/tmp/food-check PORTAL_PASSWORD=testpw SESSION_SECRET=test-secret-at-least-16 npx next dev -p 3111)",
+      "Read(//private/tmp/food-check/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3111/food)",
+      "Bash(curl -s -c jar.txt -b jar.txt -X POST http://localhost:3111/login -H 'Content-Type: application/x-www-form-urlencoded' --data password=testpw -o /dev/null -w 'login\\(form-post\\) %{http_code}\\\\n')",
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3111/food/outstanding -o out.html)",
+      "Bash(grep -o '\\\\$ACTION_ID_[a-f0-9]*' out.html)",
+      "Bash(grep -o 'ACTION[_A-Za-z0-9$:]*' rec.html)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{redirect_url}\\\\n\" http://localhost:3111/food/outstanding)",
+      "Bash(BACKEND=local DATA_DIR=/tmp/food-check npx next build)",
+      "Bash(pkill -f \"next dev -p 3111\")",
+      "Bash(pkill -f \"next-server\")",
+      "Bash(BACKEND=local DATA_DIR=/tmp/food-check PORTAL_PASSWORD=testpw SESSION_SECRET=test-secret-at-least-16 npx next dev -p 3112)",
+      "Bash(curl -s -o /dev/null -w \"boot %{http_code}\\\\n\" http://localhost:3112/food)",
+      "Bash(pkill -f \"next dev -p 3112\")"
     ]
   }
 }

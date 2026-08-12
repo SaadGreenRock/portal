@@ -103,6 +103,7 @@ const TABLES = [
   ["requests_for_quotation", "id"],
   ["assets", "id"],
   ["asset_holdings", "id"],
+  ["food_expenses", "id"],
   ["company_settings", "company"],
 ];
 

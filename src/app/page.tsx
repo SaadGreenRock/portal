@@ -3,6 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
+import { formatMoney } from "@/lib/money";
 
 /**
  * Landing screen. Choosing a company is the top-level act — the two workspaces
@@ -34,6 +35,10 @@ export default async function Landing() {
         return Object.fromEntries(entries);
       })()
     : null;
+
+  // Not per company: food belongs to neither. Tolerated for the same reason as
+  // the orders above — a missing table must not blank the landing page.
+  const food = authed ? await tryTable(async () => (await store()).foodCounts()) : null;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
@@ -108,19 +113,44 @@ export default async function Landing() {
         })}
       </div>
 
+      {/* Below the fork in the road, because neither belongs to one company. */}
       {authed ? (
-        <Link
-          href="/spend"
-          className="card mt-4 flex items-center justify-between gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
-        >
-          <div>
-            <div className="text-[15px] font-semibold">Expenditure</div>
-            <div className="mt-0.5 text-[13px] text-ink-soft">
-              Both companies together, and each on its own.
+        <>
+          <Link
+            href="/food"
+            className="card mt-4 flex items-center justify-between gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+          >
+            <div>
+              <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
+              <div className="mt-0.5 text-[13px] text-ink-soft">
+                Lunches, snacks and drinks. Both companies, one log.
+              </div>
             </div>
-          </div>
-          <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-        </Link>
+            {food?.ok && food.value.pending > 0 ? (
+              <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
+                ₨ {formatMoney(food.value.totalOutstanding)}
+                <span className="block text-[11.5px] font-normal text-ink-soft">
+                  {food.value.pending} owed
+                </span>
+              </span>
+            ) : (
+              <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+            )}
+          </Link>
+
+          <Link
+            href="/spend"
+            className="card mt-3 flex items-center justify-between gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+          >
+            <div>
+              <div className="text-[15px] font-semibold">Expenditure</div>
+              <div className="mt-0.5 text-[13px] text-ink-soft">
+                Both companies together, and each on its own.
+              </div>
+            </div>
+            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+          </Link>
+        </>
       ) : null}
     </main>
   );

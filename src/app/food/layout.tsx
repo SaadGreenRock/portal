@@ -1,0 +1,79 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import FoodNav from "@/components/FoodNav";
+import { isAuthenticated } from "@/lib/auth";
+import { store } from "@/lib/db";
+import { tryTable } from "@/lib/db/resilience";
+
+/**
+ * The food section's shell.
+ *
+ * Deliberately outside /[company], for the same reason /spend is: roughly a
+ * quarter of the entries are one lunch ordered for both companies, so an entry
+ * belongs to neither workspace and nesting the section under one would force
+ * every shared order to pick a side.
+ *
+ * It has a layout where /spend does its guard inline because it is five screens
+ * rather than one — the auth check and the tabs would otherwise be copied five
+ * times, and the fifth copy is where one gets forgotten.
+ *
+ * The accent is set here rather than inherited. Outside a workspace there is no
+ * company theme to take one from, so `--accent` is pinned to the portal's own
+ * teal and `.btn-primary` works unchanged.
+ */
+
+export const metadata = {
+  title: "Food & refreshments",
+};
+
+export default async function FoodLayout({ children }: { children: React.ReactNode }) {
+  if (!(await isAuthenticated())) {
+    redirect(`/login?next=${encodeURIComponent("/food")}`);
+  }
+
+  // Tolerated: an unmigrated food table must not stop the section from
+  // rendering — the pages below say so properly, and a badge is not the place
+  // to break the news.
+  const db = await store();
+  const counts = await tryTable(() => db.foodCounts());
+  const pending = counts.ok ? counts.value.pending : 0;
+
+  return (
+    <div
+      style={
+        {
+          "--accent": "#104751",
+          "--accent-text": "#ffffff",
+          "--accent-wash": "#f2f8f4",
+        } as React.CSSProperties
+      }
+    >
+      <header className="border-b border-ink-line bg-white">
+        <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-[20px] font-bold tracking-tight">Food &amp; refreshments</h1>
+              <p className="mt-0.5 text-[13.5px] text-ink-soft">
+                Lunches, snacks and drinks. Both companies, one log.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Link href="/food/new" className="btn btn-primary">
+                Log an entry
+              </Link>
+              <Link href="/" className="btn btn-ghost">
+                ← Companies
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <FoodNav pending={pending} />
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
+    </div>
+  );
+}

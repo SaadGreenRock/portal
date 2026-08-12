@@ -59,6 +59,10 @@ The Overview draws its cards from the module registry, so a new module appears
 there automatically with its description and links; it gets counts of its own
 when someone writes a summary for it.
 
+Two things sit **outside** any workspace, on the right of the first row and on
+the company picker: **Food**, whose entries belong to neither company, and
+**Expenditure**, whose point is the combined figure.
+
 ---
 
 ## Vouchers
@@ -268,6 +272,106 @@ Defaults live in **Settings → Quotation request defaults**: which currency to 
 vendors to quote in, how many days they get to reply, where to send the answer,
 and the conditions of quoting printed at the foot.
 
+## Food & refreshments
+
+`/food`, reachable from the company picker and from **Food** in any workspace's
+header. It replaces a four-sheet spreadsheet — `Company Lunch Expense Log.xlsx`,
+still in the repo root as the original — with the log, the outstanding dashboard
+and the spend report as three screens.
+
+**It sits outside `/[company]`, and that is the whole design.** Roughly a quarter
+of the entries in the sheet it replaces were ordered for *Green Rock + Sportech* —
+one lunch, two companies at the table. An entry therefore has no owner, so there
+is no `CompanySlug` anywhere in the module, no company column on the table, and
+nothing is ever split 50/50. `Ordered for` is a **label**: it records what was
+written on the order and carries no accounting meaning.
+
+Two facts about an entry are independent, and conflating them was the flaw in the
+spreadsheet:
+
+| | |
+|---|---|
+| **Payment type** | who fronted the money — the vendor's tab (`Deferred`), or someone's own pocket (`Employee paid`) |
+| **Status** | whether that person or vendor has been squared up yet |
+
+The cross of the two is what the Outstanding screen is:
+
+```
+Deferred      + Pending  →  owed to a café
+Employee paid + Pending  →  a reimbursement somebody is waiting on
+```
+
+They are settled by different people on different days, so they get their own
+panels — and reimbursements come first even though they are usually the smaller
+figure, because somebody is personally out of pocket on them.
+
+### Settling a tab
+
+The reason this beats the spreadsheet. A café's tab is a dozen separate orders
+and one payment; in the sheet, clearing it meant editing a dozen rows by hand.
+On `/food/outstanding` each payee is one form: every order ticked by default, a
+payment date, an optional reference, one button.
+
+Resubmitting that form — the browser-back-then-refresh everyone eventually does —
+settles nothing twice. The update carries `status = 'pending'` in its `WHERE`
+clause, so an entry already paid last week cannot have today's date stamped over
+it. The banner reports how many rows actually changed, which is `0` on a
+resubmit.
+
+Unticking is for the one order that never arrived, so a partial settlement takes
+an explicit act and a full one takes none. The button reads *Settle ticked*
+rather than an amount: without client JavaScript a figure on the button could not
+follow the checkboxes, and one reading ₨32,970 after unticking half the list
+would be a lie. The total to check against sits in the panel header.
+
+### The report
+
+`/food/report` is total-to-date plus any date range, both bounds inclusive —
+matching the `SUMIFS` it replaces, so 14–31 July counts both the 14th and the
+31st. Breakdowns are by vendor and by the *ordered for* label; neither is a cost
+allocation, and a shared lunch appears whole under `Green Rock + Sportech`.
+
+Every entry counts towards spend whether settled or not: the food was eaten, so
+the expense was incurred. What is still owed is a separate question, answered on
+Outstanding.
+
+### Numbers
+
+```
+F-202608-001         a food entry
+```
+
+The only number in the portal with no company prefix, because the entry has no
+company to take one from. The sequence restarts each month, like vouchers and
+orders and unlike assets.
+
+### Importing the spreadsheet
+
+One-off, and already done:
+
+```bash
+node --env-file=.env scripts/import-food.mjs        # add --force to append
+```
+
+It reads `scripts/food-seed.json` — a committed, reviewable extract of the
+workbook's `Lunch_Log` table — rather than the `.xlsx`, so a script that runs
+once does not leave a permanent `xlsx` dependency behind. It refuses to run
+against a table that already has rows, and it checks its own arithmetic against
+the workbook's totals at the end:
+
+```
+ok    entries            40
+ok    spentAllTime       119038
+ok    totalOutstanding   32970
+ok    owedToVendors      32970
+ok    owedToEmployees    0
+```
+
+Entries recorded as paid but with no payment date — 28 of the 40 — import with
+`paid_at` null. Absence means unknown; inventing a date would be a lie in a
+record of when money moved. Text is otherwise verbatim, typos included: this is a
+record of what was written, not an opportunity to rewrite it.
+
 ## Expenditure
 
 `/spend`, reachable from the company picker and from **Expenditure** in any
@@ -280,15 +384,22 @@ it:
 ```
 Paid out — vouchers            PKR   246,000     money that has left
 Committed — purchase orders    PKR 1,910,420     promised to a vendor
+Food & refreshments            PKR   119,038     eaten, settled or not
 ─────────────────────────────────────────────
-Combined                       PKR 2,156,420
+Combined                       PKR 2,275,458
 Draft orders, not counted      PKR    69,384     promised to nobody yet
 ```
 
 A voucher is money someone has signed for. A purchase order is money committed
-that may not have been paid. Adding them without saying so would produce a
-confident figure meaning two different things, so they get their own lines and
-are combined only after.
+that may not have been paid. Food is a third claim and neither of those: the
+money may not have moved, but the food was eaten, so the expense was incurred.
+Adding them without saying so would produce a confident figure meaning three
+different things, so they get their own lines and are combined only after.
+
+**Food appears only in the combined figure**, never on the two company cards — it
+belongs to neither. It does get its own row under *Split by company*, so the
+breakdown still adds up to Combined; a total that cannot be checked against its
+parts is the one thing this page must not be.
 
 What is left out, and why:
 
@@ -317,15 +428,26 @@ thousands of records.
 GR-202607-014        a voucher
 GR-PO-202608-001     a purchase order
 GR-RFQ-202608-001    a request for quotation
+GR-A-001             an asset
+F-202608-001         a food entry
 ```
 
 Company prefix, a document-type segment for anything that isn't a voucher, then
 year+month and a 3-digit sequence that restarts at `001` each month. Each
 sequence is counted separately per company **and** per document type.
 
+Two exceptions, each for a reason:
+
+- **Assets** carry no year+month. The number is written on the item itself and
+  outlives the month it was bought in, so the sequence spans all time and never
+  resets — a monthly restart would put two `-001` labels on two laptops.
+- **Food entries** carry no company prefix. A lunch ordered for both companies
+  has no company to take one from, so the sequence is keyed on the month alone.
+
 Numbers are assigned when the record is created and are never reused or
-renumbered. A unique database constraint on `(company, period, seq)` is what
-enforces that, so two simultaneous creates can't collide.
+renumbered. A unique database constraint on `(company, period, seq)` — or
+`(period, seq)` for food — is what enforces that, so two simultaneous creates
+can't collide.
 
 ## Deleting
 
@@ -526,6 +648,29 @@ register — is:
 
 Nothing existing has to be touched.
 
+### …that belongs to no company
+
+Food is the worked example, and `src/app/food/` is the template. A section whose
+records belong to neither workspace differs in five ways:
+
+1. **Not in `MODULES`.** That registry is for `/[company]/…`; an entry there
+   would nest the section under a workspace, which is the thing to avoid. Add a
+   card on `src/app/page.tsx` and a link beside **Expenditure** in
+   `src/components/WorkspaceNav.tsx` instead.
+2. **Its own `layout.tsx`** does the `isAuthenticated()` guard once and supplies
+   the header and tabs, because there is no `WorkspaceNav` outside `/[company]`.
+   It also pins `--accent` itself — there is no company theme to inherit.
+3. **No `CompanySlug` in the store interface**, no company column on the table.
+   Leaving one in is how a shared record ends up arbitrarily assigned to one
+   workspace.
+4. **Numbering** cannot use `formatDocNo`, whose first argument is a
+   `CompanySlug`. Write a sibling in `src/lib/db/shared.ts`.
+5. **Check `next.config.ts`.** The legacy voucher redirects are pinned to the
+   real company slugs precisely because an unpinned `/:company/new` also matches
+   `/food/new` — a new top-level section with a two-segment page would otherwise
+   be silently redirected into a page that does not exist. Add the slug list
+   there if you add a company.
+
 ---
 
 ## Layout of the code
@@ -551,6 +696,9 @@ src/
       template.ts    the request, its CSS, and its own measured paginator
       parse.ts       as po/parse.ts, sharing its text validation
       actions.ts     server actions
+    food/
+      types.ts       the food domain model, and the SUMIFS the sheet used to do
+      actions.ts     server actions, including the batch settle
     spend/
       types.ts       expenditure roll-up — the only place totals are decided
     client-pdf.ts    browser-side SVG → canvas → JPEG → PDF

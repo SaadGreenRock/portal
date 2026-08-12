@@ -12,6 +12,13 @@ import type {
   ReturnFields,
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
+import {
+  summariseFood,
+  type FoodCounts,
+  type FoodExpense,
+  type FoodFields,
+  type FoodQuery,
+} from "../food/types";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
   RFQ_OPEN_STATUSES,
@@ -31,7 +38,10 @@ import {
   denormalizeRfq,
   employeeKey,
   employeeProfilesFrom,
+  foodColumns,
+  foodNamesFrom,
   formatAssetNo,
+  formatFoodNo,
   formatPoNo,
   formatRfqNo,
   formatVoucherNo,
@@ -41,6 +51,7 @@ import {
   poStatusPatch,
   rfqStatusPatch,
   rowToAsset,
+  rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
   rowToPo,
@@ -49,6 +60,7 @@ import {
   rowToVoucher,
   vendorProfilesFrom,
   type AssetRow,
+  type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
   type PoRow,
@@ -253,6 +265,46 @@ function connect(): Database.Database {
     CREATE UNIQUE INDEX IF NOT EXISTS holdings_one_open
       ON asset_holdings (asset_id) WHERE returned_on IS NULL;
     CREATE INDEX IF NOT EXISTS holdings_span ON asset_holdings (company, span_end, span_start);
+
+    -- The food and refreshments log. The one table here with no company column:
+    -- a lunch ordered for both companies belongs to neither, and ordered_for is
+    -- a label rather than an owner. See src/lib/food/types.ts.
+    CREATE TABLE IF NOT EXISTS food_expenses (
+      id            TEXT PRIMARY KEY,
+      entry_no      TEXT NOT NULL UNIQUE,
+      seq           INTEGER NOT NULL,
+      period        TEXT NOT NULL,
+      -- When the food was ordered, which is not when the row was created: the
+      -- log is often caught up on a few days late.
+      date          TEXT NOT NULL,
+      ordered_for   TEXT NOT NULL DEFAULT '',
+      vendor        TEXT NOT NULL DEFAULT '',
+      details       TEXT NOT NULL DEFAULT '',
+      amount        REAL NOT NULL DEFAULT 0,
+      currency      TEXT NOT NULL DEFAULT 'PKR',
+      -- 'deferred' (on the vendor's tab) or 'employee-paid' (out of pocket).
+      payment_type  TEXT NOT NULL DEFAULT 'deferred',
+      -- The employee owed a reimbursement. NULL on a deferred order.
+      paid_by       TEXT,
+      -- 'pending' or 'paid'. Crossed with payment_type this gives the two
+      -- outstanding figures: owed to vendors, and owed to employees.
+      status        TEXT NOT NULL DEFAULT 'pending',
+      -- NULL while pending, and also NULL on imported entries recorded as paid
+      -- without a date. Absence means unknown, not today.
+      paid_at       TEXT,
+      reference     TEXT,
+      notes         TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      deleted_at    TEXT,
+      -- Period + seq, with no company to key on. Guarantees a number is never
+      -- handed out twice in a month even if two requests race.
+      UNIQUE (period, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS food_date ON food_expenses (date DESC);
+    -- The outstanding screen's only query: pending rows, split by who fronted it.
+    CREATE INDEX IF NOT EXISTS food_status_type ON food_expenses (status, payment_type);
 
     -- One JSON document of settings per company, so a new module can add a
     -- section without a schema change.
@@ -1418,6 +1470,255 @@ export const sqliteStore: Store = {
     return employeeProfilesFrom(rows);
   },
 
+
+  /* ---- food ------------------------------------------------------------- */
+
+  async createFood(fields: FoodFields): Promise<FoodExpense> {
+    const handle = connect();
+    const now = new Date().toISOString();
+    const period = periodOf();
+
+    const insert = handle.prepare(`
+      INSERT INTO food_expenses (
+        id, entry_no, seq, period, date, ordered_for, vendor, details,
+        amount, currency, payment_type, paid_by, status, paid_at,
+        reference, notes, created_at, updated_at
+      ) VALUES (
+        @id, @entry_no, @seq, @period, @date, @ordered_for, @vendor, @details,
+        @amount, @currency, @payment_type, @paid_by, @status, @paid_at,
+        @reference, @notes, @created_at, @created_at
+      )
+    `);
+
+    // Deleted rows are deliberately counted, as everywhere else: a number that
+    // has been quoted to a café is spent even if the row was binned.
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM food_expenses WHERE period = ?`,
+    );
+
+    // UNIQUE (period, seq) is the real guard; the retry loop just picks up the
+    // next free number if we lost a race.
+    const claim = handle.transaction((): FoodRow => {
+      const { seq } = nextSeq.get(period) as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        entry_no: formatFoodNo(period, seq),
+        seq,
+        period,
+        created_at: now,
+        ...foodColumns(fields),
+      });
+      return handle.prepare(`SELECT * FROM food_expenses WHERE id = ?`).get(id) as FoodRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToFood(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a food entry number after several attempts");
+  },
+
+  async getFood(id) {
+    const row = connect().prepare(`SELECT * FROM food_expenses WHERE id = ?`).get(id) as
+      | FoodRow
+      | undefined;
+    return row ? rowToFood(row) : null;
+  },
+
+  async updateFood(id, fields: FoodFields): Promise<FoodExpense> {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE food_expenses SET
+            date = @date, ordered_for = @ordered_for, vendor = @vendor,
+            details = @details, amount = @amount, currency = @currency,
+            payment_type = @payment_type, paid_by = @paid_by, status = @status,
+            paid_at = @paid_at, reference = @reference, notes = @notes,
+            updated_at = @updated_at
+          WHERE id = @id`,
+      )
+      .run({ id, updated_at: new Date().toISOString(), ...foodColumns(fields) });
+
+    const row = handle.prepare(`SELECT * FROM food_expenses WHERE id = ?`).get(id) as
+      | FoodRow
+      | undefined;
+    if (!row) throw new Error("Food entry not found");
+    return rowToFood(row);
+  },
+
+  async searchFood(query: FoodQuery) {
+    const handle = connect();
+    const where: string[] = [];
+    const params: Record<string, unknown> = {};
+
+    if (query.view === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+      if (query.view === "pending") where.push("status = 'pending'");
+      else if (query.view === "paid") where.push("status = 'paid'");
+    }
+
+    if (query.q?.trim()) {
+      where.push(`(
+        entry_no    LIKE @q COLLATE NOCASE OR
+        vendor      LIKE @q COLLATE NOCASE OR
+        details     LIKE @q COLLATE NOCASE OR
+        ordered_for LIKE @q COLLATE NOCASE OR
+        paid_by     LIKE @q COLLATE NOCASE OR
+        reference   LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+
+    // Both bounds inclusive, matching the SUMIFS the report replaces.
+    if (query.from) {
+      where.push("date >= @from");
+      params.from = query.from;
+    }
+    if (query.to) {
+      where.push("date <= @to");
+      params.to = query.to;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM food_expenses WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    // By order date, not by when it was typed: the log is read as a diary, and
+    // catching up on Monday should not bury Friday's lunch under it.
+    const rows = handle
+      .prepare(
+        `SELECT * FROM food_expenses WHERE ${clause}
+          ORDER BY date DESC, seq DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as FoodRow[];
+
+    return { rows: rows.map(rowToFood), total };
+  },
+
+  async foodCounts(): Promise<FoodCounts> {
+    const rows = connect()
+      .prepare(`SELECT * FROM food_expenses WHERE deleted_at IS NULL`)
+      .all() as FoodRow[];
+    // Summed in the app, not with SUMIFS-in-SQL, so both backends agree on what
+    // each figure means. See summariseFood.
+    return summariseFood(rows.map(rowToFood));
+  },
+
+  async pendingFood(): Promise<FoodExpense[]> {
+    const rows = connect()
+      .prepare(
+        `SELECT * FROM food_expenses
+          WHERE deleted_at IS NULL AND status = 'pending'
+          ORDER BY date ASC, seq ASC`,
+      )
+      .all() as FoodRow[];
+    return rows.map(rowToFood);
+  },
+
+  async foodInRange(from: string | null, to: string | null): Promise<FoodExpense[]> {
+    const where = ["deleted_at IS NULL"];
+    const params: Record<string, unknown> = {};
+    if (from) {
+      where.push("date >= @from");
+      params.from = from;
+    }
+    if (to) {
+      where.push("date <= @to");
+      params.to = to;
+    }
+
+    const rows = connect()
+      .prepare(
+        `SELECT * FROM food_expenses WHERE ${where.join(" AND ")} ORDER BY date ASC, seq ASC`,
+      )
+      .all(params) as FoodRow[];
+    return rows.map(rowToFood);
+  },
+
+  async settleFood(ids: string[], paidAt: string, reference: string | null): Promise<number> {
+    if (ids.length === 0) return 0;
+    const handle = connect();
+    const placeholders = ids.map(() => "?").join(", ");
+
+    // The status and deleted_at conditions are what make this idempotent: a
+    // resubmitted settle form touches nothing, rather than stamping today's date
+    // over a payment made last week.
+    const result = handle
+      .prepare(
+        `UPDATE food_expenses SET
+            status = 'paid', paid_at = ?, reference = COALESCE(?, reference), updated_at = ?
+          WHERE id IN (${placeholders}) AND status = 'pending' AND deleted_at IS NULL`,
+      )
+      .run(paidAt, reference, new Date().toISOString(), ...ids);
+
+    return result.changes;
+  },
+
+  async unsettleFood(id: string): Promise<FoodExpense> {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE food_expenses SET
+            status = 'pending', paid_at = NULL, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(new Date().toISOString(), id);
+
+    const row = handle.prepare(`SELECT * FROM food_expenses WHERE id = ?`).get(id) as
+      | FoodRow
+      | undefined;
+    if (!row) throw new Error("Food entry not found");
+    return rowToFood(row);
+  },
+
+  async softDeleteFood(id) {
+    connect()
+      .prepare(`UPDATE food_expenses SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async restoreFood(id) {
+    connect().prepare(`UPDATE food_expenses SET deleted_at = NULL WHERE id = ?`).run(id);
+  },
+
+  async foodNames() {
+    // Newest first, because the most recent spelling of a name wins.
+    const rows = connect()
+      .prepare(
+        `SELECT * FROM food_expenses WHERE deleted_at IS NULL
+          ORDER BY date DESC, seq DESC LIMIT 400`,
+      )
+      .all() as FoodRow[];
+    return foodNamesFrom(rows);
+  },
+
+  async foodSpendRows(): Promise<SpendRow[]> {
+    const rows = connect()
+      .prepare(
+        `SELECT status, currency, amount, date FROM food_expenses WHERE deleted_at IS NULL`,
+      )
+      .all() as Array<{ status: string; currency: string; amount: number; date: string }>;
+
+    return rows.map((r) => ({
+      kind: "food" as const,
+      // No company: the expenditure report shows food as one combined figure
+      // rather than attributing a shared lunch to one workspace or the other.
+      company: null,
+      status: r.status,
+      currency: r.currency || "PKR",
+      amount: r.amount,
+      date: r.date,
+    }));
+  },
 
   /* ---- expenditure ------------------------------------------------------ */
 
