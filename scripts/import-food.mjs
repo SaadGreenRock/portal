@@ -91,10 +91,10 @@ const rows = entries
       // screen. Same normalisation the app's foodColumns applies.
       paid_by: deferred ? null : (e.paidBy ?? null),
       status: e.status,
-      // Left null on the 28 rows the sheet recorded as paid without a date.
-      // Absence means unknown; inventing a date would be a lie in a record of
-      // when money moved.
-      paid_at: e.status === "paid" ? (e.paidAt ?? null) : null,
+      // Every settled entry carries a date. The sheet filled Payment Date on
+      // only 2 of 40 rows, so for the rest the order date stands in — decided in
+      // food-seed.json, and the same fallback the app applies (see foodColumns).
+      paid_at: e.status === "paid" ? (e.paidAt ?? e.date) : null,
       reference: e.reference ?? null,
       notes: e.notes ?? null,
       created_at: now,
@@ -128,7 +128,10 @@ if (backend === "supabase") {
   const { error } = await db.from("food_expenses").insert(rows);
   if (error) die(`Insert failed: ${error.message}`);
 
-  const check = await db.from("food_expenses").select("amount, status, payment_type").is("deleted_at", null);
+  const check = await db
+    .from("food_expenses")
+    .select("amount, status, payment_type, paid_at")
+    .is("deleted_at", null);
   if (check.error) die(`Cannot read back: ${check.error.message}`);
   live = check.data.map((r) => ({ ...r, amount: Number(r.amount) }));
 } else {
@@ -174,7 +177,9 @@ if (backend === "supabase") {
   handle.transaction(() => rows.forEach((r) => insert.run(r)))();
 
   live = handle
-    .prepare(`SELECT amount, status, payment_type FROM food_expenses WHERE deleted_at IS NULL`)
+    .prepare(
+      `SELECT amount, status, payment_type, paid_at FROM food_expenses WHERE deleted_at IS NULL`,
+    )
     .all();
 }
 
@@ -188,6 +193,11 @@ const actual = {
   totalOutstanding: sum((r) => r.status === "pending"),
   owedToVendors: sum((r) => r.status === "pending" && r.payment_type === "deferred"),
   owedToEmployees: sum((r) => r.status === "pending" && r.payment_type === "employee-paid"),
+  // Not a total, but the same kind of claim: every settled entry must have a
+  // date, so a regression in the fallback shows up here rather than as a blank
+  // column somebody notices months later.
+  paidWithDate: live.filter((r) => r.status === "paid" && r.paid_at).length,
+  paidWithoutDate: live.filter((r) => r.status === "paid" && !r.paid_at).length,
 };
 
 let failed = false;

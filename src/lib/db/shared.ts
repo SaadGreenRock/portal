@@ -596,7 +596,7 @@ export function rowToFood(r: FoodRow): FoodExpense {
 /**
  * A food entry's editable fields as columns, for an insert or an update.
  *
- * The two normalisations that must not be left to a call site:
+ * The three normalisations that must not be left to a call site:
  *
  *   `paid_by` is forced to NULL on a deferred order. Nobody paid out of pocket,
  *   so a name left behind by switching the payment type would put a phantom
@@ -604,9 +604,18 @@ export function rowToFood(r: FoodRow): FoodExpense {
  *
  *   `paid_at` is forced to NULL while pending, so a stale date cannot survive an
  *   entry being put back to unpaid and claim it was settled.
+ *
+ *   `paid_at` falls back to the order date when an entry is settled without one.
+ *   A settled entry always carries a date — the log is read as a diary and a
+ *   blank column in the middle of it reads as a gap in the record rather than as
+ *   "we did not write this down". The settle flow supplies a real date, so this
+ *   only catches the edit form being saved as Paid with the field left empty,
+ *   and it is the same rule the spreadsheet import used for the 28 rows that
+ *   were marked Paid without a payment date.
  */
 export function foodColumns(f: FoodFields) {
   const deferred = f.paymentType === "deferred";
+  const paid = f.status === "paid";
   return {
     date: f.date,
     ordered_for: f.orderedFor,
@@ -617,7 +626,7 @@ export function foodColumns(f: FoodFields) {
     payment_type: f.paymentType,
     paid_by: deferred ? null : (f.paidBy?.trim() || null),
     status: f.status,
-    paid_at: f.status === "paid" ? (f.paidAt || null) : null,
+    paid_at: paid ? f.paidAt || f.date || null : null,
     reference: f.reference?.trim() || null,
     notes: f.notes?.trim() || null,
   };

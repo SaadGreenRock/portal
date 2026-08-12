@@ -365,12 +365,29 @@ ok    spentAllTime       119038
 ok    totalOutstanding   32970
 ok    owedToVendors      32970
 ok    owedToEmployees    0
+ok    paidWithDate       30
+ok    paidWithoutDate    0
 ```
 
-Entries recorded as paid but with no payment date — 28 of the 40 — import with
-`paid_at` null. Absence means unknown; inventing a date would be a lie in a
-record of when money moved. Text is otherwise verbatim, typos included: this is a
-record of what was written, not an opportunity to rewrite it.
+Text is verbatim, typos included: this is a record of what was written, not an
+opportunity to rewrite it.
+
+### Payment dates
+
+The sheet filled its `Payment Date` column on only **2 of 40 rows**, while
+marking 30 as paid. **A settled entry always carries a date here**, so where the
+sheet had one it wins, and for the other 28 the order date stands in.
+
+The same fallback is the app's rule, not just the import's — `foodColumns` in
+`src/lib/db/shared.ts` applies it to every write, so an entry saved as Paid with
+the date field left empty gets the order date rather than a blank. The settle
+flow supplies a real payment date, so in practice this only catches the edit
+form.
+
+Worth knowing when reading old figures: for those 28 rows the payment date is
+the day the food was ordered, not the day the café was actually settled — which
+was in batches, some weeks later. It is a stand-in that keeps the column
+complete, not a record of when money moved.
 
 ## Expenditure
 

@@ -227,7 +227,7 @@ export default function FoodForm({
             className="input"
           />
           <p className="mt-1.5 text-[12.5px] text-ink-soft">
-            Ignored while pending. Blank on a paid entry means the date is not known.
+            Ignored while pending. Left blank on a paid entry, the date ordered is used.
           </p>
         </div>
 

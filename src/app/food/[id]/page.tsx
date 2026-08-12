@@ -133,6 +133,9 @@ export default async function FoodRecord({
           </Field>
           {!pending ? (
             <Field label="Paid on">
+              {/* A settled entry always carries a date — foodColumns falls back
+                  to the order date. The empty case is kept only so a row that
+                  somehow lacks one says so rather than rendering a blank. */}
               {entry.paidAt ? (
                 formatDate(entry.paidAt)
               ) : (

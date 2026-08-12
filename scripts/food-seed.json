@@ -1,12 +1,15 @@
 {
   "_source": "Company Lunch Expense Log.xlsx — sheet \"Lunch Expense Log\", table Lunch_Log",
   "_generated": "one-off, by hand; see scripts/import-food.mjs",
+  "_paidAt": "The sheet filled Payment Date on only 2 of 40 rows. For the other 28 rows marked Paid, the order date stands in, so every settled entry carries a date.",
   "_expected": {
     "entries": 40,
     "spentAllTime": 119038.0,
     "totalOutstanding": 32970.0,
     "owedToVendors": 32970.0,
-    "owedToEmployees": 0
+    "owedToEmployees": 0,
+    "paidWithDate": 30,
+    "paidWithoutDate": 0
   },
   "entries": [
     {
@@ -19,7 +22,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-13",
       "reference": null,
       "notes": null
     },
@@ -33,7 +36,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-14",
       "reference": null,
       "notes": null
     },
@@ -47,7 +50,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-15",
       "reference": null,
       "notes": null
     },
@@ -61,7 +64,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-15",
       "reference": null,
       "notes": null
     },
@@ -75,7 +78,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-16",
       "reference": null,
       "notes": null
     },
@@ -89,7 +92,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-16",
       "reference": null,
       "notes": null
     },
@@ -103,7 +106,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-17",
       "reference": null,
       "notes": null
     },
@@ -117,7 +120,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-18",
       "reference": null,
       "notes": null
     },
@@ -131,7 +134,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-20",
       "reference": null,
       "notes": null
     },
@@ -145,7 +148,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-21",
       "reference": null,
       "notes": null
     },
@@ -173,7 +176,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-22",
       "reference": null,
       "notes": null
     },
@@ -187,7 +190,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-23",
       "reference": null,
       "notes": null
     },
@@ -201,7 +204,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-24",
       "reference": null,
       "notes": null
     },
@@ -215,7 +218,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-25",
       "reference": null,
       "notes": null
     },
@@ -229,7 +232,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-27",
       "reference": null,
       "notes": null
     },
@@ -243,7 +246,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-27",
       "reference": null,
       "notes": null
     },
@@ -257,7 +260,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-27",
       "reference": null,
       "notes": null
     },
@@ -271,7 +274,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-27",
       "reference": null,
       "notes": null
     },
@@ -299,7 +302,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-28",
       "reference": null,
       "notes": null
     },
@@ -313,7 +316,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-28",
       "reference": null,
       "notes": null
     },
@@ -327,7 +330,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-28",
       "reference": null,
       "notes": null
     },
@@ -341,7 +344,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-28",
       "reference": null,
       "notes": null
     },
@@ -355,7 +358,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-29",
       "reference": null,
       "notes": null
     },
@@ -369,7 +372,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-30",
       "reference": null,
       "notes": null
     },
@@ -383,7 +386,7 @@
       "paymentType": "deferred",
       "paidBy": null,
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-07-31",
       "reference": null,
       "notes": null
     },
@@ -453,7 +456,7 @@
       "paymentType": "employee-paid",
       "paidBy": "Saad Hassan",
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-08-05",
       "reference": null,
       "notes": null
     },
@@ -481,7 +484,7 @@
       "paymentType": "employee-paid",
       "paidBy": "Saad Hassan",
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-08-06",
       "reference": null,
       "notes": null
     },
@@ -523,7 +526,7 @@
       "paymentType": "employee-paid",
       "paidBy": "Saad Hassan",
       "status": "paid",
-      "paidAt": null,
+      "paidAt": "2026-08-07",
       "reference": null,
       "notes": null
     },
