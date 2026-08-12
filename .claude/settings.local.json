@@ -106,7 +106,10 @@
       "Bash(pkill -f \"next dev -p 3113\")",
       "Bash(node --env-file=.env scripts/import-food.mjs)",
       "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3114/spend)",
-      "Bash(pkill -f \"next dev -p 3114\")"
+      "Bash(pkill -f \"next dev -p 3114\")",
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3115/ -o /tmp/landing.html -w '%{http_code}\\\\n')",
+      "Read(//tmp/**)",
+      "Bash(pkill -f \"next dev -p 3115\")"
     ]
   }
 }

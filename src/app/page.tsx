@@ -4,6 +4,7 @@ import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { formatMoney } from "@/lib/money";
+import { summarise } from "@/lib/spend/types";
 
 /**
  * Landing screen. Choosing a company is the top-level act — the two workspaces
@@ -39,6 +40,28 @@ export default async function Landing() {
   // Not per company: food belongs to neither. Tolerated for the same reason as
   // the orders above — a missing table must not blank the landing page.
   const food = authed ? await tryTable(async () => (await store()).foodCounts()) : null;
+
+  /**
+   * The combined figure, on the card rather than behind it.
+   *
+   * The same rows and the same `summarise` the report itself uses — not a
+   * shortcut sum — so the number here and the number one click away can never
+   * disagree. All time, matching what /spend opens on.
+   *
+   * Every part is tolerated separately: a module that is not set up contributes
+   * nothing and the rest of the figure still shows, which is the same bargain
+   * the report makes.
+   */
+  const spend = authed
+    ? await (async () => {
+        const db = await store();
+        const parts = await Promise.all([
+          ...COMPANY_LIST.map((c) => tryTable(() => db.spendRows(c.slug))),
+          tryTable(() => db.foodSpendRows()),
+        ]);
+        return summarise(parts.flatMap((p) => (p.ok ? p.value : [])));
+      })()
+    : null;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
@@ -148,7 +171,22 @@ export default async function Landing() {
                 Both companies together, and each on its own.
               </div>
             </div>
-            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+            {/* Every currency, never summed across them — the one rule the
+                report is built on, which a single figure here would break. */}
+            {spend && spend.byCurrency.length > 0 ? (
+              <span className="shrink-0 text-right">
+                {spend.byCurrency.map((t) => (
+                  <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
+                    {t.currency} {formatMoney(t.total, t.currency)}
+                  </span>
+                ))}
+                <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
+                  all time
+                </span>
+              </span>
+            ) : (
+              <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+            )}
           </Link>
         </>
       ) : null}
