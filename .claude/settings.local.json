@@ -109,7 +109,9 @@
       "Bash(pkill -f \"next dev -p 3114\")",
       "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3115/ -o /tmp/landing.html -w '%{http_code}\\\\n')",
       "Read(//tmp/**)",
-      "Bash(pkill -f \"next dev -p 3115\")"
+      "Bash(pkill -f \"next dev -p 3115\")",
+      "Bash(curl -s -H 'Cookie: pvp_session=__TRACKED_VAR__' http://localhost:3116/ -o /tmp/land2.html -w 'landing %{http_code}\\\\n')",
+      "Bash(pkill -f \"next dev -p 3116\")"
     ]
   }
 }

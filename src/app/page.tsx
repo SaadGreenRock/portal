@@ -141,9 +141,12 @@ export default async function Landing() {
         <>
           <Link
             href="/food"
-            className="card mt-4 flex items-center justify-between gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+            className="card mt-4 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
           >
-            <div>
+            <Tile background="#f7f1e8" ink="#8a6534">
+              <FoodMark />
+            </Tile>
+            <div className="min-w-0 flex-1">
               <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
               <div className="mt-0.5 text-[13px] text-ink-soft">
                 Lunches, snacks and drinks. Both companies, one log.
@@ -163,9 +166,12 @@ export default async function Landing() {
 
           <Link
             href="/spend"
-            className="card mt-3 flex items-center justify-between gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+            className="card mt-3 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
           >
-            <div>
+            <Tile background="#eef4f4" ink="#104751">
+              <SpendMark />
+            </Tile>
+            <div className="min-w-0 flex-1">
               <div className="text-[15px] font-semibold">Expenditure</div>
               <div className="mt-0.5 text-[13px] text-ink-soft">
                 Both companies together, and each on its own.
@@ -191,5 +197,84 @@ export default async function Landing() {
         </>
       ) : null}
     </main>
+  );
+}
+
+/**
+ * The square a mark sits in.
+ *
+ * Same `rounded-lg` as the logo panel on a company card, so the four cards read
+ * as one set — but a square rather than that panel's full-width band, because
+ * these two are single rows and a band would tower over one line of text.
+ *
+ * The wash is pale enough that the mark stays the darkest thing in it, and each
+ * tile borrows the colour its own section already uses elsewhere: the warm brown
+ * of the food dot on the expenditure report, and the portal's teal.
+ */
+function Tile({
+  background,
+  ink,
+  children,
+}: {
+  background: string;
+  ink: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      aria-hidden
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+      style={{ background, color: ink }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Marks, not emoji.
+ *
+ * Emoji are drawn by the operating system, so the same character is a flat
+ * glyph on one machine and a glossy cartoon on another — nothing here could
+ * hold a consistent weight beside Poppins and the greys. These are strokes at
+ * the same width as the rest of the interface, and they inherit `currentColor`
+ * from the tile, so a colour change is one number.
+ *
+ * `aria-hidden` sits on the tile: each card already has its name in text, and a
+ * mark that announced itself would make a screen reader say it twice.
+ */
+const strokes = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.75,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+/**
+ * Fork and spoon — lunches and drinks both, where a cup would mean only one.
+ * A knife rather than a spoon reduces to a sliver at this size and stops
+ * reading as cutlery at all.
+ */
+function FoodMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" {...strokes}>
+      <path d="M6.5 3v5a2.5 2.5 0 0 0 5 0V3" />
+      <path d="M9 10.5V21" />
+      <path d="M17.5 21v-6.5" />
+      <path d="M17.5 14.5c1.8 0 2.8-2 2.8-5.2S19.3 3 17.5 3s-2.8 3-2.8 6.3 1 5.2 2.8 5.2Z" />
+    </svg>
+  );
+}
+
+/** Rising bars on a baseline — a report of figures, rather than a coin. */
+function SpendMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" {...strokes}>
+      <path d="M4 20h16" />
+      <path d="M7.5 20v-4.5" />
+      <path d="M12 20v-8.5" />
+      <path d="M16.5 20v-12.5" />
+    </svg>
   );
 }
