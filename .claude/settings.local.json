@@ -103,7 +103,8 @@
       "Bash(pkill -f \"next dev -p 3112\")",
       "Bash(BACKEND=local DATA_DIR=/tmp/food-check PORTAL_PASSWORD=testpw SESSION_SECRET=test-secret-at-least-16 npx next dev -p 3113)",
       "Bash(curl -s -o /dev/null -w \"boot %{http_code}\\\\n\" http://localhost:3113/food)",
-      "Bash(pkill -f \"next dev -p 3113\")"
+      "Bash(pkill -f \"next dev -p 3113\")",
+      "Bash(node --env-file=.env scripts/import-food.mjs)"
     ]
   }
 }
