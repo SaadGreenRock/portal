@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import FoodNav from "@/components/FoodNav";
+import LockButton from "@/components/LockButton";
 import { isAuthenticated } from "@/lib/auth";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
@@ -27,9 +28,7 @@ export const metadata = {
 };
 
 export default async function FoodLayout({ children }: { children: React.ReactNode }) {
-  if (!(await isAuthenticated())) {
-    redirect(`/login?next=${encodeURIComponent("/food")}`);
-  }
+  if (!(await isAuthenticated())) redirect("/login");
 
   // Tolerated: an unmigrated food table must not stop the section from
   // rendering — the pages below say so properly, and a badge is not the place
@@ -48,7 +47,9 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
         } as React.CSSProperties
       }
     >
-      <header className="border-b border-ink-line bg-white">
+      {/* sticky: Lock and the section tabs stay reachable on a long log,
+          rather than scrolling away with it. */}
+      <header className="sticky top-0 z-10 border-b border-ink-line bg-white">
         <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -64,6 +65,7 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
               <Link href="/" className="btn btn-ghost">
                 ← Companies
               </Link>
+              <LockButton />
             </div>
           </div>
 

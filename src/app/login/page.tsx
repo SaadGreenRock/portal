@@ -9,30 +9,30 @@ import {
 /**
  * The whole authentication system: one password, one cookie.
  * The plan calls for a single operator, so there is nothing to model here.
+ *
+ * Unlocking always lands on "/" — the company picker, with Food and
+ * Expenditure underneath it — rather than wherever the operator happened to
+ * be headed when the session expired. One predictable landing spot beats a
+ * deep link into a workspace the operator has to reorient inside of.
  */
 export default async function Login({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
-  const { next, error } = await searchParams;
+  const { error } = await searchParams;
 
-  // Only ever redirect to a path on this site, never to an absolute URL.
-  const safeNext = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
-
-  if (await isAuthenticated()) redirect(safeNext);
+  if (await isAuthenticated()) redirect("/");
 
   async function submit(formData: FormData) {
     "use server";
     const password = String(formData.get("password") ?? "");
-    const target = String(formData.get("next") ?? "/");
-    const dest = target.startsWith("/") && !target.startsWith("//") ? target : "/";
 
     if (!checkPassword(password)) {
-      redirect(`/login?next=${encodeURIComponent(dest)}&error=1`);
+      redirect("/login?error=1");
     }
     await startSession();
-    redirect(dest);
+    redirect("/");
   }
 
   return (
@@ -41,7 +41,6 @@ export default async function Login({
       <p className="mt-1.5 text-[14px] text-ink-soft">Enter the portal password to continue.</p>
 
       <form action={submit} className="mt-7 space-y-3">
-        <input type="hidden" name="next" value={safeNext} />
         <div>
           <label className="label mb-1.5" htmlFor="password">
             Password

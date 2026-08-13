@@ -1,4 +1,5 @@
 import Link from "next/link";
+import LockButton from "@/components/LockButton";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -64,139 +65,149 @@ export default async function Landing() {
     : null;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
-      <header className="mb-10">
-        <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
-          Company Portal
-        </h1>
-        <p className="mt-2 text-[15px] text-ink-soft">
-          Choose a company to open its workspace.
-        </p>
-      </header>
+    <>
+      {/* This is the screen unlocking always lands on, so Lock lives here too
+          — the same button, in the same corner, wherever it was pressed from. */}
+      {authed ? (
+        <div className="sticky top-0 z-10 flex justify-end border-b border-ink-line bg-white px-5 py-2.5">
+          <LockButton />
+        </div>
+      ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {COMPANY_LIST.map((company) => {
-          const c = counts?.[company.slug];
-          return (
-            <Link
-              key={company.slug}
-              href={authed ? `/${company.slug}/vouchers/new` : `/login?next=/${company.slug}/vouchers/new`}
-              className="group card flex flex-col gap-5 p-6 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
-              style={{ borderColor: "#e4e4e4" }}
-            >
-              <div
-                className="flex h-20 items-center justify-center rounded-lg px-5"
-                style={{ background: company.theme.headerBar ?? "#f4f4f2" }}
+      <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
+        <header className="mb-10">
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
+            Company Portal
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-soft">
+            Choose a company to open its workspace.
+          </p>
+        </header>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {COMPANY_LIST.map((company) => {
+            const c = counts?.[company.slug];
+            return (
+              <Link
+                key={company.slug}
+                href={authed ? `/${company.slug}/vouchers/new` : "/login"}
+                className="group card flex flex-col gap-5 p-6 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+                style={{ borderColor: "#e4e4e4" }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={company.logo}
-                  alt={company.name}
-                  className="max-h-11 w-auto max-w-full object-contain"
-                />
-              </div>
-
-              <div>
-                <div className="text-[17px] font-semibold">{company.name}</div>
-                <div className="mono mt-1 text-[13px] text-ink-soft">
-                  Vouchers · Purchase orders
+                <div
+                  className="flex h-20 items-center justify-center rounded-lg px-5"
+                  style={{ background: company.theme.headerBar ?? "#f4f4f2" }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={company.logo}
+                    alt={company.name}
+                    className="max-h-11 w-auto max-w-full object-contain"
+                  />
                 </div>
-              </div>
 
-              {c ? (
-                <div className="space-y-1 text-[13px]">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span
-                      className={
-                        c.vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
-                      }
-                    >
-                      {c.vouchers.pending} awaiting signature
-                    </span>
-                    <span className="mono text-ink-soft">{c.vouchers.total}</span>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span
-                      className={
-                        c.po.ok && c.po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
-                      }
-                    >
-                      {c.po.ok
-                        ? `${c.po.value.open} open ${c.po.value.open === 1 ? "order" : "orders"}`
-                        : "purchase orders not set up"}
-                    </span>
-                    <span className="mono text-ink-soft">{c.po.ok ? c.po.value.total : "—"}</span>
+                <div>
+                  <div className="text-[17px] font-semibold">{company.name}</div>
+                  <div className="mono mt-1 text-[13px] text-ink-soft">
+                    Vouchers · Purchase orders
                   </div>
                 </div>
+
+                {c ? (
+                  <div className="space-y-1 text-[13px]">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span
+                        className={
+                          c.vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
+                        }
+                      >
+                        {c.vouchers.pending} awaiting signature
+                      </span>
+                      <span className="mono text-ink-soft">{c.vouchers.total}</span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span
+                        className={
+                          c.po.ok && c.po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
+                        }
+                      >
+                        {c.po.ok
+                          ? `${c.po.value.open} open ${c.po.value.open === 1 ? "order" : "orders"}`
+                          : "purchase orders not set up"}
+                      </span>
+                      <span className="mono text-ink-soft">{c.po.ok ? c.po.value.total : "—"}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[13px] text-ink-soft">Open workspace →</div>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Below the fork in the road, because neither belongs to one company. */}
+        {authed ? (
+          <>
+            <Link
+              href="/food"
+              className="card mt-4 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+            >
+              <Tile background="#f7f1e8" ink="#8a6534">
+                <FoodMark />
+              </Tile>
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
+                <div className="mt-0.5 text-[13px] text-ink-soft">
+                  Lunches, snacks and drinks. Both companies, one log.
+                </div>
+              </div>
+              {food?.ok && food.value.pending > 0 ? (
+                <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
+                  ₨ {formatMoney(food.value.totalOutstanding)}
+                  <span className="block text-[11.5px] font-normal text-ink-soft">
+                    {food.value.pending} owed
+                  </span>
+                </span>
               ) : (
-                <div className="text-[13px] text-ink-soft">Open workspace →</div>
+                <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
               )}
             </Link>
-          );
-        })}
-      </div>
 
-      {/* Below the fork in the road, because neither belongs to one company. */}
-      {authed ? (
-        <>
-          <Link
-            href="/food"
-            className="card mt-4 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
-          >
-            <Tile background="#f7f1e8" ink="#8a6534">
-              <FoodMark />
-            </Tile>
-            <div className="min-w-0 flex-1">
-              <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
-              <div className="mt-0.5 text-[13px] text-ink-soft">
-                Lunches, snacks and drinks. Both companies, one log.
+            <Link
+              href="/spend"
+              className="card mt-3 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+            >
+              <Tile background="#eef4f4" ink="#104751">
+                <SpendMark />
+              </Tile>
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-semibold">Expenditure</div>
+                <div className="mt-0.5 text-[13px] text-ink-soft">
+                  Both companies together, and each on its own.
+                </div>
               </div>
-            </div>
-            {food?.ok && food.value.pending > 0 ? (
-              <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
-                ₨ {formatMoney(food.value.totalOutstanding)}
-                <span className="block text-[11.5px] font-normal text-ink-soft">
-                  {food.value.pending} owed
-                </span>
-              </span>
-            ) : (
-              <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-            )}
-          </Link>
-
-          <Link
-            href="/spend"
-            className="card mt-3 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
-          >
-            <Tile background="#eef4f4" ink="#104751">
-              <SpendMark />
-            </Tile>
-            <div className="min-w-0 flex-1">
-              <div className="text-[15px] font-semibold">Expenditure</div>
-              <div className="mt-0.5 text-[13px] text-ink-soft">
-                Both companies together, and each on its own.
-              </div>
-            </div>
-            {/* Every currency, never summed across them — the one rule the
-                report is built on, which a single figure here would break. */}
-            {spend && spend.byCurrency.length > 0 ? (
-              <span className="shrink-0 text-right">
-                {spend.byCurrency.map((t) => (
-                  <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
-                    {t.currency} {formatMoney(t.total, t.currency)}
+              {/* Every currency, never summed across them — the one rule the
+                  report is built on, which a single figure here would break. */}
+              {spend && spend.byCurrency.length > 0 ? (
+                <span className="shrink-0 text-right">
+                  {spend.byCurrency.map((t) => (
+                    <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
+                      {t.currency} {formatMoney(t.total, t.currency)}
+                    </span>
+                  ))}
+                  <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
+                    all time
                   </span>
-                ))}
-                <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
-                  all time
                 </span>
-              </span>
-            ) : (
-              <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-            )}
-          </Link>
-        </>
-      ) : null}
-    </main>
+              ) : (
+                <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+              )}
+            </Link>
+          </>
+        ) : null}
+      </main>
+    </>
   );
 }
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import LockButton from "@/components/LockButton";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST, type Company } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -39,7 +40,7 @@ export default async function Expenditure({
 }: {
   searchParams: Promise<{ range?: string }>;
 }) {
-  if (!(await isAuthenticated())) redirect(`/login?next=${encodeURIComponent("/spend")}`);
+  if (!(await isAuthenticated())) redirect("/login");
 
   const { range: rangeParam } = await searchParams;
   const range: SpendRange = RANGES.includes(rangeParam as SpendRange)
@@ -71,129 +72,140 @@ export default async function Expenditure({
   const anyMissing = perCompany.some((c) => !c.available);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
-          <p className="mt-1 text-[14px] text-ink-soft">
-            Both companies together, and each on its own. From vouchers, purchase orders and the
-            food log.
-          </p>
+    <>
+      {/* sticky: Lock and the range filters stay reachable while scrolling
+          a long report, rather than scrolling away with it. */}
+      <header className="sticky top-0 z-10 border-b border-ink-line bg-white">
+        <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
+              <p className="mt-1 text-[14px] text-ink-soft">
+                Both companies together, and each on its own. From vouchers, purchase orders and
+                the food log.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Link href="/" className="btn btn-ghost">
+                ← Companies
+              </Link>
+              <LockButton />
+            </div>
+          </div>
+
+          {/* Range filters live in the URL, so a view can be bookmarked. */}
+          <nav className="mt-4 flex flex-wrap gap-1.5 pb-4">
+            {RANGES.map((r) => (
+              <Link
+                key={r}
+                href={r === "all" ? "/spend" : `/spend?range=${r}`}
+                aria-current={r === range ? "page" : undefined}
+                className={`rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                  r === range
+                    ? "bg-[#104751] text-white"
+                    : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+                }`}
+              >
+                {RANGE_LABELS[r]}
+              </Link>
+            ))}
+          </nav>
         </div>
-        <Link href="/" className="btn btn-ghost">
-          ← Companies
-        </Link>
-      </div>
+      </header>
 
-      {/* Range filters live in the URL, so a view can be bookmarked. */}
-      <nav className="mb-6 flex flex-wrap gap-1.5">
-        {RANGES.map((r) => (
-          <Link
-            key={r}
-            href={r === "all" ? "/spend" : `/spend?range=${r}`}
-            aria-current={r === range ? "page" : undefined}
-            className={`rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
-              r === range
-                ? "bg-[#104751] text-white"
-                : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
-            }`}
-          >
-            {RANGE_LABELS[r]}
-          </Link>
-        ))}
-      </nav>
-
-      {anyMissing ? (
-        <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
-          Purchase orders are not set up on this database, so these figures cover vouchers only.
-          Run <code className="font-mono">supabase/migration.sql</code> and reload.
-        </p>
-      ) : null}
-
-      {/* ---- both companies together ------------------------------------- */}
-      <section className="card mb-5 overflow-hidden">
-        <header className="border-b border-ink-line px-5 py-4">
-          <h2 className="text-[16px] font-semibold">Both companies</h2>
-          <p className="mt-0.5 text-[12.5px] text-ink-soft">
-            {RANGE_LABELS[range]}, across {COMPANY_LIST.map((c) => c.name).join(" and ")}.
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+        {anyMissing ? (
+          <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
+            Purchase orders are not set up on this database, so these figures cover vouchers only.
+            Run <code className="font-mono">supabase/migration.sql</code> and reload.
           </p>
-        </header>
+        ) : null}
 
-        <Totals summary={combined} emphasis />
+        {/* ---- both companies together ------------------------------------- */}
+        <section className="card mb-5 overflow-hidden">
+          <header className="border-b border-ink-line px-5 py-4">
+            <h2 className="text-[16px] font-semibold">Both companies</h2>
+            <p className="mt-0.5 text-[12.5px] text-ink-soft">
+              {RANGE_LABELS[range]}, across {COMPANY_LIST.map((c) => c.name).join(" and ")}.
+            </p>
+          </header>
 
-        {/* The breakdown that makes the combined figure checkable. Food has its
-            own line rather than being left out: without it the two company
-            figures no longer add up to Combined, and a total that cannot be
-            checked against its parts is the one thing this page must not be. */}
-        <div className="border-t border-ink-line">
-          <p className="label px-5 pt-4">Split by company</p>
-          <dl className="divide-y divide-ink-line">
-            {perCompany.map(({ company, rows }) => {
-              const s = summarise(rows);
-              return (
-                <div
-                  key={company.slug}
-                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
-                >
+          <Totals summary={combined} emphasis />
+
+          {/* The breakdown that makes the combined figure checkable. Food has its
+              own line rather than being left out: without it the two company
+              figures no longer add up to Combined, and a total that cannot be
+              checked against its parts is the one thing this page must not be. */}
+          <div className="border-t border-ink-line">
+            <p className="label px-5 pt-4">Split by company</p>
+            <dl className="divide-y divide-ink-line">
+              {perCompany.map(({ company, rows }) => {
+                const s = summarise(rows);
+                return (
+                  <div
+                    key={company.slug}
+                    className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
+                  >
+                    <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
+                      <span
+                        aria-hidden
+                        className="block h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ background: company.theme.ui }}
+                      />
+                      {company.name}
+                    </dt>
+                    <dd className="mono text-[13.5px] font-semibold">
+                      {s.byCurrency.length === 0 ? (
+                        <span className="font-normal text-ink-soft">nothing recorded</span>
+                      ) : (
+                        s.byCurrency
+                          .map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
+                          .join("  ·  ")
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
+
+              {/* Not attributed to either workspace — see the note above. */}
+              {foodRows.length > 0 ? (
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3">
                   <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
                     <span
                       aria-hidden
-                      className="block h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ background: company.theme.ui }}
+                      className="block h-2.5 w-2.5 shrink-0 rounded-full bg-[#b8894a]"
                     />
-                    {company.name}
+                    Food &amp; refreshments
+                    <span className="text-[12.5px] font-normal text-ink-soft">
+                      — both companies
+                    </span>
                   </dt>
                   <dd className="mono text-[13.5px] font-semibold">
-                    {s.byCurrency.length === 0 ? (
-                      <span className="font-normal text-ink-soft">nothing recorded</span>
-                    ) : (
-                      s.byCurrency
-                        .map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
-                        .join("  ·  ")
-                    )}
+                    {summarise(foodRows)
+                      .byCurrency.map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
+                      .join("  ·  ")}
                   </dd>
                 </div>
-              );
-            })}
+              ) : null}
+            </dl>
+          </div>
+        </section>
 
-            {/* Not attributed to either workspace — see the note above. */}
-            {foodRows.length > 0 ? (
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3">
-                <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
-                  <span
-                    aria-hidden
-                    className="block h-2.5 w-2.5 shrink-0 rounded-full bg-[#b8894a]"
-                  />
-                  Food &amp; refreshments
-                  <span className="text-[12.5px] font-normal text-ink-soft">
-                    — both companies
-                  </span>
-                </dt>
-                <dd className="mono text-[13.5px] font-semibold">
-                  {summarise(foodRows)
-                    .byCurrency.map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
-                    .join("  ·  ")}
-                </dd>
-              </div>
-            ) : null}
-          </dl>
+        {/* ---- each company on its own -------------------------------------- */}
+        <div className="grid gap-5 sm:grid-cols-2">
+          {perCompany.map(({ company, rows }) => (
+            <CompanyCard key={company.slug} company={company} summary={summarise(rows)} range={range} />
+          ))}
         </div>
-      </section>
 
-      {/* ---- each company on its own -------------------------------------- */}
-      <div className="grid gap-5 sm:grid-cols-2">
-        {perCompany.map(({ company, rows }) => (
-          <CompanyCard key={company.slug} company={company} summary={summarise(rows)} range={range} />
-        ))}
-      </div>
-
-      <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
-        Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
-        nothing has been promised to a vendor yet. Food is counted whether it has been settled or
-        not, and belongs to neither company on its own, so it appears only in the combined figure.
-        Currencies are never added together.
-      </p>
-    </main>
+        <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
+          Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
+          nothing has been promised to a vendor yet. Food is counted whether it has been settled or
+          not, and belongs to neither company on its own, so it appears only in the combined figure.
+          Currencies are never added together.
+        </p>
+      </main>
+    </>
   );
 }
 

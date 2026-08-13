@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { endSession, isAuthenticated } from "@/lib/auth";
+import { isAuthenticated } from "@/lib/auth";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
+import LockButton from "@/components/LockButton";
 import WorkspaceNav from "@/components/WorkspaceNav";
 
 /**
@@ -22,9 +23,7 @@ export default async function CompanyLayout({
   const company = getCompany(slug);
   if (!company) notFound();
 
-  if (!(await isAuthenticated())) {
-    redirect(`/login?next=${encodeURIComponent(`/${slug}/vouchers/new`)}`);
-  }
+  if (!(await isAuthenticated())) redirect("/login");
 
   const db = await store();
   // Both counts in one pass: the nav badges need them on every screen, and two
@@ -39,12 +38,6 @@ export default async function CompanyLayout({
     tryTable(() => db.rfqCounts(company.slug)),
   ]);
 
-  async function signOut() {
-    "use server";
-    await endSession();
-    redirect("/");
-  }
-
   const t = company.theme;
 
   return (
@@ -58,7 +51,9 @@ export default async function CompanyLayout({
       }
       className="min-h-dvh"
     >
-      <header className="border-b border-ink-line bg-white">
+      {/* sticky: the workspace nav and the Lock button stay reachable on a long
+          history or expenditure list, rather than scrolling away with it. */}
+      <header className="sticky top-0 z-10 border-b border-ink-line bg-white">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
           <Link
             href="/"
@@ -75,11 +70,7 @@ export default async function CompanyLayout({
             <div className="text-[11.5px] leading-tight text-ink-soft">Company portal</div>
           </Link>
 
-          <form action={signOut}>
-            <button type="submit" className="btn btn-quiet px-3 py-1.5 text-[13px]">
-              Lock
-            </button>
-          </form>
+          <LockButton />
         </div>
 
         <WorkspaceNav
