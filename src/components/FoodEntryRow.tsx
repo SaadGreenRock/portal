@@ -28,7 +28,7 @@ export default function FoodEntryRow({ entry }: { entry: FoodExpense }) {
     <li className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:px-5">
       <Link
         href={`/food/${entry.id}`}
-        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 rounded-md hover:opacity-80"
+        className="row-link"
       >
         <div className="min-w-[7.5rem]">
           <div className="mono text-[14.5px] font-semibold">{formatDate(entry.date)}</div>

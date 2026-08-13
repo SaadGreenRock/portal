@@ -76,7 +76,7 @@ export default function ConfirmDelete({
   }
 
   return (
-    <div className="flex items-center gap-1.5 rounded-lg bg-red-50 px-2 py-1.5">
+    <div className="pop-in flex items-center gap-1.5 rounded-lg bg-red-50 px-2 py-1.5">
       <span className="whitespace-nowrap text-[12.5px] font-medium text-red-900">
         Delete {subject}?
       </span>

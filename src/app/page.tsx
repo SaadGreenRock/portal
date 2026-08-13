@@ -91,7 +91,7 @@ export default async function Landing() {
               <Link
                 key={company.slug}
                 href={authed ? `/${company.slug}/vouchers/new` : "/login"}
-                className="group card flex flex-col gap-5 p-6 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+                className="card card-link group flex flex-col gap-5 p-6"
                 style={{ borderColor: "#e4e4e4" }}
               >
                 <div
@@ -151,7 +151,7 @@ export default async function Landing() {
           <>
             <Link
               href="/food"
-              className="card mt-4 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+              className="card card-link mt-4 flex items-center gap-4 p-5"
             >
               <Tile background="#f7f1e8" ink="#8a6534">
                 <FoodMark />
@@ -176,7 +176,7 @@ export default async function Landing() {
 
             <Link
               href="/spend"
-              className="card mt-3 flex items-center gap-4 p-5 transition-shadow hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)]"
+              className="card card-link mt-3 flex items-center gap-4 p-5"
             >
               <Tile background="#eef4f4" ink="#104751">
                 <SpendMark />

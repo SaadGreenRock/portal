@@ -31,7 +31,7 @@ export default function RfqRow({
     <li className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:px-5">
       <Link
         href={`/${company}/rfq/${rfq.id}`}
-        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 rounded-md hover:opacity-80"
+        className="row-link"
       >
         <div className="min-w-[11rem]">
           <div className="mono text-[14.5px] font-semibold">{rfq.rfqNo}</div>

@@ -56,6 +56,17 @@
   }
 }
 
+/* Respected everywhere below: anyone who has told their OS they get motion
+   sick or distracted by movement gets the same portal, instantly. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer components {
   .card {
     @apply rounded-xl border border-ink-line bg-white;
@@ -67,14 +78,15 @@
 
   .input {
     @apply w-full rounded-lg border border-ink-line bg-white px-3 py-2.5 text-[15px]
-           text-ink placeholder:text-ink-soft/60
+           text-ink placeholder:text-ink-soft/60 transition-colors
            disabled:cursor-not-allowed disabled:bg-[#f4f4f2] disabled:text-ink-soft;
   }
 
   .btn {
     @apply inline-flex select-none items-center justify-center gap-2 rounded-lg px-4 py-2.5
-           text-[14px] font-semibold transition-colors
-           disabled:cursor-not-allowed disabled:opacity-50;
+           text-[14px] font-semibold transition-[filter,background-color,color,transform]
+           duration-150 ease-out active:scale-[0.97]
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
   }
   .btn-primary {
     background: var(--accent);
@@ -90,9 +102,33 @@
     @apply text-ink-soft hover:bg-[#efefec] hover:text-ink;
   }
 
+  /* Every list row's clickable area shares this, so hovering any list in the
+     portal — vouchers, orders, assets, food, notifications — fades the same
+     way instead of each row having grown its own (missing) transition. */
+  .row-link {
+    @apply flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 rounded-md
+           transition-opacity hover:opacity-80;
+  }
+
+  /* A card that is itself the click target — the company, Food and
+     Expenditure tiles on the landing page. A plain .card is often just a
+     container, so the lift lives here rather than on .card itself, where it
+     would misrepresent a static section as clickable. */
+  .card-link {
+    @apply transition-[transform,box-shadow] duration-200 ease-out active:duration-75;
+  }
+  .card-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  }
+  .card-link:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  }
+
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1
-           text-[11px] font-semibold uppercase tracking-[0.06em];
+           text-[11px] font-semibold uppercase tracking-[0.06em] transition-colors;
   }
   .chip-pending {
     @apply bg-amber-100 text-amber-900;
@@ -111,4 +147,21 @@
 /* The preview iframe scales a full Letter page down to its container. */
 .sheet-scale {
   transform-origin: top left;
+}
+
+/* A brief settle-in for content that replaces something abruptly — right now
+   just ConfirmDelete's confirm bar, so pressing "Delete" doesn't hard-cut to a
+   different control in the same spot. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.pop-in {
+  animation: pop-in 140ms cubic-bezier(0.4, 0, 0.2, 1);
 }

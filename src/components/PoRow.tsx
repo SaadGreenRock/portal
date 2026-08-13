@@ -25,7 +25,7 @@ export default function PoRow({ po, company }: { po: PurchaseOrder; company: str
     <li className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:px-5">
       <Link
         href={`/${company}/po/${po.id}`}
-        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 rounded-md hover:opacity-80"
+        className="row-link"
       >
         <div className="min-w-[10.5rem]">
           <div className="mono text-[14.5px] font-semibold">{po.poNo}</div>

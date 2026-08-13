@@ -200,7 +200,7 @@ export default async function History({
                       outside it, since a button cannot live inside an anchor. */}
                   <Link
                     href={`/${company.slug}/vouchers/${v.id}`}
-                    className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 rounded-md hover:opacity-80"
+                    className="row-link"
                   >
                     <div className="min-w-[9.5rem]">
                       <div className="mono text-[14.5px] font-semibold">{v.voucherNo}</div>

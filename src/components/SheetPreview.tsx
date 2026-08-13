@@ -56,12 +56,17 @@ export default function SheetPreview({
         className="sheet-scale absolute left-0 top-0 border-0"
         style={{ width, height, transform: `scale(${scale})` }}
       />
-      {busy ? (
-        /* Bottom-right: the voucher's own header sits at the top of the sheet. */
-        <div className="pointer-events-none absolute bottom-2.5 right-2.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm">
-          Updating…
-        </div>
-      ) : null}
+      {/* Bottom-right: the voucher's own header sits at the top of the sheet.
+          Always mounted and faded by opacity, rather than added/removed, so
+          each debounced re-render doesn't pop the badge in and out. */}
+      <div
+        aria-hidden={!busy}
+        className={`pointer-events-none absolute bottom-2.5 right-2.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm transition-opacity duration-200 ${
+          busy ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        Updating…
+      </div>
     </div>
   );
 }
@@ -102,11 +107,14 @@ export function SheetStack({
           </div>
         ))}
       </div>
-      {busy ? (
-        <div className="pointer-events-none absolute bottom-2.5 right-3.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm">
-          Updating…
-        </div>
-      ) : null}
+      <div
+        aria-hidden={!busy}
+        className={`pointer-events-none absolute bottom-2.5 right-3.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm transition-opacity duration-200 ${
+          busy ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        Updating…
+      </div>
     </div>
   );
 }
