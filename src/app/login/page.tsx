@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import PasswordField from "@/components/PasswordField";
 import {
   checkPassword,
   isAuthenticated,
@@ -45,14 +46,12 @@ export default async function Login({
           <label className="label mb-1.5" htmlFor="password">
             Password
           </label>
-          <input
+          <PasswordField
             id="password"
             name="password"
-            type="password"
             autoComplete="current-password"
             autoFocus
             required
-            className="input"
           />
         </div>
 
