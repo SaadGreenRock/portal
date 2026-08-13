@@ -121,6 +121,11 @@ export const storageKeys = {
    */
   foodReceipt: (settlementId: string, ext: string) =>
     `food/settlements/${settlementId}/receipt${ext.startsWith(".") ? ext : `.${ext}`}`,
+  /** A notification is composed once and never edited, so both files are
+   *  written exactly once — unlike a purchase order's PDF, there is no
+   *  "current version" to keep this key pointed at. */
+  notificationPng: (company: string, notifNo: string) => `${company}/${notifNo}/notification.png`,
+  notificationPdf: (company: string, notifNo: string) => `${company}/${notifNo}/notification.pdf`,
 };
 
 /**

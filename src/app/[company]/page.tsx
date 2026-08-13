@@ -44,7 +44,7 @@ export default async function WorkspaceOverview({
   if (!company) notFound();
 
   const db = await store();
-  const [counts, pending, poCounts, openPos, rfqCounts, openRfqs, assetCounts] =
+  const [counts, pending, poCounts, openPos, rfqCounts, openRfqs, assetCounts, notificationCounts] =
     await Promise.all([
       db.counts(company.slug),
       db.listPending(company.slug),
@@ -53,6 +53,7 @@ export default async function WorkspaceOverview({
       tryTable(() => db.rfqCounts(company.slug)),
       tryTable(() => db.searchRfqs({ company: company.slug, status: "open", limit: 200 })),
       tryTable(() => db.assetCounts(company.slug)),
+      tryTable(() => db.notificationCounts(company.slug)),
     ]);
 
   /* ---- vouchers ---------------------------------------------------------- */
@@ -176,11 +177,24 @@ export default async function WorkspaceOverview({
     };
   }
 
+  /* ---- notifications ------------------------------------------------------ */
+  // Nothing here is late or waiting — a notification is composed once and
+  // never left pending — so the only thing worth saying is how many exist.
+  let notificationSummary: ModuleSummary | null = null;
+  if (notificationCounts.ok) {
+    const c = notificationCounts.value;
+    notificationSummary = {
+      stats: [{ label: "composed in total", value: String(c.total) }],
+      allClear: c.total === 0 ? "No notifications composed yet." : undefined,
+    };
+  }
+
   const summaries: Partial<Record<ModuleKey, ModuleSummary | null>> = {
     vouchers: voucherSummary,
     po: poSummary,
     rfq: rfqSummary,
     assets: assetSummary,
+    notifications: notificationSummary,
   };
 
   const needsAttention =

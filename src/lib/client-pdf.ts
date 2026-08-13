@@ -116,7 +116,7 @@ export function voucherSvgToPdf(svg: string, title?: string): Promise<RenderResu
  * inlined font data and btoa(String.fromCharCode(...bytes)) would blow the call
  * stack at that size.
  */
-async function loadSvg(svg: string): Promise<HTMLImageElement> {
+export async function loadSvg(svg: string): Promise<HTMLImageElement> {
   const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
 
   const dataUri = await new Promise<string>((resolve, reject) => {
@@ -139,7 +139,7 @@ async function loadSvg(svg: string): Promise<HTMLImageElement> {
   });
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+export function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {

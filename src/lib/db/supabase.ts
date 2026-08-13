@@ -18,6 +18,7 @@ import {
   type FoodQuery,
 } from "../food/types";
 import { todayIso } from "../format";
+import type { Notification, NotificationCounts, NotificationQuery } from "../notifications/types";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
   RFQ_OPEN_STATUSES,
@@ -29,7 +30,7 @@ import {
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewAsset, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
+import type { NewAsset, NewNotification, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
   denormalize,
   denormalizePo,
@@ -40,6 +41,7 @@ import {
   foodNamesFrom,
   formatAssetNo,
   formatFoodNo,
+  formatNotifNo,
   formatPoNo,
   formatRfqNo,
   formatVoucherNo,
@@ -53,6 +55,7 @@ import {
   rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
+  rowToNotification,
   rowToPo,
   rowToRfq,
   rowToVoucher,
@@ -62,6 +65,7 @@ import {
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
+  type NotificationRow,
   type PoRow,
   type RfqRow,
   type VoucherRow,
@@ -131,6 +135,7 @@ const ASSETS = "assets";
 const HOLDINGS = "asset_holdings";
 const FOOD = "food_expenses";
 const SETTINGS = "company_settings";
+const NOTIFICATIONS = "notifications";
 
 /**
  * The one holding on an asset that has not been returned, if any.
@@ -1513,5 +1518,137 @@ export const supabaseStore: Store = {
       );
     if (error) throw error;
     return next;
+  },
+
+  /* ---- notifications ----------------------------------------------------- */
+
+  async createNotification({ company, fields }: NewNotification): Promise<Notification> {
+    const db = supabase();
+    const period = periodOf();
+
+    // The (company, period, seq) unique index does the real work: if two
+    // requests pick the same sequence, one insert fails and we try the next.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { data: highest, error: maxErr } = await db
+        .from(NOTIFICATIONS)
+        .select("seq")
+        .eq("company", company)
+        .eq("period", period)
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+
+      const { data, error } = await db
+        .from(NOTIFICATIONS)
+        .insert({
+          id: newId(),
+          notif_no: formatNotifNo(company, period, seq),
+          company,
+          seq,
+          period,
+          headline: fields.headline,
+          body: fields.body,
+          tag: fields.tag,
+          sender: fields.sender,
+          notify_date: fields.notifyDate || null,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (!error) return rowToNotification(data as NotificationRow);
+      // 23505 = unique_violation → someone took this number; recompute and retry.
+      if (error.code !== "23505" || attempt === 5) throw error;
+    }
+    throw new Error("Could not assign a notification number after several attempts");
+  },
+
+  async getNotification(id) {
+    const { data, error } = await supabase().from(NOTIFICATIONS).select().eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToNotification(data as NotificationRow) : null;
+  },
+
+  async attachNotificationImage(id, pngKey) {
+    const { error } = await supabase()
+      .from(NOTIFICATIONS)
+      .update({ png_key: pngKey, png_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async attachNotificationPdf(id, pdfKey) {
+    const { error } = await supabase()
+      .from(NOTIFICATIONS)
+      .update({ pdf_key: pdfKey, pdf_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async softDeleteNotification(id) {
+    const { error } = await supabase()
+      .from(NOTIFICATIONS)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreNotification(id) {
+    const { error } = await supabase()
+      .from(NOTIFICATIONS)
+      .update({ deleted_at: null })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async searchNotifications(query: NotificationQuery) {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    let q = supabase()
+      .from(NOTIFICATIONS)
+      .select("*", { count: "exact" })
+      .eq("company", query.company);
+
+    // "deleted" is the recycle-bin view; every other view hides deleted rows.
+    if (query.status === "deleted") {
+      q = q.not("deleted_at", "is", null);
+    } else {
+      q = q.is("deleted_at", null);
+    }
+    if (query.tag && query.tag !== "all") q = q.eq("tag", query.tag);
+    if (query.q?.trim()) {
+      const term = query.q.trim().replace(/[%,()]/g, " ");
+      q = q.or(
+        [
+          `notif_no.ilike.%${term}%`,
+          `headline.ilike.%${term}%`,
+          `body.ilike.%${term}%`,
+          `sender.ilike.%${term}%`,
+        ].join(","),
+      );
+    }
+    if (query.from) q = q.gte("created_at", `${query.from}T00:00:00.000Z`);
+    if (query.to) q = q.lte("created_at", `${query.to}T23:59:59.999Z`);
+
+    const { data, error, count } = await q
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return { rows: (data as NotificationRow[]).map(rowToNotification), total: count ?? 0 };
+  },
+
+  async notificationCounts(company: CompanySlug): Promise<NotificationCounts> {
+    const { count, error } = await supabase()
+      .from(NOTIFICATIONS)
+      .select("id", { count: "exact", head: true })
+      .eq("company", company)
+      .is("deleted_at", null);
+    if (error) throw error;
+    return { total: count ?? 0 };
   },
 };

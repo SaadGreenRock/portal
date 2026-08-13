@@ -9,6 +9,7 @@ import {
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
 import { isFoodStatus, isPaymentType, type FoodExpense, type FoodFields } from "../food/types";
+import { isNotificationTag, type Notification } from "../notifications/types";
 import { poTotals } from "../po/totals";
 import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
 import {
@@ -51,6 +52,9 @@ export const formatPoNo = (company: CompanySlug, period: string, seq: number) =>
 
 export const formatRfqNo = (company: CompanySlug, period: string, seq: number) =>
   formatDocNo(company, period, seq, "RFQ");
+
+export const formatNotifNo = (company: CompanySlug, period: string, seq: number) =>
+  formatDocNo(company, period, seq, "NOTE");
 
 /**
  * `GR-A-001` — prefix, the asset marker, and a running sequence.
@@ -667,5 +671,56 @@ export function foodNamesFrom(rows: FoodRow[]): {
     vendors: pick((r) => r.vendor),
     payers: pick((r) => r.paid_by),
     orderedFor: pick((r) => r.ordered_for),
+  };
+}
+
+/* -------------------------------------------------------------------------
+ * Notifications
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * Shape of a notification row as stored, in either backend.
+ *
+ * Every field is a column, like assets and food_expenses — nothing here is
+ * printed except what is also searched or filtered on, so a jsonb doc would
+ * only add indirection.
+ */
+export interface NotificationRow {
+  id: string;
+  notif_no: string;
+  company: string;
+  seq: number;
+  period: string;
+  headline: string;
+  body: string;
+  tag: string;
+  sender: string;
+  notify_date: string | null;
+  created_at: string;
+  png_key: string | null;
+  png_at: string | null;
+  pdf_key: string | null;
+  pdf_at: string | null;
+  deleted_at: string | null;
+}
+
+export function rowToNotification(r: NotificationRow): Notification {
+  return {
+    id: r.id,
+    notifNo: r.notif_no,
+    company: r.company as CompanySlug,
+    seq: r.seq,
+    period: r.period,
+    headline: r.headline ?? "",
+    body: r.body ?? "",
+    tag: isNotificationTag(r.tag) ? r.tag : "notice",
+    sender: r.sender ?? "",
+    notifyDate: r.notify_date ?? "",
+    createdAt: r.created_at,
+    pngKey: r.png_key ?? null,
+    pngAt: r.png_at ?? null,
+    pdfKey: r.pdf_key ?? null,
+    pdfAt: r.pdf_at ?? null,
+    deletedAt: r.deleted_at ?? null,
   };
 }

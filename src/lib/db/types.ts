@@ -13,6 +13,12 @@ import type {
 import type { CompanySlug } from "../companies";
 import type { FoodCounts, FoodExpense, FoodFields, FoodQuery } from "../food/types";
 import type {
+  Notification,
+  NotificationCounts,
+  NotificationFields,
+  NotificationQuery,
+} from "../notifications/types";
+import type {
   PoCounts,
   PoDoc,
   PoQuery,
@@ -371,6 +377,38 @@ export interface SettingsStore {
   saveSettings(company: CompanySlug, patch: Partial<CompanySettings>): Promise<CompanySettings>;
 }
 
+export interface NewNotification {
+  company: CompanySlug;
+  fields: NotificationFields;
+}
+
+export interface NotificationStore {
+  /**
+   * Reserves the next notification number for a company in the current month
+   * and writes the record in one shot. Safe against concurrent calls, like
+   * every other module's numbering.
+   */
+  createNotification(input: NewNotification): Promise<Notification>;
+
+  getNotification(id: string): Promise<Notification | null>;
+
+  /** Records the rendered PNG and stamps pngAt. */
+  attachNotificationImage(id: string, pngKey: string): Promise<void>;
+
+  /** Records the rendered PDF and stamps pdfAt. */
+  attachNotificationPdf(id: string, pdfKey: string): Promise<void>;
+
+  /** Same reasoning as every other module: the row stays, so its number stays
+   *  spent, and a mistaken compose can be undone. */
+  softDeleteNotification(id: string): Promise<void>;
+  restoreNotification(id: string): Promise<void>;
+
+  /** Filtered history, newest first, plus a total count for paging. */
+  searchNotifications(query: NotificationQuery): Promise<{ rows: Notification[]; total: number }>;
+
+  notificationCounts(company: CompanySlug): Promise<NotificationCounts>;
+}
+
 export interface Store
   extends VoucherStore,
     PoStore,
@@ -378,4 +416,5 @@ export interface Store
     AssetStore,
     FoodStore,
     SpendStore,
-    SettingsStore {}
+    SettingsStore,
+    NotificationStore {}

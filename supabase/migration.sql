@@ -337,6 +337,47 @@ create index if not exists food_status_type_idx
   on public.food_expenses (status, payment_type);
 
 -- ---------------------------------------------------------------------------
+-- Notifications
+-- ---------------------------------------------------------------------------
+-- Branded announcement cards -- a headline and a short message, rendered as a
+-- PNG for WhatsApp and a PDF for email. Every field is a column, like assets
+-- and food_expenses: nothing here is printed except what is also searched or
+-- filtered on, so a jsonb doc would only add indirection.
+--
+-- No status, no lifecycle: a notification is composed once and never edited,
+-- so this table carries none of the draft/issued/closed machinery the three
+-- document tables above have.
+create table if not exists public.notifications (
+  id           uuid primary key,
+  notif_no     text        not null unique,
+  company      text        not null,
+  seq          integer     not null,
+  period       text        not null,           -- yyyymm, e.g. 202608
+  headline     text        not null default '',
+  body         text        not null default '',
+  tag          text        not null default 'notice'
+                           check (tag in ('notice', 'announcement', 'action-required', 'urgent')),
+  sender       text        not null default '',
+  notify_date  date,
+  created_at   timestamptz not null default now(),
+  png_key      text,
+  png_at       timestamptz,
+  pdf_key      text,
+  pdf_at       timestamptz,
+  -- Same reasoning as every other module: the row stays, so its number stays
+  -- spent, and a mistaken compose can be undone.
+  deleted_at   timestamptz,
+  constraint notifications_company_period_seq_key unique (company, period, seq)
+);
+
+create index if not exists notifications_company_created_idx
+  on public.notifications (company, created_at desc);
+
+-- Backs the free-text search in History.
+create index if not exists notifications_search_idx
+  on public.notifications (company, headline, sender);
+
+-- ---------------------------------------------------------------------------
 -- Per-company settings
 -- ---------------------------------------------------------------------------
 -- One JSON document per company. A new module adds a section to the document
@@ -355,6 +396,7 @@ alter table public.assets                 enable row level security;
 alter table public.asset_holdings         enable row level security;
 alter table public.food_expenses          enable row level security;
 alter table public.company_settings       enable row level security;
+alter table public.notifications          enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 

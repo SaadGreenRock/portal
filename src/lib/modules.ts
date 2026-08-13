@@ -12,7 +12,7 @@ import type { Company } from "./companies";
  * database import (it is used by client components).
  */
 
-export type ModuleKey = "vouchers" | "po" | "rfq" | "assets";
+export type ModuleKey = "vouchers" | "po" | "rfq" | "assets" | "notifications";
 
 export interface ModuleTab {
   /** Appended to the module's base path. "" is the module's own index. */
@@ -85,6 +85,19 @@ export const MODULES: PortalModule[] = [
     tabs: [
       { segment: "", label: "Register" },
       { segment: "new", label: "Log an asset" },
+      { segment: "history", label: "History" },
+    ],
+  },
+  {
+    key: "notifications",
+    segment: "notifications",
+    label: "Notifications",
+    blurb: "Branded announcement cards — a PNG for WhatsApp and a PDF for email — with a log of everything sent.",
+    home: "new",
+    // No badge: a notification is composed once and never left pending, so
+    // there is nothing here for a count to be waiting on.
+    tabs: [
+      { segment: "new", label: "Compose" },
       { segment: "history", label: "History" },
     ],
   },

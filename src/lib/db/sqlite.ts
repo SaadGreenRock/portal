@@ -19,6 +19,7 @@ import {
   type FoodFields,
   type FoodQuery,
 } from "../food/types";
+import type { Notification, NotificationCounts, NotificationQuery } from "../notifications/types";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
   RFQ_OPEN_STATUSES,
@@ -31,7 +32,7 @@ import { todayIso } from "../format";
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewAsset, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
+import type { NewAsset, NewNotification, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
   denormalize,
   denormalizePo,
@@ -42,6 +43,7 @@ import {
   foodNamesFrom,
   formatAssetNo,
   formatFoodNo,
+  formatNotifNo,
   formatPoNo,
   formatRfqNo,
   formatVoucherNo,
@@ -54,6 +56,7 @@ import {
   rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
+  rowToNotification,
   rowToPo,
   rowToRfq,
   statusChangesDocument,
@@ -63,6 +66,7 @@ import {
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
+  type NotificationRow,
   type PoRow,
   type RfqRow,
   type VoucherRow,
@@ -313,6 +317,33 @@ function connect(): Database.Database {
     -- The index on receipt_key is created in migrate(), not here: this block
     -- runs first, and on a database that predates the column an index over it
     -- would fail with "no such column" before the migration could add it.
+
+    -- Branded announcement cards. Every field is a column, like assets and
+    -- food_expenses: nothing here is printed except what is also searched or
+    -- filtered on, so a jsonb doc would only add indirection. No status, no
+    -- lifecycle: a notification is composed once and never edited.
+    CREATE TABLE IF NOT EXISTS notifications (
+      id            TEXT PRIMARY KEY,
+      notif_no      TEXT NOT NULL UNIQUE,
+      company       TEXT NOT NULL,
+      seq           INTEGER NOT NULL,
+      period        TEXT NOT NULL,
+      headline      TEXT NOT NULL DEFAULT '',
+      body          TEXT NOT NULL DEFAULT '',
+      tag           TEXT NOT NULL DEFAULT 'notice',
+      sender        TEXT NOT NULL DEFAULT '',
+      notify_date   TEXT,
+      created_at    TEXT NOT NULL,
+      png_key       TEXT,
+      png_at        TEXT,
+      pdf_key       TEXT,
+      pdf_at        TEXT,
+      deleted_at    TEXT,
+      UNIQUE (company, period, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS notifications_company_created
+      ON notifications (company, created_at DESC);
 
     -- One JSON document of settings per company, so a new module can add a
     -- section without a schema change.
@@ -1884,5 +1915,143 @@ export const sqliteStore: Store = {
       )
       .run(company, JSON.stringify(next), new Date().toISOString());
     return next;
+  },
+
+  /* ---- notifications ----------------------------------------------------- */
+
+  async createNotification({ company, fields }: NewNotification): Promise<Notification> {
+    const handle = connect();
+    const period = periodOf();
+    const now = new Date().toISOString();
+
+    const insert = handle.prepare(`
+      INSERT INTO notifications (
+        id, notif_no, company, seq, period, headline, body, tag, sender,
+        notify_date, created_at
+      ) VALUES (
+        @id, @notif_no, @company, @seq, @period, @headline, @body, @tag, @sender,
+        @notify_date, @created_at
+      )
+    `);
+
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM notifications WHERE company = ? AND period = ?`,
+    );
+
+    // The UNIQUE(company, period, seq) constraint is the real guard; the retry
+    // loop just picks up the next free number if we lost a race.
+    const claim = handle.transaction((): NotificationRow => {
+      const { seq } = nextSeq.get(company, period) as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        notif_no: formatNotifNo(company, period, seq),
+        company,
+        seq,
+        period,
+        headline: fields.headline,
+        body: fields.body,
+        tag: fields.tag,
+        sender: fields.sender,
+        notify_date: fields.notifyDate || null,
+        created_at: now,
+      });
+      return handle.prepare(`SELECT * FROM notifications WHERE id = ?`).get(id) as NotificationRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToNotification(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a notification number after several attempts");
+  },
+
+  async getNotification(id) {
+    const row = connect().prepare(`SELECT * FROM notifications WHERE id = ?`).get(id) as
+      | NotificationRow
+      | undefined;
+    return row ? rowToNotification(row) : null;
+  },
+
+  async attachNotificationImage(id, pngKey) {
+    connect()
+      .prepare(`UPDATE notifications SET png_key = ?, png_at = ? WHERE id = ?`)
+      .run(pngKey, new Date().toISOString(), id);
+  },
+
+  async attachNotificationPdf(id, pdfKey) {
+    connect()
+      .prepare(`UPDATE notifications SET pdf_key = ?, pdf_at = ? WHERE id = ?`)
+      .run(pdfKey, new Date().toISOString(), id);
+  },
+
+  async softDeleteNotification(id) {
+    connect()
+      .prepare(`UPDATE notifications SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async restoreNotification(id) {
+    connect().prepare(`UPDATE notifications SET deleted_at = NULL WHERE id = ?`).run(id);
+  },
+
+  async searchNotifications(query: NotificationQuery) {
+    const handle = connect();
+    const where: string[] = ["company = @company"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    // "deleted" is the recycle-bin view; every other view hides deleted rows.
+    if (query.status === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+    }
+    if (query.tag && query.tag !== "all") {
+      where.push("tag = @tag");
+      params.tag = query.tag;
+    }
+    if (query.q?.trim()) {
+      where.push(`(
+        notif_no LIKE @q COLLATE NOCASE OR
+        headline LIKE @q COLLATE NOCASE OR
+        body     LIKE @q COLLATE NOCASE OR
+        sender   LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+    if (query.from) {
+      where.push("date(created_at) >= date(@from)");
+      params.from = query.from;
+    }
+    if (query.to) {
+      where.push("date(created_at) <= date(@to)");
+      params.to = query.to;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM notifications WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    const rows = handle
+      .prepare(
+        `SELECT * FROM notifications WHERE ${clause}
+          ORDER BY created_at DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as NotificationRow[];
+
+    return { rows: rows.map(rowToNotification), total };
+  },
+
+  async notificationCounts(company: CompanySlug): Promise<NotificationCounts> {
+    const { total } = connect()
+      .prepare(`SELECT COUNT(*) AS total FROM notifications WHERE company = ? AND deleted_at IS NULL`)
+      .get(company) as { total: number };
+    return { total };
   },
 };
