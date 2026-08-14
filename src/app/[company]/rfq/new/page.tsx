@@ -4,15 +4,13 @@ import RfqEditor from "@/components/RfqEditor";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
-import { todayIso } from "@/lib/format";
+import { addDays, todayIso } from "@/lib/format";
 import { createRfq } from "@/lib/rfq/actions";
 import { emptyRfqDoc } from "@/lib/rfq/types";
 
 /** today + n days, as yyyy-mm-dd. */
 function inDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return todayIso(d);
+  return addDays(todayIso(), days);
 }
 
 export default async function NewRequestForQuotation({

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { portalPeriod } from "../clock";
 import {
   isCondition,
   type AllotFields,
@@ -22,9 +23,17 @@ import type { Voucher, VoucherFields, VoucherStatus } from "../types";
 
 export const newId = () => randomUUID();
 
-/** yyyymm for the given instant, in the server's local time. */
-export function periodOf(d: Date = new Date()): string {
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+/**
+ * `202608` — the year and month a document created now belongs to.
+ *
+ * The single most consequential date question in the portal: this figure goes
+ * inside the document number, and a number is never reissued. Answered at the
+ * desk's calendar rather than the host's, which is the whole subject of
+ * `clock.ts` — a server five hours behind would file everything created before
+ * dawn on the 1st under the month just gone, for good.
+ */
+export function periodOf(at: Date = new Date()): string {
+  return portalPeriod(at);
 }
 
 /**

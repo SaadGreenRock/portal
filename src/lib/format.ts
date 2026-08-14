@@ -1,10 +1,20 @@
 /**
- * Date formatting shared by the printed documents and the screens.
+ * Dates shared by the printed documents and the screens: turning them into words,
+ * and the few sums that get asked about them.
  *
- * Everything here works in the server's local time, never UTC. Document numbers
- * take their month from the local date, so a UTC date would show 31 July beside
- * a number reading 202608 for anything created in the evening east of Greenwich.
+ * Wherever something here needs to know what *today* is, it asks `clock.ts` and
+ * does not work it out from a `Date`. Read with the ordinary getters, a `Date`
+ * answers in the timezone of whichever machine is running — the desk's own here,
+ * UTC on a serverless host — and the whole point is that a document is dated the
+ * same wherever the portal happens to be deployed. See `clock.ts` for why that
+ * matters enough to be centralised.
+ *
+ * Everything below takes and returns yyyy-mm-dd strings rather than `Date`
+ * objects, so a date that has been settled cannot pick a timezone back up on its
+ * way through.
  */
+
+import { portalToday, wallClock } from "@/lib/clock";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -57,19 +67,47 @@ export function formatMonth(iso: string | null | undefined): string {
   return `${MONTHS[m - 1]} ${y}`;
 }
 
-/** Today in the server's local timezone, as yyyy-mm-dd. */
+/**
+ * Today at the desk, as yyyy-mm-dd — what a new document is dated, and what
+ * "today" means on every screen that says it.
+ *
+ * Kept as the name the rest of the portal calls; the zone it answers in is
+ * `clock.ts`'s to decide. Pass an instant to ask which date the desk would have
+ * called *that* moment.
+ */
 export function todayIso(at: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return portalToday(at);
 }
 
-/** "31 July 2026, 15:42" — for the audit trail on a record's own page. */
+/**
+ * "31 July 2026, 15:42" — for the audit trail on a record's own page.
+ *
+ * Stored timestamps are instants, in UTC. Read back at the desk's wall clock, so
+ * a record created at half past three in the afternoon says half past three
+ * however far from the desk the server is.
+ */
 export function stamp(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
+  const { date, time } = wallClock(d);
+  return `${formatDate(date)}, ${time}`;
+}
+
+/**
+ * A yyyy-mm-dd date, moved by a number of days. "Today plus a week" is a
+ * quotation's reply deadline, and the only way to get one is to count days.
+ *
+ * Counted in UTC on purpose: this is arithmetic on a date *label*, not on a
+ * moment, and doing it in a zone with daylight saving is how "plus seven days"
+ * occasionally lands on the same date or skips one.
+ */
+export function addDays(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const moved = new Date(Date.UTC(y, m - 1, d + days));
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${formatDate(todayIso(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}`;
 }
 
 /** "3 days" — how long something has been sitting. */
@@ -100,8 +138,8 @@ export function spanInDays(from: string | null | undefined, to: string | null | 
   const start = parseIso(from);
   if (start == null) return "";
 
-  const now = new Date();
-  const end = to ? parseIso(to) : new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  // An open span runs to today at the desk, not to today wherever the server is.
+  const end = parseIso(to || todayIso());
   if (end == null || end < start) return "";
 
   const days = Math.round((end - start) / 86_400_000);
@@ -123,8 +161,9 @@ export function dueIn(iso: string | null | undefined): { days: number; label: st
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return null;
   const target = new Date(y, m - 1, d).getTime();
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  // Overdue against the desk's calendar. A server five hours behind would call an
+  // order due today "due tomorrow" for the first five hours of every day.
+  const today = parseIso(todayIso())!;
   const days = Math.round((target - today) / 86_400_000);
 
   if (days === 0) return { days, label: "due today" };

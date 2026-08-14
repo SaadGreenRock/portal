@@ -499,24 +499,42 @@ can't collide.
 
 ### Where "today" comes from
 
-The `202608` inside a number is the month of the **server's local time**
-(`periodOf` in `src/lib/db/shared.ts`), and so is the date the new-voucher form
-arrives pre-filled with. Not UTC, deliberately: a UTC date would print 31 July
-beside a number reading `202608` for anything created in the evening east of
-Greenwich.
+One line, in `src/lib/clock.ts`:
 
-Which makes the server's timezone load-bearing, and **nothing in this repo sets
-it**. Run locally, "the server" is the machine on the desk, so its clock is the
-operator's clock and the two agree. Deployed to Vercel, a function runs in **UTC**
-unless told otherwise — five hours behind Karachi — so a voucher created between
-midnight and 5am carries the previous day, and one created in those hours on the
-1st of a month carries the previous *month* in its number, permanently.
+```ts
+export const PORTAL_TIMEZONE = "Asia/Karachi";
+```
 
-If the portal is deployed, set `TZ` to the timezone the desk is actually in
-(`TZ=Asia/Karachi`) as a project environment variable. The clock on the company
-picker is the same clock, which is the useful part: if the deployed portal shows a
-time nobody recognises, that is visible on the way in rather than discovered later
-in a number that cannot be changed.
+Every "what day is it" in the portal is answered from there — the `202608` inside
+a new number, the date a new-document form arrives pre-filled with, what "this
+month" means on the expenditure report, whether an order counts as overdue today,
+and the clock on the company picker. Nothing asks the machine it is running on.
+
+That is not tidiness, it is the difference between a correct number and a wrong
+one. Read with `Date`'s ordinary getters, "what month is it" is answered in the
+timezone of whatever host happens to be executing — the desk's own zone locally,
+and **UTC** on a serverless platform, five hours behind. A voucher created at 2am
+on the 1st would have been handed the previous month's number, and one created at
+half past midnight on 1 January the previous *year's*, permanently, because numbers
+are never reissued. Nothing on screen would have said so.
+
+It is a constant rather than an environment variable on purpose: a number can
+outlive a deployment, so there must be no way for a host to be missing this or to
+disagree about it. If the desk moves, that line moves with it — a change that goes
+through review, not a variable somebody has to remember to set again.
+
+The conversion goes through `Intl`, which owns the real rules for a zone including
+the daylight-saving ones, rather than arithmetic on a stored UTC offset — an offset
+is only right until the day the zone changes it.
+
+`TZ` in the environment is no longer part of this. It is still set in `.env`, so a
+host's own logs and shell read in the same zone as the portal, but no date the
+portal writes depends on it any more.
+
+Stored timestamps are a separate matter and were always fine: those are instants,
+written with `toISOString()` in UTC. `stamp()` reads them back at the desk's wall
+clock, so a record created at half past three says half past three no matter where
+the server is.
 
 ## Deleting
 
@@ -585,6 +603,13 @@ are rendered in the operator's browser. See [PDF rendering](#pdf-rendering).
 5. Set `BACKEND=supabase` and restart.
 
 Nothing else changes — the same code runs against either backend.
+
+**No timezone to configure.** The zone the portal dates documents in is stated in
+the code, so a deployment cannot get it wrong by omission — see
+[Where "today" comes from](#where-today-comes-from). Setting `TZ=Asia/Karachi` as a
+project variable is still worth doing so the host's own logs read in the same zone,
+but nothing the portal writes depends on it. You can confirm the deployment agrees
+by reading the clock on the company picker.
 
 **Keep the secret key secret.** It bypasses RLS. It is only ever read in server
 code and is never sent to the browser, so keep it out of any `NEXT_PUBLIC_*`
@@ -752,6 +777,11 @@ recognisably the same colour, light enough to read as a button fill against
 precedent — its night accent is the acid yellow that is its daytime *text*
 colour, with the black moving to the label.
 
+A company in a different country would also need `PORTAL_TIMEZONE` thinking about
+— it is one zone for the whole portal, on the assumption that one desk files for
+both companies. Two desks in two zones would mean moving that constant onto the
+company, and `periodOf` taking a slug.
+
 The purchase order masthead sizes the logo by height, so any aspect ratio fits.
 The voucher reproduces each company's approved DOCX layout, so for a new
 company's voucher template, provide an **editable source** (DOCX or the original
@@ -813,6 +843,7 @@ src/
     modules.ts       which modules a workspace has, and their tabs
     settings.ts      per-company editable defaults, and their validation
     money.ts         currencies, formatting, and amounts written out in words
+    clock.ts         the zone the portal keeps time in — the only place today is decided
     format.ts        dates, timestamps, "3 days overdue"
     doc-assets.ts    bundled fonts and logos, and the SVG page wrapper
     template.ts      the voucher — HTML/CSS, plus its SVG

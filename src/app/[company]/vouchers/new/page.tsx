@@ -3,13 +3,7 @@ import GenerateForm from "@/components/GenerateForm";
 import { createVoucher } from "@/lib/actions";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
-
-/** Today in the server's local timezone, as yyyy-mm-dd. */
-function todayIso(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+import { todayIso } from "@/lib/format";
 
 export default async function NewVoucher({
   params,

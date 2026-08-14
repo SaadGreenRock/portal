@@ -89,7 +89,7 @@ export default async function Landing() {
             </p>
           </div>
 
-          <PortalClock iso={now.toISOString()} offsetMinutes={now.getTimezoneOffset()} />
+          <PortalClock iso={now.toISOString()} />
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2">

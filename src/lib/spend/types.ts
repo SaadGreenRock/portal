@@ -1,3 +1,4 @@
+import { portalToday } from "../clock";
 import type { CompanySlug } from "../companies";
 
 /**
@@ -84,11 +85,17 @@ export interface SpendSummary {
   };
 }
 
-/** Inclusive date bounds for a range, or null for no bound. */
+/**
+ * Inclusive date bounds for a range, or null for no bound.
+ *
+ * "This month" and "this year" are the desk's month and year — see `clock.ts`.
+ * Taken from the host's calendar instead, a report run in the small hours of the
+ * 1st would open on the month just gone and quietly leave today's entries out.
+ */
 export function rangeBounds(range: SpendRange, now = new Date()): { from: string | null } {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  if (range === "month") return { from: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01` };
-  if (range === "year") return { from: `${now.getFullYear()}-01-01` };
+  const today = portalToday(now);
+  if (range === "month") return { from: `${today.slice(0, 7)}-01` };
+  if (range === "year") return { from: `${today.slice(0, 4)}-01-01` };
   return { from: null };
 }
 

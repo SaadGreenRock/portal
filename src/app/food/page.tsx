@@ -3,6 +3,7 @@ import FoodEntryRow from "@/components/FoodEntryRow";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
+import { periodOf } from "@/lib/db/shared";
 import type { FoodQuery } from "@/lib/food/types";
 import { formatMoney } from "@/lib/money";
 
@@ -175,10 +176,7 @@ export default async function FoodLog({ searchParams }: { searchParams: Promise<
               ? "Deleted entries would appear here, with their numbers still spent."
               : filtered
                 ? "Try a different search, or show everything."
-                : "The first entry gets the number F-" +
-                  new Date().getFullYear() +
-                  String(new Date().getMonth() + 1).padStart(2, "0") +
-                  "-001."}
+                : `The first entry gets the number F-${periodOf()}-001.`}
           </p>
           {view === "deleted" || filtered ? null : (
             <Link href="/food/new" className="btn btn-primary mt-5">
