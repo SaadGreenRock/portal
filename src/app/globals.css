@@ -165,3 +165,21 @@
 .pop-in {
   animation: pop-in 140ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* A calm, continuous breathing pulse for the lock glyph on the login screen —
+   the one thing worth animating on an otherwise static form, so the screen
+   doesn't sit completely still while the operator reaches for the password.
+   prefers-reduced-motion above already collapses this to a single still frame. */
+@keyframes lock-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+.lock-breathe {
+  animation: lock-breathe 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}

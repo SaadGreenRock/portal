@@ -19,6 +19,19 @@ export function formatDate(iso: string | null | undefined): string {
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
+/**
+ * "2026-08" → "August 2026" — the title over a calendar page.
+ *
+ * Takes a full yyyy-mm-dd just as happily, so a caller with a date in hand does
+ * not have to slice it first.
+ */
+export function formatMonth(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const [y, m] = iso.split("-").map(Number);
+  if (!y || !m || m < 1 || m > 12) return iso;
+  return `${MONTHS[m - 1]} ${y}`;
+}
+
 /** Today in the server's local timezone, as yyyy-mm-dd. */
 export function todayIso(at: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");

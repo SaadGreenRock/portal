@@ -1,10 +1,11 @@
 import Link from "next/link";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
+import PendingCalendar from "@/components/PendingCalendar";
 import SettleForm from "@/components/SettleForm";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { groupByDate, groupByPayee, summariseFood } from "@/lib/food/types";
-import { formatDate, todayIso } from "@/lib/format";
+import { todayIso } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 
 /**
@@ -17,9 +18,12 @@ import { formatMoney } from "@/lib/money";
  * why the reimbursements panel comes first even though it is usually the smaller
  * number.
  *
- * The by-date list underneath is the same set of entries counted a second way.
- * It answers "how far back does this go", which the payee grouping cannot: a
- * café owed for one order last week and eleven this month reads as one debt.
+ * The calendar underneath is the same set of entries counted a second way. It
+ * answers "how far back does this go", which the payee grouping cannot: a café
+ * owed for one order last week and eleven this month reads as one debt. A month
+ * grid rather than a list of dates, because the answer is usually a pattern —
+ * every Tuesday, or the fortnight nobody was in the office to sign a cheque —
+ * and a pattern is a shape, not a column of figures to read down.
  */
 export default async function Outstanding({
   searchParams,
@@ -121,24 +125,10 @@ export default async function Outstanding({
           <section>
             <h3 className="mb-1 text-[16px] font-semibold">Pending by date</h3>
             <p className="mb-3 text-[13px] text-ink-soft">
-              The same entries grouped by the day they were ordered, oldest first.
+              The same entries written onto the day they were ordered, oldest month first. Amounts
+              are in ₨; a blank day has nothing owed. Tap a day to open the log filtered to it.
             </p>
-            <ul className="card divide-y divide-ink-line">
-              {byDate.map((day) => (
-                <li
-                  key={day.date}
-                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-2.5"
-                >
-                  <span className="mono text-[13.5px]">{formatDate(day.date)}</span>
-                  <span className="text-[12.5px] text-ink-soft">
-                    {day.count} {day.count === 1 ? "order" : "orders"}
-                  </span>
-                  <span className="mono w-24 shrink-0 text-right text-[13.5px] font-semibold">
-                    ₨ {formatMoney(day.amount)}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <PendingCalendar days={byDate} today={today} currency="₨" />
           </section>
         </>
       )}

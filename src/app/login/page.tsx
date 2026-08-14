@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import LockMark from "@/components/LockMark";
 import PasswordField from "@/components/PasswordField";
 import {
   checkPassword,
@@ -38,6 +39,17 @@ export default async function Login({
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-5 py-16">
+      {/* The one thing that moves on this screen — a slow, calm breathing
+          pulse, so waiting to type the password isn't spent looking at
+          something completely still. */}
+      <div
+        aria-hidden="true"
+        className="lock-breathe mb-5 flex h-14 w-14 items-center justify-center rounded-full"
+        style={{ background: "var(--accent-wash)", color: "var(--accent)" }}
+      >
+        <LockMark className="h-6 w-6" />
+      </div>
+
       <h1 className="text-[22px] font-bold tracking-tight">Company Portal</h1>
       <p className="mt-1.5 text-[14px] text-ink-soft">Enter the portal password to continue.</p>
 
