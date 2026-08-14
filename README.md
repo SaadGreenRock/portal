@@ -83,6 +83,23 @@ Two things sit **outside** any workspace, on the right of the first row and on
 the company picker: **Food**, whose entries belong to neither company, and
 **Expenditure**, whose point is the combined figure.
 
+Left of the clock is the **weather**, and it is off until you ask for it. The
+portal cannot know where a laptop is and does not guess: press the pin once, the
+browser asks whether to share the location, and from then on the header carries
+the temperature and a glyph for the sky. The answer is remembered in that browser,
+so it is asked once rather than daily; pressing it again re-asks, which is also how
+you correct it — a laptop without GPS is placed by Wi-Fi and is usually right to
+the city and occasionally somewhere else entirely. Declining costs nothing, and it
+shows nothing rather than an error. Hidden on a phone, where the header has no room
+to spare and the phone knows the weather anyway.
+
+The coordinates are rounded to about a kilometre before they are stored or sent,
+they never leave the browser except as those rounded numbers on the way to a
+temperature, and nothing about them is written to the database. Conditions come
+from [Open-Meteo](https://open-meteo.com) — no key, no signup — through the
+portal's own `/api/weather`, cached fifteen minutes, so the page still only ever
+talks to this origin. **Note its free tier is licensed for non-commercial use.**
+
 Beside the padlock in the top corner is the **theme control**, which steps
 through three states: a monitor for *match this device*, a sun for light, a moon
 for dark. It starts on the monitor, so a laptop set to dark opens the portal
@@ -876,6 +893,7 @@ src/
     settings.ts      per-company editable defaults, and their validation
     money.ts         currencies, formatting, and amounts written out in words
     clock.ts         the zone the portal keeps time in — the only place today is decided
+    weather.ts       WMO codes → the seven conditions the header draws
     format.ts        dates, timestamps, "3 days overdue"
     doc-assets.ts    bundled fonts and logos, and the SVG page wrapper
     template.ts      the voucher — HTML/CSS, plus its SVG

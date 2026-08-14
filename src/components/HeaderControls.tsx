@@ -1,6 +1,7 @@
 import LockButton from "@/components/LockButton";
 import PortalClock from "@/components/PortalClock";
 import ThemeToggle from "@/components/ThemeToggle";
+import Weather from "@/components/Weather";
 
 /**
  * The right-hand end of every header in the portal: what time it is, the theme,
@@ -21,6 +22,12 @@ import ThemeToggle from "@/components/ThemeToggle";
 export default function HeaderControls() {
   return (
     <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+      {/* Left of the clock, and hidden below `sm`. The workspace header is
+          already at its limit on a phone — 88px for a company name that needs
+          88px — so there is nothing to give, and a phone knows the weather
+          without being told. It also arrives at the *left* of this group, so
+          nothing already on screen moves when it appears. */}
+      <Weather />
       <PortalClock iso={new Date().toISOString()} />
       <ThemeToggle />
       <LockButton />
