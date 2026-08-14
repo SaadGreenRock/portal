@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import LockButton from "@/components/LockButton";
-import PortalClock from "@/components/PortalClock";
-import ThemeToggle from "@/components/ThemeToggle";
+import HeaderControls from "@/components/HeaderControls";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -24,7 +22,6 @@ export default async function Landing() {
   if (!(await isAuthenticated())) redirect("/login");
 
   const db = await store();
-  const now = new Date();
 
   // Outstanding work is the one thing worth surfacing before you pick: which
   // workspace has vouchers waiting on a signed scan, and which has orders still
@@ -65,31 +62,21 @@ export default async function Landing() {
 
   return (
     <>
-      {/* This is the screen unlocking always lands on, so Lock lives here too
-          — the same button, in the same corner, wherever it was pressed from.
-          The theme control sits beside it here as everywhere else; before
-          unlocking it is on the lock screen instead, which is now the first
-          thing anyone sees. */}
-      <div className="sticky top-0 z-10 flex justify-end gap-1 border-b border-ink-line bg-card px-5 py-2.5">
-        <ThemeToggle />
-        <LockButton />
+      {/* This is the screen unlocking always lands on, so the header furniture
+          lives here too — the clock, the theme and Lock, in the same corner and
+          in the same order as on every other screen. */}
+      <div className="sticky top-0 z-10 flex justify-end border-b border-ink-line bg-card px-5 py-2">
+        <HeaderControls />
       </div>
 
       <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
-        {/* The clock sits opposite the title rather than under it: the heading
-            says where you are, and this says when, and neither is a footnote to
-            the other. It wraps underneath on a phone. */}
-        <header className="mb-10 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-          <div>
-            <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
-              Company Portal
-            </h1>
-            <p className="mt-2 text-[15px] text-ink-soft">
-              Choose a company to open its workspace.
-            </p>
-          </div>
-
-          <PortalClock iso={now.toISOString()} />
+        <header className="mb-10">
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
+            Company Portal
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-soft">
+            Choose a company to open its workspace.
+          </p>
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2">

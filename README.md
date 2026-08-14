@@ -51,11 +51,18 @@ the other way round on the first screen, which meant picking a company, being
 asked for the password, arriving back at the picker and picking the same company
 again.
 
-The picker carries the date, the day and the time, opposite the title. That is
-there because nearly everything in the portal is dated: a new voucher arrives with
-today already in the date field, and the number it is about to be given has
-today's month inside it. The clock shown is the one the portal dates documents by
-— see [the note on where "today" comes from](#where-today-comes-from).
+Every header carries the **time and the date**, next to the theme control and
+Lock. In the header because that is the part of the screen that does not scroll
+away, and on every screen rather than only the one you arrive at — a clock is
+worth having when you look up, not when you happen to be on the right page.
+
+It is there because nearly everything in the portal is dated: a new voucher
+arrives with today already in the date field, and the number it is about to be
+given has today's month inside it. The clock shown is the one the portal dates
+documents by — see [Where "today" comes from](#where-today-comes-from) — so if a
+deployment's timezone is wrong, it says so up there rather than in a number
+nobody can change afterwards. On a narrow screen the weekday and the year drop
+off; the day and month, which are what a document carries, stay at every width.
 
 Opening a company lands on its **Overview**: what needs attention today, and the
 way into each module. It is not a menu — the module switcher is on every screen

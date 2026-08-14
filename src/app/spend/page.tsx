@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import LockButton from "@/components/LockButton";
-import ThemeToggle from "@/components/ThemeToggle";
+import HeaderControls from "@/components/HeaderControls";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST, type Company } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -86,12 +85,11 @@ export default async function Expenditure({
                 the food log.
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2">
               <Link href="/" className="btn btn-ghost">
                 ← Companies
               </Link>
-              <ThemeToggle />
-              <LockButton />
+              <HeaderControls />
             </div>
           </div>
 

@@ -32,26 +32,41 @@ export const DAY_NAMES = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ];
 
+/**
+ * "2026-07-31" → "31 July" — the date without its year.
+ *
+ * For a header narrow enough that something has to go, where the year is the
+ * least worth keeping: it is the one part of today's date nobody has to be told.
+ */
+export function formatDayMonth(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${d} ${MONTHS[m - 1]}`;
+}
+
 /** "2026-07-31" → "31 July 2026", matching how the documents are dated by hand. */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+  return `${formatDayMonth(iso)} ${y}`;
 }
 
 /**
- * "2026-08-14" → "Friday, 14 August 2026" — the day named, then the date.
+ * "2026-08-14" → "Friday". Kept apart from `formatDate` rather than folded into
+ * one string, because in a header the weekday is the first thing to give up when
+ * the screen gets narrow and the date is not.
  *
  * Built from the date's own numbers at local midnight, the same way `parseIso`
  * below does, so the weekday belongs to the date as written rather than to
- * whichever side of midnight UTC the reader happens to be on.
+ * whichever side of midnight the reader happens to be on.
  */
-export function formatDayDate(iso: string | null | undefined): string {
+export function dayName(iso: string | null | undefined): string {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return formatDate(iso);
-  return `${DAY_NAMES[new Date(y, m - 1, d).getDay()]}, ${formatDate(iso)}`;
+  if (!y || !m || !d) return "";
+  return DAY_NAMES[new Date(y, m - 1, d).getDay()];
 }
 
 /**

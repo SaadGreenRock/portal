@@ -4,8 +4,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
-import LockButton from "@/components/LockButton";
-import ThemeToggle from "@/components/ThemeToggle";
+import HeaderControls from "@/components/HeaderControls";
 import WorkspaceNav from "@/components/WorkspaceNav";
 
 /**
@@ -90,8 +89,7 @@ export default async function CompanyLayout({
             <div className="text-[11.5px] leading-tight text-ink-soft">Company portal</div>
           </Link>
 
-          <ThemeToggle />
-          <LockButton />
+          <HeaderControls />
         </div>
 
         <WorkspaceNav

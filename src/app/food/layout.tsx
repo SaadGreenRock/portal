@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import FoodNav from "@/components/FoodNav";
-import LockButton from "@/components/LockButton";
-import ThemeToggle from "@/components/ThemeToggle";
+import HeaderControls from "@/components/HeaderControls";
 import { isAuthenticated } from "@/lib/auth";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
@@ -52,15 +51,14 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
                 Lunches, snacks and drinks. Both companies, one log.
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2">
               <Link href="/food/new" className="btn btn-primary">
                 New entry
               </Link>
               <Link href="/" className="btn btn-ghost">
                 ← Companies
               </Link>
-              <ThemeToggle />
-              <LockButton />
+              <HeaderControls />
             </div>
           </div>
 
