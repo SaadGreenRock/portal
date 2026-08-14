@@ -67,7 +67,7 @@ export default function AssetRow({ asset, company }: { asset: Asset; company: st
           </>
         ) : (
           <>
-            <span className={`chip ${free ? "bg-[#ececeb] text-ink" : "chip-pending"}`}>
+            <span className={`chip ${free ? "chip-neutral" : "chip-pending"}`}>
               {free ? "In stock" : "Out"}
             </span>
             <ConfirmDelete action={drop} subject={asset.assetNo} compact />

@@ -76,7 +76,7 @@ export default async function NotificationDetail({
             {n.deletedAt ? (
               <span className="chip bg-red-100 text-red-900">Deleted</span>
             ) : (
-              <span className="chip bg-[#ececeb] text-ink">{TAG_LABELS[n.tag]}</span>
+              <span className="chip chip-neutral">{TAG_LABELS[n.tag]}</span>
             )}
           </div>
           <p className="mt-1.5 text-[13.5px] text-ink-soft">

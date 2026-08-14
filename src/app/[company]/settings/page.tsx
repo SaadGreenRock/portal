@@ -333,7 +333,7 @@ export default async function Settings({
               or renumbered. Each sequence restarts at 001 on the 1st of each month, and is
               counted separately per company and per document type.
             </p>
-            <div className="mono mt-3.5 space-y-1.5 rounded-lg bg-[#f7f7f5] px-3.5 py-3 text-[14px]">
+            <div className="mono mt-3.5 space-y-1.5 rounded-lg bg-page px-3.5 py-3 text-[14px]">
               <div>{company.prefix}-{period}-001</div>
               <div>{company.prefix}-PO-{period}-001</div>
               <div>{company.prefix}-RFQ-{period}-001</div>

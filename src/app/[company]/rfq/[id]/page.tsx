@@ -96,7 +96,7 @@ export default async function RequestForQuotationDetail({
             {due && due.days < 0 ? (
               <span className="chip bg-red-100 text-red-900">replies {due.label}</span>
             ) : due ? (
-              <span className="chip bg-[#ececeb] text-ink">replies {due.label}</span>
+              <span className="chip chip-neutral">replies {due.label}</span>
             ) : null}
           </div>
           <p className="mt-1.5 text-[13.5px] text-ink-soft">
@@ -261,7 +261,7 @@ export default async function RequestForQuotationDetail({
 }
 
 const STATUS_CLASS: Record<string, string> = {
-  draft: "bg-[#ececeb] text-ink",
+  draft: "chip-neutral",
   sent: "chip-pending",
   closed: "chip-completed",
   cancelled: "bg-red-100 text-red-900",

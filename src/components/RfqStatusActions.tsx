@@ -67,7 +67,7 @@ export default function RfqStatusActions({
               autoFocus
               disabled={pending}
               onClick={() => go(step.to)}
-              className="btn bg-red-700 px-3 py-1.5 text-[12.5px] text-white hover:bg-red-800"
+              className="btn btn-danger px-3 py-1.5 text-[12.5px]"
             >
               Yes, cancel
             </button>

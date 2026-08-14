@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,12 +12,42 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   // The scan-and-upload step happens on a phone; let it use the whole screen.
-  themeColor: "#104751",
+  //
+  // themeColor is deliberately absent, and so is any theme-color tag in the JSX
+  // below. The colour of the phone's own chrome bar has to be decided from the
+  // stored choice, which only the script knows — and any tag React renders,
+  // whether from a metadata export or written by hand, is React's to reconcile:
+  // it puts the rendered value back on hydration and again on every client
+  // navigation, undoing the correction. So the tag is created and owned by the
+  // script instead, and React never learns about it.
+  //
+  // The cost is that a browser with JavaScript switched off gets no chrome
+  // colour rather than the teal it used to get. That browser cannot run this
+  // portal at all, so it is the cheapest thing here to give up.
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the script below writes `class` and
+    // `data-theme` onto this element before React ever sees it, which is the
+    // whole point of it running here. Without this, React would report the
+    // attributes it did not render as a mismatch and undo them.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          Blocking, first thing, and inline.
+
+          The stored theme lives in the browser, so the server cannot render it
+          — every screen arrives light and is corrected once JavaScript runs.
+          Corrected *after* first paint, that correction is a white flash in a
+          dark room, on every navigation. So this one small script runs before
+          the browser paints anything, and the page is only ever drawn once.
+
+          Inline rather than a file for the same reason: a separate request is a
+          separate chance to be late.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

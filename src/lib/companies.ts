@@ -33,6 +33,20 @@ export interface CompanyTheme {
   uiText: string;
   /** Very light wash of `ui` for web UI surfaces. */
   uiWash: string;
+  /**
+   * The same three, for the dark theme.
+   *
+   * Not derived, because neither brand survives being darkened or lightened by
+   * a formula. Green Rock's teal and Sportech's near-black are both chosen to
+   * be the darkest thing on a white page; on a near-black one the first goes
+   * muddy and the second disappears outright. So each company says, in its own
+   * terms, what it looks like at night — and for Sportech that is its acid
+   * yellow doing the job its black does by day, which is the relationship the
+   * light theme already has, read the other way round.
+   */
+  uiDark: string;
+  uiTextDark: string;
+  uiWashDark: string;
 }
 
 export interface Company {
@@ -100,6 +114,11 @@ export const COMPANIES: Record<CompanySlug, Company> = {
       ui: "#104751",
       uiText: "#ffffff",
       uiWash: "#f2f8f4",
+      // The teal lifted until it reads as teal against a near-black page —
+      // roughly where the mint in the printed footer already sits.
+      uiDark: "#4fb3a1",
+      uiTextDark: "#06251f",
+      uiWashDark: "#132a25",
     },
     defaultSignatories: [],
   },
@@ -129,6 +148,11 @@ export const COMPANIES: Record<CompanySlug, Company> = {
       ui: "#1a1a1a",
       uiText: "#ecf800",
       uiWash: "#fafaf0",
+      // The pair swapped rather than adjusted: by day the yellow is the writing
+      // on the black, by night the black is the writing on the yellow.
+      uiDark: "#ecf800",
+      uiTextDark: "#1a1a1a",
+      uiWashDark: "#242507",
     },
     defaultSignatories: [],
   },

@@ -91,11 +91,18 @@ export default function ScanPreview({
           data={src}
           type="application/pdf"
           aria-label={alt}
+          // White in both themes, because what fills it is a scanned page. The
+          // border stays the portal's, which is what frames a white document
+          // against a dark screen.
           className="w-full rounded-lg border border-ink-line bg-white"
           style={{ height: maxHeight }}
         >
-          {/* Shown by browsers that decline to render a PDF inline. */}
-          <div className="grid h-full place-items-center px-6 py-14 text-center">
+          {/* Shown by browsers that decline to render a PDF inline.
+
+              on-paper because it is standing on that white: without it the type
+              here keeps the interface's pale greys, which on a white sheet is
+              nothing at all. */}
+          <div className="on-paper grid h-full place-items-center px-6 py-14 text-center text-ink">
             <div>
               <p className="text-[15px] font-medium">Preview unavailable here</p>
               <p className="mx-auto mt-1.5 max-w-xs text-[13.5px] leading-relaxed text-ink-soft">
@@ -106,6 +113,9 @@ export default function ScanPreview({
           </div>
         </object>
       ) : (
+        // bg-white in both themes: a scan photographed against a white wall and
+        // a scan with a transparent margin both want paper behind them, not the
+        // interface.
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={src}

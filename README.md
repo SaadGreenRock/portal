@@ -63,6 +63,20 @@ Two things sit **outside** any workspace, on the right of the first row and on
 the company picker: **Food**, whose entries belong to neither company, and
 **Expenditure**, whose point is the combined figure.
 
+Beside the padlock in the top corner is the **theme control**, which steps
+through three states: a monitor for *match this device*, a sun for light, a moon
+for dark. It starts on the monitor, so a laptop set to dark opens the portal
+dark, and it follows that machine live — including when the machine turns dark at
+sunset with the tab already open. The other two override it for this browser
+only, and the choice survives locking the portal. It is on the lock screen too:
+whoever is looking at the screen should be able to settle this without getting
+past the password first.
+
+Printed things stay printed. A voucher, an order and a scanned receipt are white
+sheets with black ink on them, and they look the same in either theme — nobody is
+printing these on black paper, so a preview that went dark would be a preview of
+something that does not exist.
+
 ---
 
 ## Vouchers
@@ -638,12 +652,71 @@ nothing thinner than about 5% of the height survives. The Apple icon is the same
 artwork with square corners, because iOS applies its own rounded mask and a
 rounded tile inside that gives you corners inside corners.
 
+## Colour, and the two themes
+
+Every colour in the interface is a CSS variable declared twice in
+`src/app/globals.css` — once under `:root`, once under `html.dark` — and
+`tailwind.config.ts` maps a Tailwind name onto each one. So `bg-card`,
+`text-ink-soft` and `border-ink-line` are already right in both themes wherever
+they are written, and **no screen carries a `dark:` variant of its own**. Adding
+one would be the beginning of the drift this arrangement exists to prevent: two
+places deciding what a card looks like.
+
+| Name | What it is |
+| --- | --- |
+| `page` | the background behind everything |
+| `card` | a surface raised off it |
+| `wash-soft` / `wash` / `wash-strong` | a panel set into a card, a filled quiet block, a hover |
+| `ink` / `ink-soft` | type, and secondary type |
+| `ink-line` / `ink-rule` | a hairline, and a rule meant to be seen |
+| `amber-*` / `red-*` / `emerald-*` | pending, trouble, done — on Tailwind's own scale names |
+
+The status scales are **mirrored** rather than replaced: in the dark theme the
+low steps become tinted darks and the high steps tinted lights, which is what
+lets every existing `bg-amber-100 text-amber-900` pair keep working with its
+contrast the right way up. Only the steps in use are redefined, so reaching for a
+new one means adding both halves to `globals.css` first — otherwise it silently
+keeps its light value in the dark theme.
+
+Four things do not come from that scale, and each has a reason:
+
+- **`.accent-scope`** resolves a company's accent. The workspace shell hands down
+  both of its accents and CSS picks one, because a server component cannot know
+  which theme is in force — the choice is settled in the browser before paint.
+- **`.swatch` / `.swatch-top`** do the same for a colour that comes from data
+  rather than from the scale: a brand on a legend dot, the stripe along a
+  company's card. Set `--swatch` and `--swatch-dark` on the element.
+- **`.on-paper`** pins the whole scale back to its light values, for anything
+  drawn on a document preview. That is why the "Updating…" badge on a voucher
+  preview is grey on white in both themes rather than pale grey on white.
+- **`.badge-on-accent`** mixes its fill from the accent's own text colour, so a
+  count on a pill darkens a light accent and lightens a dark one without being
+  told which it has.
+
+The theme itself lives in `src/lib/theme.ts` and one control,
+`src/components/ThemeToggle.tsx`. The choice is in `localStorage`, applied by a
+small inline script in the document head — **before first paint**, which is the
+whole point: corrected any later and every navigation would flash light. That
+script is a longhand copy of `applyTheme` on purpose, because it has to run
+before any bundle has loaded. `color-scheme` is set alongside the class, which is
+what makes the date pickers, select menus and scrollbars go dark too.
+
 ## Adding a third company
 
 Add one entry to `COMPANIES` in `src/lib/companies.ts` — name, prefix, logo
 path, brand colours and the acknowledgment wording — and drop the logo into
 `public/logos`. Numbering, history, pending list, settings and both document
 templates all follow from it; no other file needs to change.
+
+The theme block wants **six** web colours, not three: `ui` / `uiText` / `uiWash`
+for the light theme and `uiDark` / `uiTextDark` / `uiWashDark` for the dark one.
+Both are asked for because neither existing brand survives being shifted by a
+formula — a brand colour chosen to be the darkest thing on white paper is either
+muddy or invisible on a near-black page. Pick the dark trio by eye: something
+recognisably the same colour, light enough to read as a button fill against
+`--card`, with `uiTextDark` dark enough to read *on* it. Sportech is the useful
+precedent — its night accent is the acid yellow that is its daytime *text*
+colour, with the black moving to the label.
 
 The purchase order masthead sizes the logo by height, so any aspect ratio fits.
 The voucher reproduces each company's approved DOCX layout, so for a new
@@ -680,7 +753,10 @@ records belong to neither workspace differs in five ways:
    `src/components/WorkspaceNav.tsx` instead.
 2. **Its own `layout.tsx`** does the `isAuthenticated()` guard once and supplies
    the header and tabs, because there is no `WorkspaceNav` outside `/[company]`.
-   It also pins `--accent` itself — there is no company theme to inherit.
+   It does **not** set `--accent`: outside a workspace there is no company theme
+   to inherit, and the portal's own accent is already stated in `globals.css` for
+   both themes. Restating it in a layout restates only the light half and pins
+   the section to it.
 3. **No `CompanySlug` in the store interface**, no company column on the table.
    Leaving one in is how a shared record ends up arbitrarily assigned to one
    workspace.
@@ -728,6 +804,7 @@ src/
     amount-words.ts  the voucher's PKR wording, on top of money.ts
     actions.ts       voucher server actions
     auth.ts          the password gate
+    theme.ts         the light/dark choice, and the script that applies it
     uploads.ts       the one whitelist and size limit for scanned uploads
     storage.ts       file storage — local disk or Supabase Storage
     db/

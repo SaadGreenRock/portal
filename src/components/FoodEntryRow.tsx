@@ -75,7 +75,7 @@ export default function FoodEntryRow({ entry }: { entry: FoodExpense }) {
             {!pending && entry.receiptKey ? (
               <span
                 title={`Receipt on file: ${entry.receiptName ?? "attached"}`}
-                className="chip bg-[#ececeb] text-ink"
+                className="chip chip-neutral"
               >
                 Receipt
               </span>

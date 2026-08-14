@@ -76,7 +76,7 @@ export default async function History({
     <>
       {/* Shown straight after a delete, so the record isn't just gone silently. */}
       {sp.deleted ? (
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-line bg-white p-4">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-line bg-card p-4">
           <p className="text-[13.5px]">
             <span className="mono font-semibold">{sp.deleted}</span> was deleted. Its number
             stays spent and will not be reissued.
@@ -291,7 +291,7 @@ function Dot({ on }: { on: boolean }) {
   return (
     <span
       aria-hidden
-      className={`block h-2 w-2 rounded-full ${on ? "bg-[var(--accent)]" : "bg-[#dcdcd8]"}`}
+      className={`block h-2 w-2 rounded-full ${on ? "bg-[var(--accent)]" : "bg-ink-rule"}`}
     />
   );
 }

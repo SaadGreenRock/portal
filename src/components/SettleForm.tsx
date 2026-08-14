@@ -57,7 +57,7 @@ export default function SettleForm({
         <ul className="divide-y divide-ink-line">
           {group.entries.map((entry) => (
             <li key={entry.id}>
-              <label className="flex cursor-pointer items-center gap-3 px-5 py-2.5 hover:bg-[#fafaf8]">
+              <label className="flex cursor-pointer items-center gap-3 px-5 py-2.5 hover:bg-wash-soft">
                 <input
                   type="checkbox"
                   name="id"
@@ -82,7 +82,7 @@ export default function SettleForm({
           ))}
         </ul>
 
-        <div className="border-t border-ink-line bg-[#fbfbfa] px-5 py-4">
+        <div className="border-t border-ink-line bg-wash-soft px-5 py-4">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-[9rem]">
               <label className="label mb-1.5" htmlFor={`paidAt-${slug}`}>

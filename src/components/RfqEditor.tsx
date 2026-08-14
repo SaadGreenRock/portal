@@ -554,7 +554,7 @@ function RowButton({
       className={`grid h-6 w-6 place-items-center rounded text-[12px] leading-none transition-colors disabled:opacity-25 ${
         danger
           ? "text-ink-soft hover:bg-red-50 hover:text-red-700"
-          : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+          : "text-ink-soft hover:bg-wash-strong hover:text-ink"
       }`}
     >
       {children}

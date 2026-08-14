@@ -113,7 +113,7 @@ export default function ReceiptField({
           const file = e.target.files?.[0];
           if (file) void chosen(file);
         }}
-        className="block w-full text-[13px] text-ink-soft file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-ink-line file:bg-white file:px-3 file:py-2 file:text-[13px] file:font-semibold file:text-ink hover:file:bg-[#f4f4f2]"
+        className="block w-full text-[13px] text-ink-soft file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-ink-line file:bg-card file:px-3 file:py-2 file:text-[13px] file:font-semibold file:text-ink hover:file:bg-wash"
       />
       {error ? (
         <p role="alert" className="mt-1.5 text-[12.5px] font-medium leading-snug text-red-700">

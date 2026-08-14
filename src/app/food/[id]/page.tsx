@@ -92,7 +92,7 @@ export default async function FoodRecord({
   return (
     <>
       {banner ? (
-        <div className="mb-5 rounded-xl border border-ink-line bg-white p-4">
+        <div className="mb-5 rounded-xl border border-ink-line bg-card p-4">
           <p className="text-[13.5px]">{banner}</p>
         </div>
       ) : null}
@@ -169,7 +169,7 @@ export default async function FoodRecord({
           ) : null}
         </dl>
 
-        <p className="border-t border-ink-line bg-[#fbfbfa] px-5 py-3 text-[12.5px] text-ink-soft">
+        <p className="border-t border-ink-line bg-wash-soft px-5 py-3 text-[12.5px] text-ink-soft">
           Logged {stamp(entry.createdAt)}
           {entry.updatedAt !== entry.createdAt ? ` · last changed ${stamp(entry.updatedAt)}` : ""}
           {entry.deletedAt ? ` · deleted ${stamp(entry.deletedAt)}` : ""}
@@ -270,7 +270,7 @@ export default async function FoodRecord({
                 entries carry no documents at all, and a receipt photographed
                 badly the first time should be replaceable without unsettling
                 the payment. */}
-            <form action={file} className="border-t border-ink-line bg-[#fbfbfa] px-5 py-4">
+            <form action={file} className="border-t border-ink-line bg-wash-soft px-5 py-4">
               <div className="flex flex-wrap items-start gap-3">
                 <ReceiptField
                   id="attach"

@@ -115,7 +115,7 @@ export default async function PurchaseOrderDetail({
             {due && due.days < 0 ? (
               <span className="chip bg-red-100 text-red-900">{due.label}</span>
             ) : due ? (
-              <span className="chip bg-[#ececeb] text-ink">{due.label}</span>
+              <span className="chip chip-neutral">{due.label}</span>
             ) : null}
           </div>
           <p className="mt-1.5 text-[13.5px] text-ink-soft">
@@ -241,7 +241,7 @@ export default async function PurchaseOrderDetail({
               </div>
             )}
 
-            <div className="border-t border-ink-line bg-[#fbfbfa] px-5 py-4">
+            <div className="border-t border-ink-line bg-wash-soft px-5 py-4">
               <div className="ml-auto max-w-xs space-y-1">
                 <Money label="Subtotal" value={formatMoneyFixed(totals.subtotal, code)} />
                 {totals.discount > 0 ? (
@@ -368,7 +368,7 @@ export default async function PurchaseOrderDetail({
 }
 
 const STATUS_CLASS: Record<string, string> = {
-  draft: "bg-[#ececeb] text-ink",
+  draft: "chip-neutral",
   issued: "chip-pending",
   closed: "chip-completed",
   cancelled: "bg-red-100 text-red-900",

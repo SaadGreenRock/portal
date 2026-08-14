@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LockButton from "@/components/LockButton";
+import ThemeToggle from "@/components/ThemeToggle";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -67,12 +68,15 @@ export default async function Landing() {
   return (
     <>
       {/* This is the screen unlocking always lands on, so Lock lives here too
-          — the same button, in the same corner, wherever it was pressed from. */}
-      {authed ? (
-        <div className="sticky top-0 z-10 flex justify-end border-b border-ink-line bg-white px-5 py-2.5">
-          <LockButton />
-        </div>
-      ) : null}
+          — the same button, in the same corner, wherever it was pressed from.
+          The bar itself is not conditional, because the theme control belongs to
+          whoever is looking at the screen rather than to whoever is signed in:
+          somebody who keeps their machine dark should not have to unlock the
+          portal first to stop it glaring at them. */}
+      <div className="sticky top-0 z-10 flex justify-end gap-1 border-b border-ink-line bg-card px-5 py-2.5">
+        <ThemeToggle />
+        {authed ? <LockButton /> : null}
+      </div>
 
       <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
         <header className="mb-10">
@@ -96,11 +100,22 @@ export default async function Landing() {
                 // before being handed something to type into.
                 href={authed ? `/${company.slug}` : "/login"}
                 className="card card-link group flex flex-col gap-5 p-6"
-                style={{ borderColor: "#e4e4e4" }}
               >
+                {/* Neither logo is dark — Green Rock's is white, Sportech's is
+                    that acid yellow — so the panel behind them is what makes
+                    them legible at all. Green Rock states its own teal; Sportech
+                    has none to state and takes the theme's quiet fill, pale by
+                    day as it has always been and dark at night, where yellow is
+                    finally the right way round. */}
                 <div
-                  className="flex h-20 items-center justify-center rounded-lg px-5"
-                  style={{ background: company.theme.headerBar ?? "#f4f4f2" }}
+                  className={`flex h-20 items-center justify-center rounded-lg px-5 ${
+                    company.theme.headerBar ? "" : "bg-wash"
+                  }`}
+                  style={
+                    company.theme.headerBar
+                      ? { background: company.theme.headerBar }
+                      : undefined
+                  }
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -157,7 +172,10 @@ export default async function Landing() {
               href="/food"
               className="card card-link mt-4 flex items-center gap-4 p-5"
             >
-              <Tile background="#f7f1e8" ink="#8a6534">
+              <Tile
+                day={{ wash: "#f7f1e8", ink: "#8a6534" }}
+                night={{ wash: "#2a2015", ink: "#d9a76a" }}
+              >
                 <FoodMark />
               </Tile>
               <div className="min-w-0 flex-1">
@@ -182,7 +200,10 @@ export default async function Landing() {
               href="/spend"
               className="card card-link mt-3 flex items-center gap-4 p-5"
             >
-              <Tile background="#eef4f4" ink="#104751">
+              <Tile
+                day={{ wash: "#eef4f4", ink: "#104751" }}
+                night={{ wash: "#152625", ink: "#4fb3a1" }}
+              >
                 <SpendMark />
               </Tile>
               <div className="min-w-0 flex-1">
@@ -234,21 +255,33 @@ export default async function Landing() {
  * The wash is pale enough that the mark stays the darkest thing in it, and each
  * tile borrows the colour its own section already uses elsewhere: the warm brown
  * of the food dot on the expenditure report, and the portal's teal.
+ *
+ * Both a day pair and a night pair, because the relationship reverses: by day
+ * the tile is a pale wash with the mark as the darkest thing on it, by night it
+ * is a deep one with the mark as the lightest. Inverting a hue by formula gets
+ * the arithmetic right and the colour wrong, so each is named.
  */
 function Tile({
-  background,
-  ink,
+  day,
+  night,
   children,
 }: {
-  background: string;
-  ink: string;
+  day: { wash: string; ink: string };
+  night: { wash: string; ink: string };
   children: React.ReactNode;
 }) {
   return (
     <span
       aria-hidden
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
-      style={{ background, color: ink }}
+      className="swatch flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+      style={
+        {
+          "--swatch": day.wash,
+          "--swatch-ink": day.ink,
+          "--swatch-dark": night.wash,
+          "--swatch-ink-dark": night.ink,
+        } as React.CSSProperties
+      }
     >
       {children}
     </span>

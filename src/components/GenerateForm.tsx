@@ -247,7 +247,7 @@ export default function GenerateForm({ company, today, signatories, action }: Pr
                   ))}
                 </select>
               ) : (
-                <div className="rounded-lg bg-[#f7f7f5] px-3.5 py-3 text-[13px] text-ink-soft">
+                <div className="rounded-lg bg-page px-3.5 py-3 text-[13px] text-ink-soft">
                   No saved signatories yet. Add one in{" "}
                   <a href={`/${company}/settings`} className="font-medium text-ink underline">
                     Settings
@@ -328,7 +328,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`px-5 py-4 transition-colors ${on ? "" : "bg-[#fbfbfa]"}`}>
+    <div className={`px-5 py-4 transition-colors ${on ? "" : "bg-wash-soft"}`}>
       <div className="flex items-start gap-3">
         <Toggle id={`toggle-${k}`} checked={on} onChange={(v) => setOn(k, v)} label={label} />
         <div className="min-w-0 flex-1">

@@ -41,6 +41,10 @@ export default function SheetPreview({
   return (
     <div
       ref={holder}
+      // bg-white, not bg-card: this is the sheet showing through, and a sheet is
+      // white in both themes — nobody is printing the voucher on black paper.
+      // The border stays the portal's, which is what frames the page against a
+      // dark screen.
       className="relative w-full overflow-hidden rounded-lg border border-ink-line bg-white"
       style={{ height: height * scale }}
     >
@@ -58,10 +62,15 @@ export default function SheetPreview({
       />
       {/* Bottom-right: the voucher's own header sits at the top of the sheet.
           Always mounted and faded by opacity, rather than added/removed, so
-          each debounced re-render doesn't pop the badge in and out. */}
+          each debounced re-render doesn't pop the badge in and out.
+
+          on-paper because this sits on the sheet rather than on the portal: the
+          page underneath is white in both themes, so the badge's grey has to be
+          the paper's grey and not the interface's, which in the dark theme is a
+          pale one and would be invisible here. */}
       <div
         aria-hidden={!busy}
-        className={`pointer-events-none absolute bottom-2.5 right-2.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm transition-opacity duration-200 ${
+        className={`on-paper pointer-events-none absolute bottom-2.5 right-2.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm transition-opacity duration-200 ${
           busy ? "opacity-100" : "opacity-0"
         }`}
       >
@@ -87,7 +96,9 @@ export function SheetStack({
 }) {
   if (pages.length === 0) {
     return (
-      <div className="grid h-64 w-full place-items-center rounded-lg border border-ink-line bg-white text-[13px] text-ink-soft">
+      // Not paper: there is no sheet yet. Until one arrives this is a piece of
+      // the portal saying so, and it takes the portal's colours.
+      <div className="grid h-64 w-full place-items-center rounded-lg border border-ink-line bg-card text-[13px] text-ink-soft">
         Preparing preview…
       </div>
     );
@@ -109,7 +120,7 @@ export function SheetStack({
       </div>
       <div
         aria-hidden={!busy}
-        className={`pointer-events-none absolute bottom-2.5 right-3.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm transition-opacity duration-200 ${
+        className={`on-paper pointer-events-none absolute bottom-2.5 right-3.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm transition-opacity duration-200 ${
           busy ? "opacity-100" : "opacity-0"
         }`}
       >

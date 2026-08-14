@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import LockButton from "@/components/LockButton";
+import ThemeToggle from "@/components/ThemeToggle";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST, type Company } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -75,7 +76,7 @@ export default async function Expenditure({
     <>
       {/* sticky: Lock and the range filters stay reachable while scrolling
           a long report, rather than scrolling away with it. */}
-      <header className="sticky top-0 z-10 border-b border-ink-line bg-white">
+      <header className="sticky top-0 z-10 border-b border-ink-line bg-card">
         <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -89,6 +90,7 @@ export default async function Expenditure({
               <Link href="/" className="btn btn-ghost">
                 ← Companies
               </Link>
+              <ThemeToggle />
               <LockButton />
             </div>
           </div>
@@ -100,10 +102,13 @@ export default async function Expenditure({
                 key={r}
                 href={r === "all" ? "/spend" : `/spend?range=${r}`}
                 aria-current={r === range ? "page" : undefined}
+                // The portal's accent rather than its hex, which is the same
+                // teal by day and the lifted one at night — and the same pill
+                // the workspace nav draws for the tab you are on.
                 className={`rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
                   r === range
-                    ? "bg-[#104751] text-white"
-                    : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+                    ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                    : "text-ink-soft hover:bg-wash-strong hover:text-ink"
                 }`}
               >
                 {RANGE_LABELS[r]}
@@ -147,10 +152,19 @@ export default async function Expenditure({
                     className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
                   >
                     <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
+                      {/* The company's own brand, which is chosen to be the
+                          darkest thing on white and therefore has to be given
+                          its night value too — Sportech's near-black legend dot
+                          would otherwise be a legend dot nobody can see. */}
                       <span
                         aria-hidden
-                        className="block h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: company.theme.ui }}
+                        className="swatch block h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={
+                          {
+                            "--swatch": company.theme.ui,
+                            "--swatch-dark": company.theme.uiDark,
+                          } as React.CSSProperties
+                        }
                       />
                       {company.name}
                     </dt>
@@ -171,9 +185,14 @@ export default async function Expenditure({
               {foodRows.length > 0 ? (
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3">
                   <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
+                    {/* The same warm brown the food tile on the landing page
+                        uses, and the same brown lifted for the dark theme. */}
                     <span
                       aria-hidden
-                      className="block h-2.5 w-2.5 shrink-0 rounded-full bg-[#b8894a]"
+                      className="swatch block h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={
+                        { "--swatch": "#b8894a", "--swatch-dark": "#d9a76a" } as React.CSSProperties
+                      }
                     />
                     Food &amp; refreshments
                     <span className="text-[12.5px] font-normal text-ink-soft">
@@ -220,9 +239,17 @@ function CompanyCard({
 }) {
   return (
     <section className="card overflow-hidden">
+      {/* The brand stripe needs its night value like the legend dots do — left
+          at the day one, Green Rock's teal goes muddy against the card and
+          Sportech's near-black stripe is no stripe at all. */}
       <header
-        className="flex items-center gap-3 border-b border-ink-line px-5 py-4"
-        style={{ borderTop: `3px solid ${company.theme.ui}` }}
+        className="swatch-top flex items-center gap-3 border-b border-t-[3px] border-ink-line px-5 py-4"
+        style={
+          {
+            "--swatch": company.theme.ui,
+            "--swatch-dark": company.theme.uiDark,
+          } as React.CSSProperties
+        }
       >
         <div className="min-w-0 flex-1">
           <h2 className="text-[16px] font-semibold">{company.name}</h2>
@@ -302,7 +329,7 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
       {counts.vouchersWithoutAmount > 0 ||
       counts.ordersCancelled > 0 ||
       counts.foodPending > 0 ? (
-        <div className="border-t border-ink-line bg-[#fbfbfa] px-5 py-3">
+        <div className="border-t border-ink-line bg-wash-soft px-5 py-3">
           {counts.vouchersWithoutAmount > 0 ? (
             <p className="text-[12.5px] leading-snug text-amber-800">
               <strong className="font-semibold">

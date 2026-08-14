@@ -48,7 +48,7 @@ export default async function Outstanding({
   return (
     <>
       {sp.settled !== undefined ? (
-        <div className="mb-5 rounded-xl border border-ink-line bg-white p-4">
+        <div className="mb-5 rounded-xl border border-ink-line bg-card p-4">
           <p className="text-[13.5px]">
             {settledCount > 0
               ? `${settledCount} ${settledCount === 1 ? "entry" : "entries"} marked paid.`

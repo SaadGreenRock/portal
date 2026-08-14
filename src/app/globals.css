@@ -28,11 +28,155 @@
   font-display: swap;
 }
 
+/* ==========================================================================
+   Colour lives here, and only here.
+
+   Every surface, rule and figure in the portal resolves to one of the
+   variables below, and each one is written twice: once light, once dark. That
+   is the whole mechanism — no screen decides its own colours, so no screen can
+   be the one that forgot the dark half.
+
+   Channel triples rather than hex, because Tailwind composes them back into
+   `rgb(… / <alpha-value>)`. That keeps the opacity modifiers working, so
+   `text-ink-soft/70` still means what it says in both themes.
+
+   The neutrals are deliberately not grey. The light ramp is very faintly warm
+   (red = green, blue a shade behind), which is what stops white paper on screen
+   reading as blue-white; the dark ramp keeps the same tilt at the other end so
+   the two themes feel like one portal at two times of day, rather than two
+   portals.
+   ========================================================================== */
+
 :root {
-  /* Overridden per workspace by the company shell. */
+  /* Tells the browser to draw scrollbars, date pickers and select menus to
+     match. Without it those stay stubbornly light against a dark page — and a
+     white calendar popover on a dark form is the single most obvious way a
+     dark theme announces it was bolted on. */
+  color-scheme: light;
+
+  /* Surfaces, from the page backing up to the raised card. */
+  --page: 247 247 245;
+  --card: 255 255 255;
+  /* A panel set into a card — a total, a footer strip, a settled row. */
+  --wash-soft: 251 251 250;
+  /* A filled quiet block: a disabled input, an inline code span. */
+  --wash: 244 244 242;
+  /* Hover fill for anything that isn't a card — quiet buttons, nav pills. */
+  --wash-strong: 239 239 236;
+
+  /* Type and rules. */
+  --ink: 26 26 26;
+  --ink-soft: 107 107 107;
+  --ink-line: 228 228 228;
+  /* A rule that has to be seen rather than merely felt: a switch track, an
+     off-state dot. */
+  --ink-rule: 220 220 216;
+
+  /* Status colour, kept on Tailwind's own scale names so `bg-amber-100
+     text-amber-900` goes on meaning "pending" everywhere it already does.
+     Only the steps this portal actually uses are listed; reach for another and
+     it will hold its light value in both themes until it is added here too. */
+  --amber-50: 255 251 235;
+  --amber-100: 254 243 199;
+  --amber-300: 252 211 77;
+  --amber-700: 180 83 9;
+  --amber-800: 146 64 14;
+  --amber-900: 120 53 15;
+
+  --red-50: 254 242 242;
+  --red-100: 254 226 226;
+  --red-200: 254 202 202;
+  --red-700: 185 28 28;
+  --red-900: 127 29 29;
+
+  --emerald-100: 209 250 229;
+  --emerald-900: 6 78 59;
+
+  /* The company accent. Overridden per workspace by the shell below; these are
+     the portal's own teal, used by every screen that belongs to no company —
+     the picker, Food, Expenditure, Help and the lock screen. */
   --accent: #104751;
   --accent-text: #ffffff;
   --accent-wash: #f2f8f4;
+
+  /* A destructive action reads as red in both themes, but a fill and its label
+     cannot simply swap places the way the scales above do: white on red has to
+     stay white on red. So delete keeps its own pair. */
+  --danger: #b91c1c;
+  --danger-hover: #991b1b;
+  --danger-text: #ffffff;
+
+  /* Lift, as a variable, because a black shadow that reads as depth on paper is
+     invisible against a dark page and has to be deepened to do the same job. */
+  --lift: 0 8px 24px rgb(0 0 0 / 0.08);
+  --lift-press: 0 2px 10px rgb(0 0 0 / 0.06);
+}
+
+html.dark {
+  color-scheme: dark;
+
+  --page: 19 19 18;
+  --card: 28 28 26;
+  --wash-soft: 33 33 32;
+  --wash: 38 38 36;
+  --wash-strong: 46 46 43;
+
+  /* Not pure white. #fff on a near-black page haloes, and every figure on these
+     screens is a number somebody has to read twice to check it. */
+  --ink: 236 236 234;
+  --ink-soft: 154 154 149;
+  --ink-line: 56 56 52;
+  --ink-rule: 74 74 68;
+
+  /* The status scales, mirrored: the low steps become tinted darks to sit
+     under text, the high steps become tinted lights to sit on them. That is
+     what lets every `bg-amber-100 text-amber-900` pair in the portal keep
+     working, unedited, with the contrast the right way up. */
+  --amber-50: 37 28 8;
+  --amber-100: 51 38 11;
+  --amber-300: 99 72 26;
+  --amber-700: 240 180 41;
+  --amber-800: 246 205 99;
+  --amber-900: 251 227 163;
+
+  --red-50: 42 18 16;
+  --red-100: 58 22 19;
+  --red-200: 78 28 24;
+  --red-700: 242 130 122;
+  --red-900: 252 210 207;
+
+  --emerald-100: 18 51 38;
+  --emerald-900: 167 236 202;
+
+  --accent: #4fb3a1;
+  --accent-text: #06251f;
+  --accent-wash: #132a25;
+
+  --danger: #c0392f;
+  --danger-hover: #d4483c;
+
+  --lift: 0 10px 28px rgb(0 0 0 / 0.55);
+  --lift-press: 0 3px 12px rgb(0 0 0 / 0.4);
+}
+
+/* --------------------------------------------------------------------------
+   The workspace accent, resolved here rather than by the shell.
+
+   A server component cannot know which theme the browser is in — the choice
+   lives in localStorage and is applied before paint — so the company shell
+   hands down *both* of its accents and this pair of rules picks one. Two
+   variables in, one out, and the switch happens in CSS where the theme is
+   already known.
+   -------------------------------------------------------------------------- */
+.accent-scope {
+  --accent: var(--accent-light);
+  --accent-text: var(--accent-text-light);
+  --accent-wash: var(--accent-wash-light);
+}
+html.dark .accent-scope {
+  --accent: var(--accent-dark);
+  --accent-text: var(--accent-text-dark);
+  --accent-wash: var(--accent-wash-dark);
 }
 
 @layer base {
@@ -40,7 +184,7 @@
     -webkit-text-size-adjust: 100%;
   }
   body {
-    @apply bg-[#f7f7f5] text-ink antialiased;
+    @apply bg-page text-ink antialiased;
   }
   /* One consistent focus ring everywhere, keyed to the active company. */
   :focus-visible {
@@ -69,7 +213,7 @@
 
 @layer components {
   .card {
-    @apply rounded-xl border border-ink-line bg-white;
+    @apply rounded-xl border border-ink-line bg-card;
   }
 
   .label {
@@ -77,9 +221,9 @@
   }
 
   .input {
-    @apply w-full rounded-lg border border-ink-line bg-white px-3 py-2.5 text-[15px]
+    @apply w-full rounded-lg border border-ink-line bg-card px-3 py-2.5 text-[15px]
            text-ink placeholder:text-ink-soft/60 transition-colors
-           disabled:cursor-not-allowed disabled:bg-[#f4f4f2] disabled:text-ink-soft;
+           disabled:cursor-not-allowed disabled:bg-wash disabled:text-ink-soft;
   }
 
   .btn {
@@ -92,14 +236,30 @@
     background: var(--accent);
     color: var(--accent-text);
   }
+  /* Hover moves the accent away from the page it sits on, which means the
+     direction has to flip with the theme. Brightening a dark teal on white
+     reads as a lift; brightening Sportech's acid yellow on black takes it to
+     nearly white and reads as the button greying out. */
   .btn-primary:hover:not(:disabled) {
     filter: brightness(1.12);
   }
+  html.dark .btn-primary:hover:not(:disabled) {
+    filter: brightness(0.9);
+  }
   .btn-ghost {
-    @apply border border-ink-line bg-white text-ink hover:bg-[#f4f4f2];
+    @apply border border-ink-line bg-card text-ink hover:bg-wash;
   }
   .btn-quiet {
-    @apply text-ink-soft hover:bg-[#efefec] hover:text-ink;
+    @apply text-ink-soft hover:bg-wash-strong hover:text-ink;
+  }
+  /* Delete, and the two "yes, cancel this order" confirmations. One class, so
+     the three of them cannot drift apart or lose the dark half separately. */
+  .btn-danger {
+    background: var(--danger);
+    color: var(--danger-text);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--danger-hover);
   }
 
   /* Every list row's clickable area shares this, so hovering any list in the
@@ -115,15 +275,20 @@
      container, so the lift lives here rather than on .card itself, where it
      would misrepresent a static section as clickable. */
   .card-link {
-    @apply transition-[transform,box-shadow] duration-200 ease-out active:duration-75;
+    @apply transition-[transform,box-shadow,border-color] duration-200 ease-out active:duration-75;
   }
   .card-link:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--lift);
   }
   .card-link:active {
     transform: translateY(0);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+    box-shadow: var(--lift-press);
+  }
+  /* On a dark page a shadow alone barely registers, so the card's own edge
+     brightens to carry the lift the shadow used to carry on its own. */
+  html.dark .card-link:hover {
+    border-color: rgb(var(--ink-rule));
   }
 
   .chip {
@@ -136,6 +301,11 @@
   .chip-completed {
     @apply bg-emerald-100 text-emerald-900;
   }
+  /* No status of its own — a draft, a tag, a free asset. Named because nine
+     screens were spelling the same grey out by hand. */
+  .chip-neutral {
+    @apply bg-wash-strong text-ink;
+  }
 
   /* Voucher numbers, dates, amounts — tabular so columns line up. */
   .mono {
@@ -147,6 +317,147 @@
 /* The preview iframe scales a full Letter page down to its container. */
 .sheet-scale {
   transform-origin: top left;
+}
+
+/* --------------------------------------------------------------------------
+   Printed paper, on screen.
+
+   A voucher, an order, a scanned receipt: white sheets with black ink, and they
+   stay that way in both themes. The theme belongs to the portal, not to the
+   document — a preview that went dark would be a preview of something that does
+   not exist, since nobody is printing this on black paper.
+
+   Which means anything drawn *on* a sheet has to be pinned to the sheet's
+   colours rather than the interface's. This does it by moving the whole scale
+   back to its light values rather than by setting a colour: inside
+   `.on-paper`, every token goes on meaning exactly what it means, and means it
+   in the paper's terms. So `text-ink-soft` is the grey that reads on white, and
+   a `.btn-ghost` dropped onto a preview is a white button rather than a dark
+   fill wearing dark type. It is also why nothing here fights a utility class
+   for specificity — there is no colour declaration to fight.
+
+   The whole scale rather than just the ink, because the failure this prevents is
+   not one missing pairing: it is any part of the portal being placed on a sheet
+   later and half-inheriting.
+   -------------------------------------------------------------------------- */
+.on-paper {
+  --page: 247 247 245;
+  --card: 255 255 255;
+  --wash-soft: 251 251 250;
+  --wash: 244 244 242;
+  --wash-strong: 239 239 236;
+
+  --ink: 26 26 26;
+  --ink-soft: 107 107 107;
+  --ink-line: 228 228 228;
+  --ink-rule: 220 220 216;
+
+  --amber-50: 255 251 235;
+  --amber-100: 254 243 199;
+  --amber-300: 252 211 77;
+  --amber-700: 180 83 9;
+  --amber-800: 146 64 14;
+  --amber-900: 120 53 15;
+
+  --red-50: 254 242 242;
+  --red-100: 254 226 226;
+  --red-200: 254 202 202;
+  --red-700: 185 28 28;
+  --red-900: 127 29 29;
+
+  --emerald-100: 209 250 229;
+  --emerald-900: 6 78 59;
+
+  /* The company's day accent where there is one to ask — the fallback is the
+     portal's own, which is what every screen outside a workspace uses. */
+  --accent: var(--accent-light, #104751);
+  --accent-text: var(--accent-text-light, #ffffff);
+  --accent-wash: var(--accent-wash-light, #f2f8f4);
+
+  --lift: 0 8px 24px rgb(0 0 0 / 0.08);
+  --lift-press: 0 2px 10px rgb(0 0 0 / 0.06);
+}
+
+/* --------------------------------------------------------------------------
+   A count sitting on an accent-coloured pill — the pending badges in the
+   workspace nav.
+
+   It cannot be a fixed white scrim: the accent is a dark teal by day and a
+   light teal, or Sportech's acid yellow, by night, and white over yellow is
+   nothing at all. Mixed from the accent's own text colour instead, which is by
+   definition the colour that reads against it — so the badge darkens a light
+   pill and lightens a dark one without being told which it is.
+   -------------------------------------------------------------------------- */
+.badge-on-accent {
+  background: color-mix(in srgb, var(--accent-text) 22%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   A colour that comes from data rather than from the scale above — a company's
+   brand on a legend dot, the wash behind a section's mark — and so cannot be a
+   token. Same arrangement as `.accent-scope`, and for the same reason: these
+   render on the server, where the theme is not yet known, so both values are
+   handed in and the choice is made here.
+
+   `--swatch-ink` is optional. Left unset, `color` is invalid at computed-value
+   time and falls back to inheriting, which is what a plain dot wants.
+   -------------------------------------------------------------------------- */
+.swatch {
+  background: var(--swatch);
+  color: var(--swatch-ink);
+}
+html.dark .swatch {
+  background: var(--swatch-dark);
+  color: var(--swatch-ink-dark);
+}
+
+/* The same pair worn as a stripe instead of a fill — the brand rule along the
+   top of a company's card. Only the top edge, so the rest of the box keeps the
+   ordinary hairline. */
+.swatch-top {
+  border-top-color: var(--swatch);
+}
+html.dark .swatch-top {
+  border-top-color: var(--swatch-dark);
+}
+
+/* --------------------------------------------------------------------------
+   Theme control.
+
+   Which of the three marks the button shows is decided by CSS from the
+   attribute the pre-paint script has already set, not by React state. That
+   matters: the server cannot know the stored choice, so a state-driven icon
+   would render one glyph and swap it on hydration — a visible flicker on every
+   page load, on the one control whose whole job is to look settled.
+   -------------------------------------------------------------------------- */
+.theme-mark {
+  display: none;
+}
+html[data-theme="system"] .theme-mark-system,
+html[data-theme="light"] .theme-mark-light,
+html[data-theme="dark"] .theme-mark-dark,
+html:not([data-theme]) .theme-mark-system {
+  display: block;
+}
+
+/* Turning the theme over, rather than cutting to it. Every surface, rule and
+   figure in the portal changes at once; done as a hard cut it reads as a fault,
+   and a fifth of a second is enough to read as deliberate. Only the colour
+   properties, and only for the moment the class is on — leaving it there would
+   put a lag on every hover in the portal.
+
+   Guarded by its own no-preference query rather than left to the blanket reduce
+   rule above. That rule is written against `*`, which this selector outranks —
+   so anyone who has asked for less movement would have got this anyway. Asking
+   here is how the promise made up there is actually kept. */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-turning,
+  html.theme-turning *,
+  html.theme-turning *::before,
+  html.theme-turning *::after {
+    transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease,
+      fill 200ms ease, stroke 200ms ease, box-shadow 200ms ease;
+  }
 }
 
 /* A brief settle-in for content that replaces something abruptly — right now

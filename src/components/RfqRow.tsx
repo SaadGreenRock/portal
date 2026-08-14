@@ -91,7 +91,7 @@ export default function RfqRow({
 }
 
 const STATUS_CLASS: Record<string, string> = {
-  draft: "bg-[#ececeb] text-ink",
+  draft: "chip-neutral",
   sent: "chip-pending",
   closed: "chip-completed",
   cancelled: "bg-red-100 text-red-900",

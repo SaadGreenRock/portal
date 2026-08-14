@@ -57,7 +57,7 @@ export default function Trouble({
             <summary className="cursor-pointer text-[12.5px] text-ink-soft hover:text-ink">
               Technical details
             </summary>
-            <p className="mt-2 break-all rounded-lg bg-[#f7f7f5] px-3.5 py-3 font-mono text-[12px] leading-relaxed text-ink-soft">
+            <p className="mt-2 break-all rounded-lg bg-page px-3.5 py-3 font-mono text-[12px] leading-relaxed text-ink-soft">
               {detail}
             </p>
             <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import LockButton from "@/components/LockButton";
+import ThemeToggle from "@/components/ThemeToggle";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { periodOf } from "@/lib/db/shared";
@@ -32,16 +33,11 @@ export default async function Help() {
   const [first] = COMPANY_LIST;
 
   return (
-    <div
-      style={
-        {
-          "--accent": "#104751",
-          "--accent-text": "#ffffff",
-          "--accent-wash": "#f2f8f4",
-        } as React.CSSProperties
-      }
-    >
-      <header className="sticky top-0 z-10 border-b border-ink-line bg-white">
+    // No accent of its own: help belongs to no company, so it keeps the
+    // portal's, which globals.css states for both themes. Restating it here
+    // would restate only the light half.
+    <div>
+      <header className="sticky top-0 z-10 border-b border-ink-line bg-card">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div>
             <h1 className="text-[17px] font-bold tracking-tight">How the portal works</h1>
@@ -53,6 +49,7 @@ export default async function Help() {
             <Link href="/" className="btn btn-ghost">
               ← Companies
             </Link>
+            <ThemeToggle />
             <LockButton />
           </div>
         </div>
@@ -94,7 +91,7 @@ export default async function Help() {
             company and per document type. Today&rsquo;s sequences for {first.name} look like
             this:
           </p>
-          <div className="mono mt-3 space-y-1.5 rounded-lg bg-[#f7f7f5] px-3.5 py-3 text-[13.5px]">
+          <div className="mono mt-3 space-y-1.5 rounded-lg bg-page px-3.5 py-3 text-[13.5px]">
             <div>
               {first.prefix}-{period}-001 <span className="text-ink-soft">— voucher</span>
             </div>

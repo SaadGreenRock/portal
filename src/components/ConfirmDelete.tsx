@@ -85,7 +85,7 @@ export default function ConfirmDelete({
         type="button"
         onClick={confirm}
         disabled={pending}
-        className={`btn bg-red-700 text-white hover:bg-red-800 ${size}`}
+        className={`btn btn-danger ${size}`}
       >
         {pending ? "Deleting…" : "Delete"}
       </button>

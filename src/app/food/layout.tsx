@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import FoodNav from "@/components/FoodNav";
 import LockButton from "@/components/LockButton";
+import ThemeToggle from "@/components/ThemeToggle";
 import { isAuthenticated } from "@/lib/auth";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
@@ -18,9 +19,10 @@ import { tryTable } from "@/lib/db/resilience";
  * rather than one — the auth check and the tabs would otherwise be copied five
  * times, and the fifth copy is where one gets forgotten.
  *
- * The accent is set here rather than inherited. Outside a workspace there is no
- * company theme to take one from, so `--accent` is pinned to the portal's own
- * teal and `.btn-primary` works unchanged.
+ * The accent is inherited rather than set. Outside a workspace there is no
+ * company theme to take one from, so `--accent` is left at the portal's own
+ * teal — which globals.css already states, in both themes. Restating it here
+ * would restate only the light half, and pin the section to it.
  */
 
 export const metadata = {
@@ -38,18 +40,10 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
   const pending = counts.ok ? counts.value.pending : 0;
 
   return (
-    <div
-      style={
-        {
-          "--accent": "#104751",
-          "--accent-text": "#ffffff",
-          "--accent-wash": "#f2f8f4",
-        } as React.CSSProperties
-      }
-    >
+    <div>
       {/* sticky: Lock and the section tabs stay reachable on a long log,
           rather than scrolling away with it. */}
-      <header className="sticky top-0 z-10 border-b border-ink-line bg-white">
+      <header className="sticky top-0 z-10 border-b border-ink-line bg-card">
         <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -65,6 +59,7 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
               <Link href="/" className="btn btn-ghost">
                 ← Companies
               </Link>
+              <ThemeToggle />
               <LockButton />
             </div>
           </div>

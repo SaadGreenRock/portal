@@ -96,7 +96,7 @@ export default function PoRow({ po, company }: { po: PurchaseOrder; company: str
 }
 
 const STATUS_CLASS: Record<string, string> = {
-  draft: "bg-[#ececeb] text-ink",
+  draft: "chip-neutral",
   issued: "chip-pending",
   closed: "chip-completed",
   cancelled: "bg-red-100 text-red-900",

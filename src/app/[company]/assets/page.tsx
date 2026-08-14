@@ -74,7 +74,7 @@ export default async function AssetRegister({
   return (
     <>
       {sp.deleted ? (
-        <div className="mb-5 rounded-xl border border-ink-line bg-white p-4">
+        <div className="mb-5 rounded-xl border border-ink-line bg-card p-4">
           <p className="text-[13.5px]">
             <span className="mono font-semibold">{sp.deleted}</span> was deleted. Its number stays
             spent and will not be given to another asset, and its history is kept.
@@ -240,7 +240,7 @@ function Stat({
 
   if (href && slug) {
     return (
-      <Link href={`/${slug}/assets${href}`} className="px-5 py-3.5 hover:bg-[#fafaf8]">
+      <Link href={`/${slug}/assets${href}`} className="px-5 py-3.5 hover:bg-wash-soft">
         {body}
       </Link>
     );

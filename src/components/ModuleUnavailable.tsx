@@ -40,7 +40,7 @@ export default function ModuleUnavailable({ module }: { module: string }) {
           </li>
           <li>
             <span className="font-medium text-ink">2.</span> Paste the contents of{" "}
-            <code className="rounded bg-[#f4f4f2] px-1.5 py-0.5 font-mono text-[12.5px] text-ink">
+            <code className="rounded bg-wash px-1.5 py-0.5 font-mono text-[12.5px] text-ink">
               supabase/migration.sql
             </code>{" "}
             and press <span className="font-medium text-ink">Run</span>.

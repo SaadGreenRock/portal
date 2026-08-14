@@ -91,7 +91,7 @@ export default async function AssetRecord({
   return (
     <>
       {banner ? (
-        <div className="mb-5 rounded-xl border border-ink-line bg-white p-4">
+        <div className="mb-5 rounded-xl border border-ink-line bg-card p-4">
           <p className="text-[13.5px]">{banner}</p>
         </div>
       ) : null}
@@ -103,7 +103,7 @@ export default async function AssetRecord({
             {asset.deletedAt ? (
               <span className="chip bg-red-100 text-red-900">Deleted</span>
             ) : (
-              <span className={`chip ${free ? "bg-[#ececeb] text-ink" : "chip-pending"}`}>
+              <span className={`chip ${free ? "chip-neutral" : "chip-pending"}`}>
                 {free ? "In stock" : "Out"}
               </span>
             )}

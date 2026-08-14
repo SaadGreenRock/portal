@@ -91,7 +91,7 @@ function Month({
             without a border on each one fighting its neighbour's. */}
         <div className="grid min-w-[32rem] grid-cols-7 gap-px bg-ink-line">
           {WEEKDAYS.map((day) => (
-            <div key={day.full} className="bg-[#fafaf8] py-2 text-center">
+            <div key={day.full} className="bg-wash-soft py-2 text-center">
               <abbr className="label no-underline" title={day.full}>
                 {day.short}
               </abbr>
@@ -132,7 +132,7 @@ function Day({
   // and every one of them is needed by a five-figure total with paisa on it.
   const box = "flex min-h-[3.5rem] flex-col gap-0.5 px-1 py-1.5 sm:min-h-[4.25rem] sm:px-1.5";
 
-  if (!date) return <div className="bg-white" />;
+  if (!date) return <div className="bg-card" />;
 
   // self-start rather than a margin: the pill has to shrink to the digits it
   // holds, and a stretched flex item would draw today's marker as a bar across
@@ -154,7 +154,7 @@ function Day({
 
   if (!day) {
     return (
-      <div className={`${box} bg-white`}>
+      <div className={`${box} bg-card`}>
         {number}
       </div>
     );

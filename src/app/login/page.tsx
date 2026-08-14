@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import LockMark from "@/components/LockMark";
 import PasswordField from "@/components/PasswordField";
+import { ThemeToggleCorner } from "@/components/ThemeToggle";
 import {
   checkPassword,
   isAuthenticated,
@@ -38,7 +39,13 @@ export default async function Login({
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-5 py-16">
+    <main className="relative mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-5 py-16">
+      {/* Reachable before unlocking, on purpose. This is the first screen the
+          portal shows and often the only one showing for a while; somebody who
+          keeps their machine dark should be able to settle that here rather than
+          having to get past the password first. */}
+      <ThemeToggleCorner />
+
       {/* The one thing that moves on this screen — a slow, calm breathing
           pulse, so waiting to type the password isn't spent looking at
           something completely still. */}

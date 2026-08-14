@@ -29,7 +29,7 @@ export default function Toggle({
       aria-label={`${label} — ${checked ? "printed on the voucher" : "left blank for handwriting"}`}
       onClick={() => onChange(!checked)}
       className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
-        checked ? "bg-[var(--accent)]" : "bg-[#d4d4d0]"
+        checked ? "bg-[var(--accent)]" : "bg-ink-rule"
       }`}
     >
       <span
@@ -37,7 +37,13 @@ export default function Toggle({
         // left-0 is load-bearing: without it the knob falls back to its static
         // position, which the button's centred text alignment puts mid-track, and
         // the ON transform then pushes it out over the label text.
-        className={`absolute left-0 top-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+        //
+        // White in both themes and ringed rather than merely shadowed. The knob
+        // has to be found against four different tracks — a pale grey, a dark
+        // one, a deep teal and Sportech's acid yellow — and a shadow alone loses
+        // it on the last of those. A hairline of the track's own darkness holds
+        // its edge on all four.
+        className={`absolute left-0 top-[3px] h-4 w-4 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
           checked ? "translate-x-[19px]" : "translate-x-[3px]"
         }`}
       />

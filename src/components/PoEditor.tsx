@@ -431,7 +431,7 @@ export default function PoEditor({
                         className="input py-2 text-right text-[13.5px]"
                         aria-label={`Line ${index + 1} unit price`}
                       />
-                      <div className="mono flex items-center justify-end rounded-lg bg-[#f4f4f2] px-3 py-2 text-[13.5px] font-semibold">
+                      <div className="mono flex items-center justify-end rounded-lg bg-wash px-3 py-2 text-[13.5px] font-semibold">
                         {formatMoneyFixed(lineAmount(item), code)}
                       </div>
                     </div>
@@ -570,7 +570,7 @@ export default function PoEditor({
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#f7f7f5] p-4">
+            <div className="rounded-xl bg-page p-4">
               <Total label="Subtotal" value={formatMoneyFixed(totals.subtotal, code)} />
               {totals.discount > 0 ? (
                 <Total label="Discount" value={`− ${formatMoneyFixed(totals.discount, code)}`} />
@@ -770,7 +770,7 @@ function RowButton({
       className={`grid h-6 w-6 place-items-center rounded text-[12px] leading-none transition-colors disabled:opacity-25 ${
         danger
           ? "text-ink-soft hover:bg-red-50 hover:text-red-700"
-          : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+          : "text-ink-soft hover:bg-wash-strong hover:text-ink"
       }`}
     >
       {children}
@@ -837,7 +837,7 @@ function VendorPicker({
       </label>
 
       {open && matches.length > 0 ? (
-        <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-ink-line bg-white py-1 shadow-lg">
+        <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-ink-line bg-card py-1 shadow-lg">
           {matches.map((v) => (
             <li key={v.name}>
               <button

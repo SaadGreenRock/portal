@@ -5,8 +5,8 @@ import { deleteNotification, restoreNotification } from "@/lib/notifications/act
 import { TAG_LABELS, type Notification } from "@/lib/notifications/types";
 
 const TAG_CLASS: Record<string, string> = {
-  notice: "bg-[#ececeb] text-ink",
-  announcement: "bg-[#ececeb] text-ink",
+  notice: "chip-neutral",
+  announcement: "chip-neutral",
   "action-required": "bg-amber-100 text-amber-900",
   urgent: "bg-red-100 text-red-900",
 };

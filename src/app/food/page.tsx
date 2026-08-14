@@ -70,7 +70,7 @@ export default async function FoodLog({ searchParams }: { searchParams: Promise<
   return (
     <>
       {sp.deleted ? (
-        <div className="mb-5 rounded-xl border border-ink-line bg-white p-4">
+        <div className="mb-5 rounded-xl border border-ink-line bg-card p-4">
           <p className="text-[13.5px]">
             <span className="mono font-semibold">{sp.deleted}</span> was deleted. Its number stays
             spent, and it no longer counts towards any total.
@@ -244,7 +244,7 @@ function Stat({
 
   if (href) {
     return (
-      <Link href={href.startsWith("?") ? `/food${href}` : href} className="px-5 py-3.5 hover:bg-[#fafaf8]">
+      <Link href={href.startsWith("?") ? `/food${href}` : href} className="px-5 py-3.5 hover:bg-wash-soft">
         {body}
       </Link>
     );

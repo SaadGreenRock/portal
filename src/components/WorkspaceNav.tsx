@@ -43,7 +43,7 @@ export default function WorkspaceNav({
           className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
             inOverview
               ? "text-[var(--accent-text)]"
-              : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+              : "text-ink-soft hover:bg-wash-strong hover:text-ink"
           }`}
           style={inOverview ? { background: "var(--accent)" } : undefined}
         >
@@ -61,7 +61,7 @@ export default function WorkspaceNav({
               className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
                 on
                   ? "text-[var(--accent-text)]"
-                  : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+                  : "text-ink-soft hover:bg-wash-strong hover:text-ink"
               }`}
               style={on ? { background: "var(--accent)" } : undefined}
             >
@@ -69,7 +69,7 @@ export default function WorkspaceNav({
               {count > 0 ? (
                 <span
                   className={`rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums ${
-                    on ? "bg-white/25" : "bg-[#e4e4e0] text-ink"
+                    on ? "badge-on-accent" : "bg-ink-rule text-ink"
                   }`}
                 >
                   {count}
@@ -86,13 +86,13 @@ export default function WorkspaceNav({
         <span aria-hidden className="ml-auto h-5 w-px shrink-0 bg-ink-line" />
         <Link
           href="/food"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
         >
           Food
         </Link>
         <Link
           href="/spend"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
         >
           Expenditure
         </Link>
@@ -100,14 +100,14 @@ export default function WorkspaceNav({
           href={settingsPath}
           aria-current={inSettings ? "page" : undefined}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium transition-colors ${
-            inSettings ? "bg-[#efefec] text-ink" : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
+            inSettings ? "bg-wash-strong text-ink" : "text-ink-soft hover:bg-wash-strong hover:text-ink"
           }`}
         >
           Settings
         </Link>
         <Link
           href="/help"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
         >
           Help
         </Link>
