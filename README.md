@@ -92,6 +92,13 @@ only, and the choice survives locking the portal. It is on the lock screen too:
 whoever is looking at the screen should be able to settle this without getting
 past the password first.
 
+The lock screen drifts faint Letter-proportioned sheets up the background — the
+documents the portal holds, as texture. It is the one screen that exists to be
+waited on, and nothing on it is fast enough to catch the eye: a sheet takes well
+over a minute to cross, which is why it can be left running. Pure CSS, so it costs
+nothing and starts before any JavaScript; anyone who has asked their machine for
+less movement gets the same sheets standing still.
+
 Printed things stay printed. A voucher, an order and a scanned receipt are white
 sheets with black ink on them, and they look the same in either theme — nobody is
 printing these on black paper, so a preview that went dark would be a preview of
