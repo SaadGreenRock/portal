@@ -95,11 +95,12 @@ export function todayIso(at: Date = new Date()): string {
 }
 
 /**
- * "31 July 2026, 15:42" — for the audit trail on a record's own page.
+ * "31 July 2026, 3:42 PM" — for the audit trail on a record's own page.
  *
  * Stored timestamps are instants, in UTC. Read back at the desk's wall clock, so
  * a record created at half past three in the afternoon says half past three
- * however far from the desk the server is.
+ * however far from the desk the server is — and says it the same way the clock in
+ * the header does, both being `wallClock`'s to word.
  */
 export function stamp(iso: string | null | undefined): string {
   if (!iso) return "—";

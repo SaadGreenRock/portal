@@ -60,8 +60,9 @@ export default function PortalClock({ iso }: { iso: string }) {
     return () => window.clearTimeout(timer);
   }, [serverMs]);
 
-  // 24-hour, matching the timestamps in every record's audit trail. A portal that
-  // says 16:28 in one place and 4:28 pm in another is two portals.
+  // How the time is written is `clock.ts`'s to decide, so this reads the same as
+  // every "created at" on a record. A portal that says 7:49 PM in one place and
+  // 19:49 in another is two portals.
   const { date, time } = wallClock(new Date(ms));
 
   return (

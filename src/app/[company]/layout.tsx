@@ -62,7 +62,10 @@ export default async function CompanyLayout({
       {/* sticky: the workspace nav and the Lock button stay reachable on a long
           history or expenditure list, rather than scrolling away with it. */}
       <header className="sticky top-0 z-10 border-b border-ink-line bg-card">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+        {/* A tighter gap on a phone. This row carries the most of any header in
+            the portal — a logo, the company, the clock and two buttons — and the
+            eight pixels bought back here are eight the company's name keeps. */}
+        <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
           <Link
             href="/"
             title="Switch company"
@@ -86,7 +89,14 @@ export default async function CompanyLayout({
             className="min-w-0 flex-1 rounded-md transition-opacity hover:opacity-80"
           >
             <div className="truncate text-[14px] font-semibold leading-tight">{company.name}</div>
-            <div className="text-[11.5px] leading-tight text-ink-soft">Company portal</div>
+            {/* Hidden on a phone, where it is the widest thing in this block and
+                the least worth the room: it says "Company portal" underneath the
+                company's own name, on a screen that is visibly the portal. Given
+                `truncate` as well, so it can never spill out of a block it no
+                longer fits — which it did, silently, before it had one. */}
+            <div className="hidden truncate text-[11.5px] leading-tight text-ink-soft sm:block">
+              Company portal
+            </div>
           </Link>
 
           <HeaderControls />
