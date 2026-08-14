@@ -73,12 +73,26 @@ export function monthGrid(ym: string): CalendarMonth {
 }
 
 /**
- * One page per month that any of these dates falls in, oldest first.
+ * A yyyy-mm, moved by a number of months. Negative goes back.
  *
- * Months nothing falls in are skipped rather than drawn empty. A run of blank
- * pages between two debts is scrolling, not information — the month title on
- * each page already says where the gap is.
+ * Built on day 1 in UTC: the day so that stepping from the 31st cannot land on a
+ * month that has no 31st, and UTC so the year rollover in either direction is
+ * arithmetic rather than a timezone's opinion.
  */
-export function monthGridsFor(dates: string[]): CalendarMonth[] {
-  return [...new Set(dates.map(monthOf))].sort().map(monthGrid);
+export function addMonths(ym: string, months: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const moved = new Date(Date.UTC(y, m - 1 + months, 1));
+  return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}`;
+}
+
+/**
+ * How many months from `a` to `b` — negative if `b` is earlier.
+ *
+ * For deciding which of several months is nearest to the one on screen, which is
+ * a question about distance rather than about order.
+ */
+export function monthsBetween(a: string, b: string): number {
+  const [ay, am] = a.split("-").map(Number);
+  const [by, bm] = b.split("-").map(Number);
+  return (by - ay) * 12 + (bm - am);
 }

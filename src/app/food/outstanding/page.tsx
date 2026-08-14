@@ -2,6 +2,7 @@ import Link from "next/link";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import PendingCalendar from "@/components/PendingCalendar";
 import SettleForm from "@/components/SettleForm";
+import { monthOf } from "@/lib/calendar";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { groupByDate, groupByPayee, summariseFood } from "@/lib/food/types";
@@ -28,7 +29,7 @@ import { formatMoney } from "@/lib/money";
 export default async function Outstanding({
   searchParams,
 }: {
-  searchParams: Promise<{ settled?: string }>;
+  searchParams: Promise<{ settled?: string; month?: string }>;
 }) {
   const sp = await searchParams;
 
@@ -42,6 +43,26 @@ export default async function Outstanding({
   const vendors = groupByPayee(pending, "deferred");
   const byDate = groupByDate(pending);
   const today = todayIso();
+
+  /**
+   * Which month the calendar opens on, and how far either side it can be stepped.
+   *
+   * This month, because that is where a calendar opens and because "is anything
+   * owed from *this* month" is the question asked most often. Back as far as the
+   * oldest thing owed and no further — past that there is nothing to find, and an
+   * arrow that goes on offering 2019 is an arrow that lies. Forward to this month
+   * at least, and past it only if something carries a later date than today,
+   * which is a typo rather than a debt but still has to be reachable to be fixed.
+   *
+   * yyyy-mm sorts and compares correctly as a plain string, which is why the
+   * bounds are found and clamped without a single Date in sight.
+   */
+  const owedMonths = [...new Set(byDate.map((day) => monthOf(day.date)))].sort();
+  const thisMonth = monthOf(today);
+  const earliest = owedMonths[0] ?? thisMonth;
+  const latest = [thisMonth, ...owedMonths].sort().at(-1) ?? thisMonth;
+  const asked = /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month ?? "") ? sp.month! : thisMonth;
+  const month = asked < earliest ? earliest : asked > latest ? latest : asked;
 
   const settledCount = Number(sp.settled ?? 0) || 0;
 
@@ -125,10 +146,19 @@ export default async function Outstanding({
           <section>
             <h3 className="mb-1 text-[16px] font-semibold">Pending by date</h3>
             <p className="mb-3 text-[13px] text-ink-soft">
-              The same entries written onto the day they were ordered, oldest month first. Amounts
-              are in ₨; a blank day has nothing owed. Tap a day to open the log filtered to it.
+              The same entries written onto the day they were ordered. Step back through the months
+              to see how far the debt goes. Amounts are in ₨; a blank day has nothing owed. Tap a
+              day to open the log filtered to it.
             </p>
-            <PendingCalendar days={byDate} today={today} currency="₨" />
+            <PendingCalendar
+              days={byDate}
+              month={month}
+              earliest={earliest}
+              latest={latest}
+              today={today}
+              currency="₨"
+              basePath="/food/outstanding"
+            />
           </section>
         </>
       )}

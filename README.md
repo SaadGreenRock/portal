@@ -339,6 +339,24 @@ They are settled by different people on different days, so they get their own
 panels — and reimbursements come first even though they are usually the smaller
 figure, because somebody is personally out of pocket on them.
 
+### Pending by date
+
+The same debts a second way, written onto the days they were ordered. The payee
+panels answer *who* is owed; this answers *how far back it goes*, which they
+cannot — a café owed for one order last week and eleven this month reads as a
+single debt. A month grid rather than a list, because the answer is usually a
+shape: every Tuesday, or the fortnight nobody was in to sign a cheque.
+
+**One month at a time, with a step either side of its name.** It opens on this
+month and goes back as far as the oldest thing owed, so "is anything still owed
+from June?" is a question you can actually put to it. Months in between with
+nothing owed say so and offer the nearest month that has something, rather than
+drawing six blank rows; past the oldest debt the step greys out, because past
+there is nothing to find.
+
+The month is in the URL (`?month=2026-06`), so a month can be linked to and the
+back button walks back through the ones already looked at.
+
 ### Settling a tab
 
 The reason this beats the spreadsheet. A café's tab is a dozen separate orders
