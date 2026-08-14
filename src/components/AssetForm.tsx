@@ -5,7 +5,7 @@ import type { AllotFields, AssetFields, EmployeeProfile } from "@/lib/assets/typ
 /**
  * The asset form: what the thing is, and — when somebody has it — who.
  *
- * Shared by "Log an asset" and the edit view on a record. A plain
+ * Shared by "New asset" and the edit view on a record. A plain
  * server-rendered form with no client JavaScript, unlike the purchase order and
  * quotation editors: those maintain a repeating line-item table and a live
  * preview, which needs state, while this is a few fields and a form that submits

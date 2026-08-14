@@ -16,9 +16,17 @@ export default function LockButton({
 }: {
   className?: string;
 }) {
+  // Named for what pressing it does, not for the glyph. "Lock" alone left the
+  // one way out of the portal described by a padlock — which, sitting beside a
+  // document, reads at least as plausibly as "lock this record".
   return (
     <form action={signOut}>
-      <button type="submit" title="Lock" aria-label="Lock" className={className}>
+      <button
+        type="submit"
+        title="Lock the portal on this device"
+        aria-label="Lock the portal on this device"
+        className={className}
+      >
         <LockMark />
       </button>
     </form>

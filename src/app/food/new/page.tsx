@@ -20,7 +20,7 @@ export default async function NewFoodEntry() {
   return (
     <>
       <div className="mb-6">
-        <h2 className="text-[20px] font-bold tracking-tight">Log an entry</h2>
+        <h2 className="text-[20px] font-bold tracking-tight">New entry</h2>
         <p className="mt-1 text-[14px] text-ink-soft">
           Saving assigns the next F- number for this month.
         </p>
@@ -32,7 +32,7 @@ export default async function NewFoodEntry() {
         vendors={names.value.vendors}
         payers={names.value.payers}
         orderedFor={names.value.orderedFor}
-        submitLabel="Log it"
+        submitLabel="Save entry"
         cancelHref="/food"
         entryNo={null}
       />

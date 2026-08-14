@@ -10,12 +10,23 @@ import { cookies } from "next/headers";
 const COOKIE = "pvp_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days — long enough to not re-login on the phone.
 
+/**
+ * The key every session cookie is signed with.
+ *
+ * The password is always part of it, which is what makes changing the password
+ * a real revocation. The portal is used by one person at a time but not always
+ * the same person: handing the credentials to somebody covering a holiday and
+ * changing the password on your return has to end their access that day, not
+ * thirty days later when their cookie happens to expire. Signing with
+ * SESSION_SECRET alone left the stand-in logged in across the change.
+ *
+ * SESSION_SECRET still does its own job on top: without it, a portal running on
+ * the shipped default password would have a guessable signing key.
+ */
 function secret(): string {
   const s = process.env.SESSION_SECRET;
-  if (s && s.length >= 16) return s;
-  // Falling back to the password keeps dev friction at zero. It still signs the
-  // cookie; it just means changing the password invalidates existing sessions.
-  return `dev-secret:${password()}`;
+  const base = s && s.length >= 16 ? s : "dev-secret";
+  return `${base}:${password()}`;
 }
 
 function password(): string {

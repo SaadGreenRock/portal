@@ -90,7 +90,7 @@ export default async function AssetRegister({
           </p>
         </div>
         <Link href={`/${company.slug}/assets/new`} className="btn btn-primary">
-          Log an asset
+          New asset
         </Link>
       </div>
 
@@ -174,7 +174,7 @@ export default async function AssetRegister({
           </p>
           {view === "deleted" || filtered ? null : (
             <Link href={`/${company.slug}/assets/new`} className="btn btn-primary mt-5">
-              Log the first asset
+              New asset
             </Link>
           )}
         </div>

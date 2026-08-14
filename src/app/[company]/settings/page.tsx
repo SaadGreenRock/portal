@@ -75,12 +75,9 @@ export default async function Settings({
 
           {!po ? (
             <p className="px-5 py-6 text-[13.5px] leading-relaxed text-ink-soft">
-              Purchase orders are not set up on this database yet, so there is nothing to
-              configure. Run{" "}
-              <code className="rounded bg-[#f4f4f2] px-1.5 py-0.5 font-mono text-[12.5px] text-ink">
-                supabase/migration.sql
-              </code>{" "}
-              and reload. Signatories and voucher numbering below are unaffected.
+              Purchase orders are not switched on yet, so there is nothing to configure here.
+              Ask whoever maintains the portal to enable them. Signatories and voucher
+              numbering below are unaffected.
             </p>
           ) : (
 
@@ -198,11 +195,8 @@ export default async function Settings({
 
           {!rfq ? (
             <p className="px-5 py-6 text-[13.5px] leading-relaxed text-ink-soft">
-              Quotations are not set up on this database yet. Run{" "}
-              <code className="rounded bg-[#f4f4f2] px-1.5 py-0.5 font-mono text-[12.5px] text-ink">
-                supabase/migration.sql
-              </code>{" "}
-              and reload.
+              Quotations are not switched on yet, so there is nothing to configure here. Ask
+              whoever maintains the portal to enable them.
             </p>
           ) : (
             <form action={saveRfq} className="space-y-4 p-5">

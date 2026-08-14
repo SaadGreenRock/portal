@@ -34,7 +34,7 @@ export default async function LogAsset({
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-[20px] font-bold tracking-tight">Log an asset</h1>
+        <h1 className="text-[20px] font-bold tracking-tight">New asset</h1>
         <p className="mt-1 text-[14px] text-ink-soft">
           Saving assigns the next {company.prefix}-A number, which is permanent — write it on the
           item.
@@ -46,7 +46,7 @@ export default async function LogAsset({
         asset={emptyAsset()}
         holder={emptyAllot(todayIso())}
         employees={employees.value}
-        submitLabel="Log and allot"
+        submitLabel="Save and allot"
         cancelHref={`/${company.slug}/assets`}
         assetNo={null}
       />

@@ -35,7 +35,7 @@ export default async function NewRequestForQuotation({
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-[20px] font-bold tracking-tight">New request for quotation</h1>
+        <h1 className="text-[20px] font-bold tracking-tight">New quotation request</h1>
         <p className="mt-1 text-[14px] text-ink-soft">
           One generic request, which you send to whichever vendors you like. Defaults come from{" "}
           <span className="font-medium text-ink">Settings</span>.

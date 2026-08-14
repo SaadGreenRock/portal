@@ -90,7 +90,11 @@ export default async function Landing() {
             return (
               <Link
                 key={company.slug}
-                href={authed ? `/${company.slug}/vouchers/new` : "/login"}
+                // The workspace overview, not a blank voucher form. Choosing a
+                // company says which company, not which document — and whoever
+                // is covering the desk this week needs to see what is waiting
+                // before being handed something to type into.
+                href={authed ? `/${company.slug}` : "/login"}
                 className="card card-link group flex flex-col gap-5 p-6"
                 style={{ borderColor: "#e4e4e4" }}
               >
@@ -203,6 +207,15 @@ export default async function Landing() {
               ) : (
                 <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
               )}
+            </Link>
+            {/* Last, and quiet. Somebody who runs this every week never needs
+                it; somebody covering the desk for a fortnight needs it on the
+                first screen, with nobody to ask. */}
+            <Link
+              href="/help"
+              className="mt-5 block text-[13px] text-ink-soft underline underline-offset-2 hover:text-ink"
+            >
+              New to this? How the portal works →
             </Link>
           </>
         ) : null}

@@ -182,7 +182,7 @@ export default async function FoodLog({ searchParams }: { searchParams: Promise<
           </p>
           {view === "deleted" || filtered ? null : (
             <Link href="/food/new" className="btn btn-primary mt-5">
-              Log the first entry
+              New entry
             </Link>
           )}
         </div>

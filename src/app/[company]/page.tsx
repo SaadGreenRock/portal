@@ -5,7 +5,7 @@ import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { ageInDays, dueIn, formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
-import { MODULES, moduleHome, modulePath, type ModuleKey } from "@/lib/modules";
+import { MODULES, moduleCreateTab, moduleHome, modulePath, type ModuleKey } from "@/lib/modules";
 
 /**
  * The workspace overview.
@@ -216,6 +216,7 @@ export default async function WorkspaceOverview({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {MODULES.map((module) => {
           const summary = summaries[module.key];
+          const createTab = moduleCreateTab(module);
 
           return (
             <section key={module.key} className="card flex flex-col p-5">
@@ -265,13 +266,21 @@ export default async function WorkspaceOverview({
               )}
 
               {/* Every tab the module has, so the overview is a way in and not a
-                  detour through it. */}
+                  detour through it.
+
+                  The create tab is the filled one, whatever position it sits in.
+                  The card's own heading already leads to the list, so making the
+                  list primary here would spend the emphasis on a link that is
+                  offered twice and leave the one action the card cannot
+                  otherwise reach looking secondary. */}
               <div className="mt-4 flex flex-wrap gap-2">
-                {module.tabs.map((tab, i) => (
+                {module.tabs.map((tab) => (
                   <Link
                     key={tab.segment || "index"}
                     href={modulePath(slug, module, tab.segment)}
-                    className={`btn px-3 py-2 text-[13px] ${i === 0 ? "btn-primary" : "btn-ghost"}`}
+                    className={`btn px-3 py-2 text-[13px] ${
+                      tab === createTab ? "btn-primary" : "btn-ghost"
+                    }`}
                   >
                     {tab.label}
                   </Link>

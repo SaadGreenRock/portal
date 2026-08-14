@@ -79,28 +79,37 @@ export default function WorkspaceNav({
           );
         })}
 
-        <span className="ml-auto shrink-0" />
-        {/* Both cross-company, so they deliberately leave the workspace. */}
+        {/* Everything past this rule leaves the workspace — Food and
+            Expenditure belong to both companies, and Help to neither. Set apart
+            with a divider and a lighter weight so they don't read as two more
+            modules of the company you are in. */}
+        <span aria-hidden className="ml-auto h-5 w-px shrink-0 bg-ink-line" />
         <Link
           href="/food"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
         >
           Food
         </Link>
         <Link
           href="/spend"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
         >
           Expenditure
         </Link>
         <Link
           href={settingsPath}
           aria-current={inSettings ? "page" : undefined}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium transition-colors ${
             inSettings ? "bg-[#efefec] text-ink" : "text-ink-soft hover:bg-[#efefec] hover:text-ink"
           }`}
         >
           Settings
+        </Link>
+        <Link
+          href="/help"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-[#efefec] hover:text-ink"
+        >
+          Help
         </Link>
       </div>
 

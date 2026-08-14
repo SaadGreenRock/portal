@@ -35,16 +35,33 @@ export interface PortalModule {
   home: string;
 }
 
+/**
+ * Two conventions hold across every entry, and they are the reason this file is
+ * worth reading before adding a module:
+ *
+ *   Tabs run [ the working list ] · [ New … ] · [ History ].
+ *     Whoever is sitting at the portal this month may not be whoever set it up.
+ *     Landing on a list shows them what exists before asking them to add to it,
+ *     and the create button is on that list anyway. Modules that opened straight
+ *     into a blank form taught nothing, and assumed the visit was to type.
+ *
+ *   The create tab is always "New <thing>", spelled out.
+ *     This previously offered Generate, New, Raise, Log and Compose for one
+ *     idea — and purchase orders alone used three different names across screens
+ *     that linked to each other. One word everywhere, so it never has to be
+ *     learned twice. Page headings and submit buttons still describe what they
+ *     actually do; it is the navigation that has to be predictable.
+ */
 export const MODULES: PortalModule[] = [
   {
     key: "vouchers",
     segment: "vouchers",
     label: "Vouchers",
     blurb: "Numbered payment acknowledgment vouchers, and the signed scans that close them.",
-    home: "new",
+    home: "pending",
     tabs: [
-      { segment: "new", label: "Generate" },
       { segment: "pending", label: "Pending", badge: "vouchers" },
+      { segment: "new", label: "New voucher" },
       { segment: "history", label: "History" },
     ],
   },
@@ -55,8 +72,8 @@ export const MODULES: PortalModule[] = [
     blurb: "Orders raised on vendors, priced and totalled, ready to issue as a PDF.",
     home: "",
     tabs: [
-      { segment: "new", label: "New PO" },
       { segment: "", label: "Open", badge: "po" },
+      { segment: "new", label: "New purchase order" },
       { segment: "history", label: "History" },
     ],
   },
@@ -68,8 +85,8 @@ export const MODULES: PortalModule[] = [
       "Requests for quotation \u2014 what you want priced, with the prices left blank for the vendor.",
     home: "",
     tabs: [
-      { segment: "new", label: "New request" },
       { segment: "", label: "Open", badge: "rfq" },
+      { segment: "new", label: "New quotation request" },
       { segment: "history", label: "History" },
     ],
   },
@@ -84,7 +101,7 @@ export const MODULES: PortalModule[] = [
     // lit teaches you to stop reading it.
     tabs: [
       { segment: "", label: "Register" },
-      { segment: "new", label: "Log an asset" },
+      { segment: "new", label: "New asset" },
       { segment: "history", label: "History" },
     ],
   },
@@ -93,15 +110,29 @@ export const MODULES: PortalModule[] = [
     segment: "notifications",
     label: "Notifications",
     blurb: "Branded announcement cards — a PNG for WhatsApp and a PDF for email — with a log of everything sent.",
-    home: "new",
+    home: "history",
     // No badge: a notification is composed once and never left pending, so
     // there is nothing here for a count to be waiting on.
+    //
+    // History takes the list-first slot the other four give their outstanding
+    // work: there is no "open" state a notification can be in, so the log of
+    // what has been sent is this module's working list.
     tabs: [
-      { segment: "new", label: "Compose" },
       { segment: "history", label: "History" },
+      { segment: "new", label: "New notification" },
     ],
   },
 ];
+
+/**
+ * The module's create screen.
+ *
+ * Every module has a "new" tab; the fallback only exists so a future module
+ * without one cannot crash the workspace overview.
+ */
+export function moduleCreateTab(module: PortalModule): ModuleTab {
+  return module.tabs.find((t) => t.segment === "new") ?? module.tabs[0];
+}
 
 /** Badge counts the nav renders, keyed by module. */
 export type ModuleBadges = Partial<Record<ModuleKey, number>>;

@@ -60,7 +60,7 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Link href="/food/new" className="btn btn-primary">
-                Log an entry
+                New entry
               </Link>
               <Link href="/" className="btn btn-ghost">
                 ← Companies

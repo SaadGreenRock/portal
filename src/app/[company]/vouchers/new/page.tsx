@@ -29,7 +29,7 @@ export default async function NewVoucher({
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-[20px] font-bold tracking-tight">Generate voucher</h1>
+        <h1 className="text-[20px] font-bold tracking-tight">New voucher</h1>
         <p className="mt-1 text-[14px] text-ink-soft">
           Fill in whatever is already known, then print and get it signed.
         </p>

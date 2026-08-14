@@ -44,7 +44,7 @@ export default async function Pending({
             Every voucher issued for {company.name} has its signed copy on file.
           </p>
           <Link href={`/${company.slug}/vouchers/new`} className="btn btn-primary mt-5">
-            Generate a voucher
+            New voucher
           </Link>
         </div>
       ) : (

@@ -19,7 +19,7 @@ export default async function NewNotification({
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-[20px] font-bold tracking-tight">Compose notification</h1>
+        <h1 className="text-[20px] font-bold tracking-tight">New notification</h1>
         <p className="mt-1 text-[14px] text-ink-soft">
           A short announcement, rendered as a branded card ready for WhatsApp and email.
         </p>

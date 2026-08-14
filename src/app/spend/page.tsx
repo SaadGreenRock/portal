@@ -116,8 +116,8 @@ export default async function Expenditure({
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
         {anyMissing ? (
           <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
-            Purchase orders are not set up on this database, so these figures cover vouchers only.
-            Run <code className="font-mono">supabase/migration.sql</code> and reload.
+            Purchase orders are not switched on yet, so these figures cover vouchers and food
+            only. Ask whoever maintains the portal to enable them.
           </p>
         ) : null}
 

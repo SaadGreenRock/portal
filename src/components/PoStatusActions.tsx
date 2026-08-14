@@ -40,18 +40,23 @@ export default function PoStatusActions({
 }) {
   const [pending, startTransition] = useTransition();
   const [armed, setArmed] = useState<PoStatus | null>(null);
+  /** Which step is running, so the progress text lands on the button that was pressed. */
+  const [running, setRunning] = useState<PoStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   function go(to: PoStatus) {
     setError(null);
     setArmed(null);
+    setRunning(to);
     startTransition(async () => {
       try {
         await setStatus(to);
         router.refresh();
       } catch {
         setError(`Could not move this order to ${PO_STATUS_LABELS[to]}.`);
+      } finally {
+        setRunning(null);
       }
     });
   }
@@ -92,7 +97,10 @@ export default function PoStatusActions({
             onClick={() => (step.confirm ? setArmed(step.to) : go(step.to))}
             className={`btn ${step.primary ? "btn-primary" : "btn-ghost"}`}
           >
-            {pending ? "Working…" : step.label}
+            {/* Only the pressed button reports progress. Relabelling all of
+                them suggested three things were happening and hid which one
+                had actually been chosen. */}
+            {running === step.to ? "Working…" : step.label}
           </button>
         ),
       )}

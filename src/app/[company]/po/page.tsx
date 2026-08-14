@@ -8,6 +8,9 @@ import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { dueIn } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 
+/** How many open orders the screen will show before it says it is holding some back. */
+const OPEN_LIMIT = 200;
+
 /**
  * The working set: every order that is still a draft or still out with a vendor.
  *
@@ -26,10 +29,13 @@ export default async function OpenPurchaseOrders({
 
   const db = await store();
   const listed = await tryTable(() =>
-    db.searchPos({ company: company.slug, status: "open", limit: 200 }),
+    db.searchPos({ company: company.slug, status: "open", limit: OPEN_LIMIT }),
   );
   if (!listed.ok) return <ModuleUnavailable module="Purchase Orders" />;
-  const { rows } = listed.value;
+  const { rows, total } = listed.value;
+  // A cap that hides rows without saying so reads as a complete list. It has
+  // never bitten at this volume, and it must announce itself on the day it does.
+  const capped = total > rows.length;
 
   const ranked = [...rows].sort((a, b) => urgency(a) - urgency(b));
 
@@ -57,6 +63,16 @@ export default async function OpenPurchaseOrders({
         </Link>
       </div>
 
+      {capped ? (
+        <p className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900">
+          Showing the {rows.length} most urgent of {total} open orders. Use{" "}
+          <Link href={`/${company.slug}/po/history`} className="font-semibold underline">
+            History
+          </Link>{" "}
+          to search all of them.
+        </p>
+      ) : null}
+
       {rows.length > 0 ? (
         <dl className="card mb-5 grid grid-cols-2 divide-y divide-ink-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <Stat label="Drafts" value={String(drafts)} />
@@ -81,7 +97,7 @@ export default async function OpenPurchaseOrders({
             Every {company.name} purchase order has been closed or cancelled.
           </p>
           <Link href={`/${company.slug}/po/new`} className="btn btn-primary mt-5">
-            Raise a purchase order
+            New purchase order
           </Link>
         </div>
       ) : (

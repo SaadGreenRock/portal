@@ -7,6 +7,9 @@ import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { dueIn } from "@/lib/format";
 
+/** How many open requests the screen will show before it says it is holding some back. */
+const OPEN_LIMIT = 200;
+
 /**
  * The working set: every request still a draft or still out with vendors.
  *
@@ -24,10 +27,12 @@ export default async function OpenRequests({
 
   const db = await store();
   const listed = await tryTable(() =>
-    db.searchRfqs({ company: company.slug, status: "open", limit: 200 }),
+    db.searchRfqs({ company: company.slug, status: "open", limit: OPEN_LIMIT }),
   );
   if (!listed.ok) return <ModuleUnavailable module="Quotations" />;
-  const { rows } = listed.value;
+  const { rows, total } = listed.value;
+  // See the note on the purchase order list: a silent cap reads as a full list.
+  const capped = total > rows.length;
 
   const ranked = [...rows].sort((a, b) => urgency(a) - urgency(b));
   const drafts = rows.filter((r) => r.status === "draft").length;
@@ -36,15 +41,25 @@ export default async function OpenRequests({
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[20px] font-bold tracking-tight">Open requests</h1>
+          <h1 className="text-[20px] font-bold tracking-tight">Open quotation requests</h1>
           <p className="mt-1 text-[14px] text-ink-soft">
             Drafts and requests still out with vendors. Soonest deadline first.
           </p>
         </div>
         <Link href={`/${company.slug}/rfq/new`} className="btn btn-primary">
-          New request
+          New quotation request
         </Link>
       </div>
+
+      {capped ? (
+        <p className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900">
+          Showing the {rows.length} most urgent of {total} open requests. Use{" "}
+          <Link href={`/${company.slug}/rfq/history`} className="font-semibold underline">
+            History
+          </Link>{" "}
+          to search all of them.
+        </p>
+      ) : null}
 
       {rows.length > 0 ? (
         <dl className="card mb-5 grid grid-cols-2 divide-y divide-ink-line sm:divide-x sm:divide-y-0">
@@ -60,7 +75,7 @@ export default async function OpenRequests({
             Every {company.name} request has been closed or cancelled.
           </p>
           <Link href={`/${company.slug}/rfq/new`} className="btn btn-primary mt-5">
-            Raise a request
+            New quotation request
           </Link>
         </div>
       ) : (
