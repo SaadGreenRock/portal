@@ -11,12 +11,37 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+/**
+ * Day names, indexed the way `Date.getDay()` counts them — 0 Sunday.
+ *
+ * Here rather than in calendar.ts, beside the months, because they are the same
+ * kind of thing: the words this portal uses for dates. The calendar rotates them
+ * into whichever day its week starts on.
+ */
+export const DAY_NAMES = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+
 /** "2026-07-31" → "31 July 2026", matching how the documents are dated by hand. */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
   return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+/**
+ * "2026-08-14" → "Friday, 14 August 2026" — the day named, then the date.
+ *
+ * Built from the date's own numbers at local midnight, the same way `parseIso`
+ * below does, so the weekday belongs to the date as written rather than to
+ * whichever side of midnight UTC the reader happens to be on.
+ */
+export function formatDayDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return formatDate(iso);
+  return `${DAY_NAMES[new Date(y, m - 1, d).getDay()]}, ${formatDate(iso)}`;
 }
 
 /**

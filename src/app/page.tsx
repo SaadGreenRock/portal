@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import LockButton from "@/components/LockButton";
+import PortalClock from "@/components/PortalClock";
 import ThemeToggle from "@/components/ThemeToggle";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
@@ -11,37 +13,35 @@ import { summarise } from "@/lib/spend/types";
 /**
  * Landing screen. Choosing a company is the top-level act — the two workspaces
  * share nothing downstream, so this is a fork in the road rather than a filter.
+ *
+ * Behind the password, like every other screen. It used to be in front of it,
+ * showing the two cards to anyone and sending them to the lock screen on the way
+ * through — which meant picking a company, being asked for a password, landing
+ * back here, and picking the same company a second time. The fork is only worth
+ * offering to somebody who can actually walk down either road.
  */
 export default async function Landing() {
-  const authed = await isAuthenticated();
+  if (!(await isAuthenticated())) redirect("/login");
+
+  const db = await store();
+  const now = new Date();
 
   // Outstanding work is the one thing worth surfacing before you pick: which
   // workspace has vouchers waiting on a signed scan, and which has orders still
   // out with a vendor.
-  const counts = authed
-    ? await (async () => {
-        const db = await store();
-        const entries = await Promise.all(
-          COMPANY_LIST.map(
-            async (c) =>
-              [
-                c.slug,
-                {
-                  vouchers: await db.counts(c.slug),
-                  // Tolerated: an unmigrated purchase order module must not
-                  // stop the landing page from listing the companies.
-                  po: await tryTable(() => db.poCounts(c.slug)),
-                },
-              ] as const,
-          ),
-        );
-        return Object.fromEntries(entries);
-      })()
-    : null;
+  const cards = await Promise.all(
+    COMPANY_LIST.map(async (company) => ({
+      company,
+      vouchers: await db.counts(company.slug),
+      // Tolerated: an unmigrated purchase order module must not stop the landing
+      // page from listing the companies.
+      po: await tryTable(() => db.poCounts(company.slug)),
+    })),
+  );
 
   // Not per company: food belongs to neither. Tolerated for the same reason as
   // the orders above — a missing table must not blank the landing page.
-  const food = authed ? await tryTable(async () => (await store()).foodCounts()) : null;
+  const food = await tryTable(() => db.foodCounts());
 
   /**
    * The combined figure, on the card rather than behind it.
@@ -54,43 +54,46 @@ export default async function Landing() {
    * nothing and the rest of the figure still shows, which is the same bargain
    * the report makes.
    */
-  const spend = authed
-    ? await (async () => {
-        const db = await store();
-        const parts = await Promise.all([
-          ...COMPANY_LIST.map((c) => tryTable(() => db.spendRows(c.slug))),
-          tryTable(() => db.foodSpendRows()),
-        ]);
-        return summarise(parts.flatMap((p) => (p.ok ? p.value : [])));
-      })()
-    : null;
+  const spend = summarise(
+    (
+      await Promise.all([
+        ...COMPANY_LIST.map((c) => tryTable(() => db.spendRows(c.slug))),
+        tryTable(() => db.foodSpendRows()),
+      ])
+    ).flatMap((p) => (p.ok ? p.value : [])),
+  );
 
   return (
     <>
       {/* This is the screen unlocking always lands on, so Lock lives here too
           — the same button, in the same corner, wherever it was pressed from.
-          The bar itself is not conditional, because the theme control belongs to
-          whoever is looking at the screen rather than to whoever is signed in:
-          somebody who keeps their machine dark should not have to unlock the
-          portal first to stop it glaring at them. */}
+          The theme control sits beside it here as everywhere else; before
+          unlocking it is on the lock screen instead, which is now the first
+          thing anyone sees. */}
       <div className="sticky top-0 z-10 flex justify-end gap-1 border-b border-ink-line bg-card px-5 py-2.5">
         <ThemeToggle />
-        {authed ? <LockButton /> : null}
+        <LockButton />
       </div>
 
       <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
-        <header className="mb-10">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
-            Company Portal
-          </h1>
-          <p className="mt-2 text-[15px] text-ink-soft">
-            Choose a company to open its workspace.
-          </p>
+        {/* The clock sits opposite the title rather than under it: the heading
+            says where you are, and this says when, and neither is a footnote to
+            the other. It wraps underneath on a phone. */}
+        <header className="mb-10 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+          <div>
+            <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
+              Company Portal
+            </h1>
+            <p className="mt-2 text-[15px] text-ink-soft">
+              Choose a company to open its workspace.
+            </p>
+          </div>
+
+          <PortalClock iso={now.toISOString()} offsetMinutes={now.getTimezoneOffset()} />
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {COMPANY_LIST.map((company) => {
-            const c = counts?.[company.slug];
+          {cards.map(({ company, vouchers, po }) => {
             return (
               <Link
                 key={company.slug}
@@ -98,7 +101,7 @@ export default async function Landing() {
                 // company says which company, not which document — and whoever
                 // is covering the desk this week needs to see what is waiting
                 // before being handed something to type into.
-                href={authed ? `/${company.slug}` : "/login"}
+                href={`/${company.slug}`}
                 className="card card-link group flex flex-col gap-5 p-6"
               >
                 {/* Neither logo is dark — Green Rock's is white, Sportech's is
@@ -132,114 +135,101 @@ export default async function Landing() {
                   </div>
                 </div>
 
-                {c ? (
-                  <div className="space-y-1 text-[13px]">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span
-                        className={
-                          c.vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
-                        }
-                      >
-                        {c.vouchers.pending} awaiting signature
-                      </span>
-                      <span className="mono text-ink-soft">{c.vouchers.total}</span>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span
-                        className={
-                          c.po.ok && c.po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
-                        }
-                      >
-                        {c.po.ok
-                          ? `${c.po.value.open} open ${c.po.value.open === 1 ? "order" : "orders"}`
-                          : "purchase orders not set up"}
-                      </span>
-                      <span className="mono text-ink-soft">{c.po.ok ? c.po.value.total : "—"}</span>
-                    </div>
+                <div className="space-y-1 text-[13px]">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span
+                      className={
+                        vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
+                      }
+                    >
+                      {vouchers.pending} awaiting signature
+                    </span>
+                    <span className="mono text-ink-soft">{vouchers.total}</span>
                   </div>
-                ) : (
-                  <div className="text-[13px] text-ink-soft">Open workspace →</div>
-                )}
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span
+                      className={
+                        po.ok && po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
+                      }
+                    >
+                      {po.ok
+                        ? `${po.value.open} open ${po.value.open === 1 ? "order" : "orders"}`
+                        : "purchase orders not set up"}
+                    </span>
+                    <span className="mono text-ink-soft">{po.ok ? po.value.total : "—"}</span>
+                  </div>
+                </div>
               </Link>
             );
           })}
         </div>
 
         {/* Below the fork in the road, because neither belongs to one company. */}
-        {authed ? (
-          <>
-            <Link
-              href="/food"
-              className="card card-link mt-4 flex items-center gap-4 p-5"
-            >
-              <Tile
-                day={{ wash: "#f7f1e8", ink: "#8a6534" }}
-                night={{ wash: "#2a2015", ink: "#d9a76a" }}
-              >
-                <FoodMark />
-              </Tile>
-              <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
-                <div className="mt-0.5 text-[13px] text-ink-soft">
-                  Lunches, snacks and drinks. Both companies, one log.
-                </div>
-              </div>
-              {food?.ok && food.value.pending > 0 ? (
-                <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
-                  ₨ {formatMoney(food.value.totalOutstanding)}
-                  <span className="block text-[11.5px] font-normal text-ink-soft">
-                    {food.value.pending} owed
-                  </span>
-                </span>
-              ) : (
-                <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-              )}
-            </Link>
+        <Link href="/food" className="card card-link mt-4 flex items-center gap-4 p-5">
+          <Tile
+            day={{ wash: "#f7f1e8", ink: "#8a6534" }}
+            night={{ wash: "#2a2015", ink: "#d9a76a" }}
+          >
+            <FoodMark />
+          </Tile>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
+            <div className="mt-0.5 text-[13px] text-ink-soft">
+              Lunches, snacks and drinks. Both companies, one log.
+            </div>
+          </div>
+          {food.ok && food.value.pending > 0 ? (
+            <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
+              ₨ {formatMoney(food.value.totalOutstanding)}
+              <span className="block text-[11.5px] font-normal text-ink-soft">
+                {food.value.pending} owed
+              </span>
+            </span>
+          ) : (
+            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+          )}
+        </Link>
 
-            <Link
-              href="/spend"
-              className="card card-link mt-3 flex items-center gap-4 p-5"
-            >
-              <Tile
-                day={{ wash: "#eef4f4", ink: "#104751" }}
-                night={{ wash: "#152625", ink: "#4fb3a1" }}
-              >
-                <SpendMark />
-              </Tile>
-              <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-semibold">Expenditure</div>
-                <div className="mt-0.5 text-[13px] text-ink-soft">
-                  Both companies together, and each on its own.
-                </div>
-              </div>
-              {/* Every currency, never summed across them — the one rule the
-                  report is built on, which a single figure here would break. */}
-              {spend && spend.byCurrency.length > 0 ? (
-                <span className="shrink-0 text-right">
-                  {spend.byCurrency.map((t) => (
-                    <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
-                      {t.currency} {formatMoney(t.total, t.currency)}
-                    </span>
-                  ))}
-                  <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
-                    all time
-                  </span>
+        <Link href="/spend" className="card card-link mt-3 flex items-center gap-4 p-5">
+          <Tile
+            day={{ wash: "#eef4f4", ink: "#104751" }}
+            night={{ wash: "#152625", ink: "#4fb3a1" }}
+          >
+            <SpendMark />
+          </Tile>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold">Expenditure</div>
+            <div className="mt-0.5 text-[13px] text-ink-soft">
+              Both companies together, and each on its own.
+            </div>
+          </div>
+          {/* Every currency, never summed across them — the one rule the report
+              is built on, which a single figure here would break. */}
+          {spend.byCurrency.length > 0 ? (
+            <span className="shrink-0 text-right">
+              {spend.byCurrency.map((t) => (
+                <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
+                  {t.currency} {formatMoney(t.total, t.currency)}
                 </span>
-              ) : (
-                <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-              )}
-            </Link>
-            {/* Last, and quiet. Somebody who runs this every week never needs
-                it; somebody covering the desk for a fortnight needs it on the
-                first screen, with nobody to ask. */}
-            <Link
-              href="/help"
-              className="mt-5 block text-[13px] text-ink-soft underline underline-offset-2 hover:text-ink"
-            >
-              New to this? How the portal works →
-            </Link>
-          </>
-        ) : null}
+              ))}
+              <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
+                all time
+              </span>
+            </span>
+          ) : (
+            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+          )}
+        </Link>
+
+        {/* Last, and quiet. Somebody who runs this every week never needs it;
+            somebody covering the desk for a fortnight needs it on the first
+            screen, with nobody to ask. */}
+        <Link
+          href="/help"
+          className="mt-5 block text-[13px] text-ink-soft underline underline-offset-2 hover:text-ink"
+        >
+          New to this? How the portal works →
+        </Link>
       </main>
     </>
   );

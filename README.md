@@ -44,6 +44,19 @@ Requires Node 20+. Nothing else — no Chromium, no system packages.
 
 ## Getting around
 
+The password comes first. Every address in the portal, `/` included, sends you to
+the lock screen until you are through it, and unlocking lands on the **company
+picker** — so the order is one password, then one choice, then work. It used to be
+the other way round on the first screen, which meant picking a company, being
+asked for the password, arriving back at the picker and picking the same company
+again.
+
+The picker carries the date, the day and the time, opposite the title. That is
+there because nearly everything in the portal is dated: a new voucher arrives with
+today already in the date field, and the number it is about to be given has
+today's month inside it. The clock shown is the one the portal dates documents by
+— see [the note on where "today" comes from](#where-today-comes-from).
+
 Opening a company lands on its **Overview**: what needs attention today, and the
 way into each module. It is not a menu — the module switcher is on every screen
 anyway, so a page that only listed the modules would not be worth the click. It
@@ -483,6 +496,27 @@ Numbers are assigned when the record is created and are never reused or
 renumbered. A unique database constraint on `(company, period, seq)` — or
 `(period, seq)` for food — is what enforces that, so two simultaneous creates
 can't collide.
+
+### Where "today" comes from
+
+The `202608` inside a number is the month of the **server's local time**
+(`periodOf` in `src/lib/db/shared.ts`), and so is the date the new-voucher form
+arrives pre-filled with. Not UTC, deliberately: a UTC date would print 31 July
+beside a number reading `202608` for anything created in the evening east of
+Greenwich.
+
+Which makes the server's timezone load-bearing, and **nothing in this repo sets
+it**. Run locally, "the server" is the machine on the desk, so its clock is the
+operator's clock and the two agree. Deployed to Vercel, a function runs in **UTC**
+unless told otherwise — five hours behind Karachi — so a voucher created between
+midnight and 5am carries the previous day, and one created in those hours on the
+1st of a month carries the previous *month* in its number, permanently.
+
+If the portal is deployed, set `TZ` to the timezone the desk is actually in
+(`TZ=Asia/Karachi`) as a project environment variable. The clock on the company
+picker is the same clock, which is the useful part: if the deployed portal shows a
+time nobody recognises, that is visible on the way in rather than discovered later
+in a number that cannot be changed.
 
 ## Deleting
 

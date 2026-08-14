@@ -11,7 +11,7 @@
  * numbers into it.
  */
 
-import { formatMonth } from "@/lib/format";
+import { DAY_NAMES, formatMonth } from "@/lib/format";
 
 /**
  * Which day a week starts on: 0 Sunday … 6 Saturday.
@@ -21,10 +21,6 @@ import { formatMonth } from "@/lib/format";
  * Change this one number and the headers and every grid follow.
  */
 export const WEEK_STARTS_ON = 1;
-
-const DAY_NAMES = [
-  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
-];
 
 /** The seven column headers, already rotated into `WEEK_STARTS_ON` order. */
 export const WEEKDAYS: Array<{ full: string; short: string }> = Array.from(
