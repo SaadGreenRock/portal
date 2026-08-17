@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import HeaderCalendar from "@/components/HeaderCalendar";
 import { wallClock } from "@/lib/clock";
-import { dayName, formatDayMonth } from "@/lib/format";
+import { dayName, formatDate, formatDayMonth } from "@/lib/format";
 
 /**
  * The time and the date, in the header.
@@ -28,6 +29,13 @@ import { dayName, formatDayMonth } from "@/lib/format";
  * It ticks all the same: the instant comes from the server and the browser
  * advances it. A clock that stopped the moment the page rendered would be worse
  * than no clock, because it would look live.
+ *
+ * Pressing it opens the month it is sitting in — see `HeaderCalendar`. The
+ * calendar hangs off the clock rather than living anywhere of its own because it
+ * is the same question asked one step further: the clock says which day it is,
+ * and the grid says where that day falls. Nothing else in the portal is on every
+ * screen to hang it from, and a calendar worth having is one you do not have to
+ * navigate to.
  */
 export default function PortalClock({ iso }: { iso: string }) {
   const serverMs = Date.parse(iso);
@@ -35,6 +43,12 @@ export default function PortalClock({ iso }: { iso: string }) {
   // Seeded from the server's instant, so the first paint is already right and
   // there is nothing for hydration to disagree with.
   const [ms, setMs] = useState(serverMs);
+  const [open, setOpen] = useState(false);
+
+  // Wraps the button and the panel both, so a press inside the calendar is not
+  // mistaken for a press outside it.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // How far this browser's clock is from the server's, measured once. Every
@@ -60,30 +74,95 @@ export default function PortalClock({ iso }: { iso: string }) {
     return () => window.clearTimeout(timer);
   }, [serverMs]);
 
+  /**
+   * The two ways out of an open calendar, bound only while one is open.
+   *
+   * `pointerdown` rather than `click`, so the panel is gone by the time whatever
+   * was pressed underneath it reacts — closing on `click` leaves the calendar
+   * standing over a button for the length of the press, which reads as the press
+   * having missed.
+   *
+   * Escape puts focus back on the clock rather than leaving it on a panel that
+   * no longer exists, which would otherwise drop the keyboard back to the top of
+   * the document.
+   */
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   // How the time is written is `clock.ts`'s to decide, so this reads the same as
   // every "created at" on a record. A portal that says 7:49 PM in one place and
   // 19:49 in another is two portals.
   const { date, time } = wallClock(new Date(ms));
 
   return (
-    // Two lines at the same sizes the workspace header already sets its company
-    // name and subtitle in, so the clock reads as part of that furniture rather
-    // than as something parked next to it.
-    <div className="shrink-0 text-right leading-tight">
-      {/* mono for the tabular figures: without them the line shifts sideways
-          every time a 1 ticks over to a 2. */}
-      <div className="mono text-[14px] font-semibold">{time}</div>
-      <time dateTime={date} className="block text-[11.5px] text-ink-soft">
-        {/* On a phone this row also holds a logo, the company name and two
-            buttons, and something has to give. The weekday and the year go: the
-            day and month are what a document is dated with, and they stay at
-            every width. Split rather than written out twice, so a screen reader
-            reads one date instead of two — the full one is on `dateTime`
-            regardless. */}
-        <span className="hidden sm:inline">{dayName(date)}, </span>
-        {formatDayMonth(date)}
-        <span className="hidden sm:inline"> {date.slice(0, 4)}</span>
-      </time>
+    // `relative` so the calendar can hang from the clock itself rather than from
+    // whichever header it happens to be sitting in — five of them, all shaped
+    // differently, none of which should have to know about it.
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((was) => !was)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        // The date in full and unabbreviated, whatever the width has forced the
+        // visible line down to, and what pressing will do — so the control says
+        // the same thing to a screen reader at every size.
+        aria-label={`${time}, ${dayName(date)}, ${formatDate(date)}. ${
+          open ? "Hide" : "Show"
+        } the calendar.`}
+        // The whole clock is the target, not the date line alone. That line is
+        // 11.5px of grey — a thumb on a phone would be aiming at three
+        // millimetres of text — and the time above it is the same fact one unit
+        // finer, so splitting the two into a live half and a dead half would be
+        // an invitation to press the wrong one.
+        //
+        // Padded like the theme and lock buttons beside it, which is what makes
+        // it read as pressable at all: until now the clock was the one thing in
+        // that corner with nothing to press. Two lines at the same sizes the
+        // workspace header already sets its company name and subtitle in, so it
+        // still reads as part of that furniture rather than as a control parked
+        // next to it.
+        className="block rounded-lg px-2 py-1 text-right leading-tight transition-colors
+                   hover:bg-wash-strong aria-expanded:bg-wash-strong"
+      >
+        {/* mono for the tabular figures: without them the line shifts sideways
+            every time a 1 ticks over to a 2. */}
+        <div className="mono text-[14px] font-semibold">{time}</div>
+        {/* aria-hidden: the button's own label already reads the date out whole,
+            and reading it a second time here would say it twice. */}
+        <time dateTime={date} aria-hidden className="block text-[11.5px] text-ink-soft">
+          {/* On a phone this row also holds a logo, the company name and two
+              buttons, and something has to give. The weekday and the year go:
+              the day and month are what a document is dated with, and they stay
+              at every width. */}
+          <span className="hidden sm:inline">{dayName(date)}, </span>
+          {formatDayMonth(date)}
+          <span className="hidden sm:inline"> {date.slice(0, 4)}</span>
+        </time>
+      </button>
+
+      {/* Unmounted rather than hidden, which is what gives the panel its lack of
+          memory — see the note on it. */}
+      {open ? <HeaderCalendar today={date} /> : null}
     </div>
   );
 }
