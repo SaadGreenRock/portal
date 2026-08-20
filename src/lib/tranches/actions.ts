@@ -7,7 +7,6 @@ import { store } from "../db";
 import { CURRENCIES } from "../money";
 import { text } from "../po/parse";
 import {
-  allocationState,
   isSourceKind,
   paisa,
   planSplit,
@@ -174,22 +173,29 @@ export async function reopenTranche(id: string): Promise<void> {
   redirect(`/funding/${id}`);
 }
 
-export async function deleteTranche(id: string): Promise<void> {
+/**
+ * Bins a tranche, allocations and all.
+ *
+ * This used to refuse while the bucket still held allocations, on the theory
+ * that deleting it would leave its debits pointing at nothing. That was wrong
+ * twice over. It was wrong about the data: a deleted tranche is already absent
+ * from `fundingLedger`, and its debits are already absent from `allocatable`,
+ * so its expenses go straight back into the work queue and no balance anywhere
+ * is affected. And it was wrong about the operator: a bucket you had allocated
+ * anything to could never be deleted, and the reason never reached the screen —
+ * server action messages are redacted in production, so the refusal arrived as
+ * "Could not delete. Try again." with nothing to act on.
+ *
+ * The allocations are deliberately kept rather than released. Because the row is
+ * only soft-deleted, keeping them is what makes Restore put the bucket back
+ * exactly as it was, down to the last debit.
+ */
+export async function deleteTranche(id: string): Promise<{ error: string } | void> {
   await requireAuth();
   const db = await store();
-  // Refused while it still holds allocations, unlike a voucher, which can be
-  // binned whenever. Deleting a bucket hides money that was genuinely received
-  // and leaves its debits pointing at nothing — and because the row is only
-  // soft-deleted, the expenses would read as allocated while no bucket admits
-  // to holding them.
-  const allocations = await db.listAllocations(id);
-  if (allocations.length > 0) {
-    throw new Error(
-      `This tranche has ${allocations.length} ${
-        allocations.length === 1 ? "allocation" : "allocations"
-      } against it. Remove them first, or close the tranche instead.`,
-    );
-  }
+
+  const tranche = await db.getTranche(id);
+  if (!tranche) return { error: "That tranche no longer exists." };
 
   await db.softDeleteTranche(id);
   revalidateFunding(id);
@@ -463,26 +469,38 @@ export async function updateDirect(id: string, form: FormData): Promise<void> {
   redirect(`/funding/expenses/${id}`);
 }
 
-export async function deleteDirect(id: string): Promise<void> {
+/**
+ * Bins a direct entry, releasing whatever it had drawn from its tranches.
+ *
+ * The opposite of a tranche's delete, and for a reason worth stating. There, the
+ * bucket is what goes away and its debits are kept so Restore can put it back
+ * intact. Here the *expense* is what goes away, and a debit is a statement about
+ * where an expense's money came from — with the expense gone the statement has
+ * nothing left to be about, and leaving it would draw a bucket down for
+ * something that appears nowhere.
+ *
+ * So the money goes back to the tranche, and restoring the entry brings it back
+ * unallocated, into the work queue, to be attributed again.
+ *
+ * This used to refuse outright while the entry was allocated, which made an
+ * entry logged from inside a tranche impossible to delete at all — it is
+ * allocated by the act of creating it there. The refusal was also invisible, for
+ * the reason `deleteTranche` above sets out.
+ */
+export async function deleteDirect(id: string): Promise<{ error: string } | void> {
   await requireAuth();
   const db = await store();
 
-  // An allocated entry cannot be binned without unpicking where its money came
-  // from first: the row is only soft-deleted, so its allocations would go on
-  // drawing down a bucket for an expense that no longer appears anywhere.
-  const items = await db.allocatable();
-  const item = items.find((i) => i.kind === "direct" && i.id === id);
-  if (item && allocationState(item) !== "none") {
-    throw new Error(
-      `This entry is allocated to ${item.placements
-        .map((p) => p.trancheNo)
-        .join(" and ")}. Remove the allocation first.`,
-    );
-  }
+  const entry = await db.getDirect(id);
+  if (!entry) return { error: "That entry no longer exists." };
 
+  const freed = await db.releaseSource("direct", id);
   await db.softDeleteDirect(id);
+
   revalidateFunding();
   revalidatePath(`/funding/expenses/${id}`);
+  // The buckets that just got their money back.
+  for (const trancheId of freed) revalidatePath(`/funding/${trancheId}`);
   redirect("/funding/expenses");
 }
 

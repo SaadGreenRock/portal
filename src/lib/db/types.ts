@@ -42,6 +42,7 @@ import type {
   DirectExpense,
   DirectFields,
   NewAllocation,
+  SourceKind,
   Tranche,
   TrancheFields,
 } from "../tranches/types";
@@ -458,6 +459,23 @@ export interface TrancheStore {
 
   /** Removes a debit. The expense returns to the queue by that much. */
   removeAllocation(id: string): Promise<void>;
+
+  /**
+   * Removes every debit pointing at one expense, and reports which tranches got
+   * their money back.
+   *
+   * For deleting the expense itself. An allocation is a statement about where an
+   * expense's money came from, so when the expense goes the statements have
+   * nothing left to be about — leaving them behind would draw a bucket down for
+   * something that no longer appears anywhere.
+   *
+   * Deliberately not used when a *tranche* is deleted. That case needs the
+   * opposite: a tranche is only soft-deleted, and its allocations are already
+   * invisible to `allocatable` and `fundingLedger` while it is gone, so keeping
+   * them is what makes restoring the tranche put everything back exactly as it
+   * was.
+   */
+  releaseSource(sourceKind: SourceKind, sourceId: string): Promise<string[]>;
 
   /**
    * Every expense in the portal that can go in a bucket, with how much of it

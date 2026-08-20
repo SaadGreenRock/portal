@@ -9,16 +9,29 @@ import { useEffect, useRef, useState, useTransition } from "react";
  * on a phone is easy, and an inline confirm makes it obvious which record is
  * about to go. The second press is a different button in a different place, so
  * a double-tap can't sail straight through it.
+ *
+ * An action may *return* `{ error }` to explain a refusal, and should, in
+ * preference to throwing one. A thrown message is redacted in production — Next
+ * replaces it with a digest — so a server-side refusal reaches the operator as
+ * the generic fallback below, which tells them nothing and offers no way
+ * forward. A returned message survives.
  */
 export default function ConfirmDelete({
   action,
   subject,
   compact = false,
+  warning,
 }: {
-  action: () => Promise<void>;
+  /** Return `{ error }` rather than throwing, so the reason survives production. */
+  action: () => Promise<void | { error?: string } | null | undefined>;
   /** What is being deleted, named in the confirm prompt — a document number. */
   subject: string;
   compact?: boolean;
+  /**
+   * What deleting will also do, stated in the confirm rather than discovered
+   * afterwards. For a record whose deletion has a consequence elsewhere.
+   */
+  warning?: string;
 }) {
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -40,7 +53,13 @@ export default function ConfirmDelete({
     setError(null);
     startTransition(async () => {
       try {
-        await action();
+        const result = await action();
+        // A refusal the action chose to explain. On success it redirects or
+        // returns nothing, and this never runs.
+        if (result && typeof result === "object" && result.error) {
+          setError(result.error);
+          setArmed(false);
+        }
       } catch (e) {
         // A redirect inside a server action surfaces here as a thrown value;
         // it isn't a failure, so only report something that looks like one.
@@ -55,6 +74,17 @@ export default function ConfirmDelete({
 
   const size = compact ? "px-2.5 py-1.5 text-[12.5px]" : "px-3 py-2 text-[13px]";
 
+  // Shared by both states so a long explanation wraps instead of stretching the
+  // row it sits in.
+  const message = error ? (
+    <p
+      role="alert"
+      className="max-w-[24rem] text-right text-[12px] font-medium leading-snug text-red-700"
+    >
+      {error}
+    </p>
+  ) : null;
+
   if (!armed) {
     return (
       <div className="flex flex-col items-end gap-1">
@@ -66,37 +96,40 @@ export default function ConfirmDelete({
         >
           Delete
         </button>
-        {error ? (
-          <p role="alert" className="text-[12px] font-medium text-red-700">
-            {error}
-          </p>
-        ) : null}
+        {message}
       </div>
     );
   }
 
   return (
-    <div className="pop-in flex items-center gap-1.5 rounded-lg bg-red-50 px-2 py-1.5">
-      <span className="whitespace-nowrap text-[12.5px] font-medium text-red-900">
-        Delete {subject}?
-      </span>
-      <button
-        ref={confirmRef}
-        type="button"
-        onClick={confirm}
-        disabled={pending}
-        className={`btn btn-danger ${size}`}
-      >
-        {pending ? "Deleting…" : "Delete"}
-      </button>
-      <button
-        type="button"
-        onClick={() => setArmed(false)}
-        disabled={pending}
-        className={`btn btn-quiet ${size} text-red-900`}
-      >
-        Cancel
-      </button>
+    <div className="pop-in flex flex-col items-end gap-1.5 rounded-lg bg-red-50 px-2.5 py-2">
+      <div className="flex items-center gap-1.5">
+        <span className="whitespace-nowrap text-[12.5px] font-medium text-red-900">
+          Delete {subject}?
+        </span>
+        <button
+          ref={confirmRef}
+          type="button"
+          onClick={confirm}
+          disabled={pending}
+          className={`btn btn-danger ${size}`}
+        >
+          {pending ? "Deleting…" : "Delete"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setArmed(false)}
+          disabled={pending}
+          className={`btn btn-quiet ${size} text-red-900`}
+        >
+          Cancel
+        </button>
+      </div>
+      {warning ? (
+        <p className="max-w-[24rem] text-right text-[11.5px] leading-snug text-red-900/80">
+          {warning}
+        </p>
+      ) : null}
     </div>
   );
 }

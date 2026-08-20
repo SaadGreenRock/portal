@@ -53,9 +53,11 @@ export default async function TrancheRecord({ params }: { params: Promise<{ id: 
   return (
     <>
       {tranche.deletedAt ? (
-        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] text-amber-900">
-          This tranche is deleted. Its number stays spent, and nothing that was allocated out of
-          it has been touched.
+        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
+          This tranche is deleted. Its number stays spent, and it counts towards nothing — the{" "}
+          {allocations.length} {allocations.length === 1 ? "expense" : "expenses"} below have gone
+          back into the work queue as unallocated. The allocations themselves are kept, so
+          restoring the tranche puts every one of them back exactly as it was.
         </div>
       ) : null}
 
@@ -89,7 +91,21 @@ export default async function TrancheRecord({ params }: { params: Promise<{ id: 
               <Link href={`/funding/${tranche.id}/edit`} className="btn btn-ghost">
                 Edit
               </Link>
-              <ConfirmDelete action={drop} subject={tranche.trancheNo} />
+              <ConfirmDelete
+                action={drop}
+                subject={tranche.trancheNo}
+                // Written out as two whole sentences rather than assembled
+                // from fragments: the singular and plural readings differ in
+                // three places, and stitching them produced "that expense
+                // return to the queue".
+                warning={
+                  allocations.length === 0
+                    ? undefined
+                    : allocations.length === 1
+                      ? "Its one allocation goes with it, and that expense returns to the queue. Restoring the tranche puts it back."
+                      : `Its ${allocations.length} allocations go with it, and those expenses return to the queue. Restoring the tranche puts them back.`
+                }
+              />
             </>
           )}
           <Link href="/funding" className="btn btn-ghost">

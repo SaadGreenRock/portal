@@ -39,6 +39,7 @@ import {
   type AllocatableItem,
   type Allocation,
   type Debit,
+  type SourceKind,
   type DirectExpense,
   type DirectFields,
   type NewAllocation,
@@ -2361,6 +2362,29 @@ export const sqliteStore: Store = {
     // no number of its own and is nobody's record — it is a statement about
     // where money came from, and an incorrect one should leave no trace.
     connect().prepare(`DELETE FROM tranche_allocations WHERE id = ?`).run(id);
+  },
+
+  async releaseSource(sourceKind: SourceKind, sourceId: string): Promise<string[]> {
+    const handle = connect();
+
+    // The affected tranches are read before the delete, not after, so the caller
+    // can revalidate the pages whose balances just changed.
+    const release = handle.transaction((): string[] => {
+      const rows = handle
+        .prepare(
+          `SELECT DISTINCT tranche_id FROM tranche_allocations
+            WHERE source_kind = ? AND source_id = ?`,
+        )
+        .all(sourceKind, sourceId) as Array<{ tranche_id: string }>;
+
+      handle
+        .prepare(`DELETE FROM tranche_allocations WHERE source_kind = ? AND source_id = ?`)
+        .run(sourceKind, sourceId);
+
+      return rows.map((r) => r.tranche_id);
+    });
+
+    return release();
   },
 
   async allocatable(): Promise<AllocatableItem[]> {

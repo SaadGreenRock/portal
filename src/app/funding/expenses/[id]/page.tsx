@@ -37,8 +37,10 @@ export default async function DirectRecord({ params }: { params: Promise<{ id: s
   return (
     <>
       {entry.deletedAt ? (
-        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] text-amber-900">
-          This entry is deleted. Its number stays spent, so nothing else can take it.
+        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
+          This entry is deleted, and whatever it had drawn from a tranche has gone back. Its
+          number stays spent, so nothing else can take it. Restoring it brings the entry back
+          unallocated, into the queue, to be attributed again.
         </div>
       ) : null}
 
@@ -57,7 +59,17 @@ export default async function DirectRecord({ params }: { params: Promise<{ id: s
               </button>
             </form>
           ) : (
-            <ConfirmDelete action={drop} subject={entry.entryNo} />
+            <ConfirmDelete
+              action={drop}
+              subject={entry.entryNo}
+              warning={
+                item && item.placements.length > 0
+                  ? `${entry.currency} ${formatMoney(entry.amount, entry.currency)} goes back to ${item.placements
+                      .map((p) => p.trancheNo)
+                      .join(" and ")}.`
+                  : undefined
+              }
+            />
           )}
           <Link href="/funding/expenses" className="btn btn-ghost">
             ← Direct entries

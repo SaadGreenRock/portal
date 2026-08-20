@@ -37,6 +37,7 @@ import {
   type AllocatableItem,
   type Allocation,
   type Debit,
+  type SourceKind,
   type DirectExpense,
   type DirectFields,
   type NewAllocation,
@@ -1845,6 +1846,28 @@ export const supabaseStore: Store = {
     // where money came from, and an incorrect one should leave no trace.
     const { error } = await supabase().from(ALLOCATIONS).delete().eq("id", id);
     if (error) throw error;
+  },
+
+  async releaseSource(sourceKind: SourceKind, sourceId: string): Promise<string[]> {
+    const db = supabase();
+
+    // Read the affected tranches first, so the caller can revalidate the pages
+    // whose balances are about to change.
+    const affected = await db
+      .from(ALLOCATIONS)
+      .select("tranche_id")
+      .eq("source_kind", sourceKind)
+      .eq("source_id", sourceId);
+    if (affected.error) throw affected.error;
+
+    const { error } = await db
+      .from(ALLOCATIONS)
+      .delete()
+      .eq("source_kind", sourceKind)
+      .eq("source_id", sourceId);
+    if (error) throw error;
+
+    return [...new Set((affected.data ?? []).map((r) => String(r.tranche_id)))];
   },
 
   async allocatable(): Promise<AllocatableItem[]> {
