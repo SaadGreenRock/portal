@@ -7,6 +7,7 @@ import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { formatMoney } from "@/lib/money";
 import { summarise } from "@/lib/spend/types";
+import { stand, summariseFunding } from "@/lib/tranches/types";
 
 /**
  * Landing screen. Choosing a company is the top-level act — the two workspaces
@@ -59,6 +60,24 @@ export default async function Landing() {
       ])
     ).flatMap((p) => (p.ok ? p.value : [])),
   );
+
+  /**
+   * Money received from the investor and not yet spoken for.
+   *
+   * Deliberately this figure and not the work queue, which would be the more
+   * tempting one. The queue moves whenever a voucher is raised in either
+   * company, so keeping it fresh here would mean the two workspaces revalidating
+   * a page they otherwise know nothing about. What is unallocated in open
+   * tranches only ever changes when the funding section itself writes, so it can
+   * never go stale from activity elsewhere.
+   *
+   * Tolerated like the rest: an unmigrated funding table contributes nothing and
+   * the card still offers the way in.
+   */
+  const fundingResult = await tryTable(() => db.fundingLedger());
+  const funding = fundingResult.ok
+    ? summariseFunding(fundingResult.value.map((l) => stand(l.tranche, l.debits)))
+    : null;
 
   return (
     <>
@@ -208,6 +227,37 @@ export default async function Landing() {
           )}
         </Link>
 
+        <Link href="/funding" className="card card-link mt-3 flex items-center gap-4 p-5">
+          <Tile
+            day={{ wash: "#eef1f8", ink: "#2f4470" }}
+            night={{ wash: "#171d2b", ink: "#93aae0" }}
+          >
+            <FundingMark />
+          </Tile>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold">Funding &amp; tranches</div>
+            <div className="mt-0.5 text-[13px] text-ink-soft">
+              Dollars in, rupees out, and what each tranche paid for.
+            </div>
+          </div>
+          {/* What is left to spend, per currency — never summed across them,
+              the same rule the expenditure figure above follows. */}
+          {funding && funding.available.length > 0 ? (
+            <span className="shrink-0 text-right">
+              {funding.available.map((t) => (
+                <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
+                  {t.currency} {formatMoney(t.total, t.currency)}
+                </span>
+              ))}
+              <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
+                left to spend
+              </span>
+            </span>
+          ) : (
+            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+          )}
+        </Link>
+
         {/* Last, and quiet. Somebody who runs this every week never needs it;
             somebody covering the desk for a fortnight needs it on the first
             screen, with nobody to ask. */}
@@ -297,6 +347,24 @@ function FoodMark() {
       <path d="M9 10.5V21" />
       <path d="M17.5 21v-6.5" />
       <path d="M17.5 14.5c1.8 0 2.8-2 2.8-5.2S19.3 3 17.5 3s-2.8 3-2.8 6.3 1 5.2 2.8 5.2Z" />
+    </svg>
+  );
+}
+
+/**
+ * An arrow landing in an open tray — money arriving, rather than money counted.
+ *
+ * Deliberately not a coin or a currency glyph: a dollar sign would say which
+ * currency, and the whole subject of the section is that two are involved. The
+ * tray is open at the top because a tranche is a bucket that gets drawn down,
+ * not a sealed total.
+ */
+function FundingMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" {...strokes}>
+      <path d="M4 13.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-5.5" />
+      <path d="M12 3.5v8" />
+      <path d="M8.5 8l3.5 3.5L15.5 8" />
     </svg>
   );
 }

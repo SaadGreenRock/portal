@@ -29,21 +29,41 @@ import {
 } from "../rfq/types";
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
+import {
+  isSourceKind,
+  overAllocateMessage,
+  overdrawMessage,
+  paisa,
+  type AllocatableItem,
+  type Allocation,
+  type Debit,
+  type DirectExpense,
+  type DirectFields,
+  type NewAllocation,
+  type Tranche,
+  type TrancheFields,
+} from "../tranches/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
 import type { NewAsset, NewNotification, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
+  allocationColumns,
+  assembleAllocatable,
   denormalize,
   denormalizePo,
   denormalizeRfq,
+  directColumns,
+  directPayeesFrom,
   employeeKey,
   employeeProfilesFrom,
   foodColumns,
   foodNamesFrom,
   formatAssetNo,
+  formatDirectNo,
   formatFoodNo,
   formatNotifNo,
   formatPoNo,
   formatRfqNo,
+  formatTrancheNo,
   formatVoucherNo,
   holderColumns,
   IN_STOCK_COLUMNS,
@@ -51,23 +71,30 @@ import {
   periodOf,
   poStatusPatch,
   rfqStatusPatch,
+  rowToAllocation,
   rowToAsset,
+  rowToDirect,
   rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
   rowToNotification,
   rowToPo,
   rowToRfq,
+  rowToTranche,
   rowToVoucher,
+  trancheColumns,
   statusChangesDocument,
   vendorProfilesFrom,
+  type AllocationRow,
   type AssetRow,
+  type DirectRow,
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
   type NotificationRow,
   type PoRow,
   type RfqRow,
+  type TrancheRow,
   type VoucherRow,
 } from "./shared";
 
@@ -136,6 +163,9 @@ const HOLDINGS = "asset_holdings";
 const FOOD = "food_expenses";
 const SETTINGS = "company_settings";
 const NOTIFICATIONS = "notifications";
+const TRANCHES = "funding_tranches";
+const ALLOCATIONS = "tranche_allocations";
+const DIRECT = "tranche_expenses";
 
 /**
  * The one holding on an asset that has not been returned, if any.
@@ -1492,6 +1522,585 @@ export const supabaseStore: Store = {
         date: day(o.po_date as string | null, String(o.created_at)),
       })),
     ];
+  },
+
+  /* ---- investor funding -------------------------------------------------- */
+
+  async createTranche(fields: TrancheFields): Promise<Tranche> {
+    const db = supabase();
+
+    // UNIQUE(seq) does the real work, as with every other number in the portal:
+    // if two requests pick the same sequence one insert fails and we try the
+    // next. Deleted rows are counted, so a number already quoted in a statement
+    // to the investor is never reissued.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { data: highest, error: maxErr } = await db
+        .from(TRANCHES)
+        .select("seq")
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+      const now = new Date().toISOString();
+
+      const { data, error } = await db
+        .from(TRANCHES)
+        .insert({
+          id: newId(),
+          tranche_no: formatTrancheNo(seq),
+          seq,
+          created_at: now,
+          updated_at: now,
+          ...trancheColumns(fields),
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // 23505 = unique_violation -> somebody took this number; recompute.
+        if (error.code !== "23505" || attempt === 5) throw error;
+        continue;
+      }
+
+      return rowToTranche(data as TrancheRow);
+    }
+    throw new Error("Could not assign a tranche number after several attempts");
+  },
+
+  async getTranche(id) {
+    const { data, error } = await supabase()
+      .from(TRANCHES)
+      .select()
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? rowToTranche(data as TrancheRow) : null;
+  },
+
+  async updateTranche(id, fields: TrancheFields): Promise<Tranche> {
+    const { data, error } = await supabase()
+      .from(TRANCHES)
+      .update({ updated_at: new Date().toISOString(), ...trancheColumns(fields) })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToTranche(data as TrancheRow);
+  },
+
+  async setTrancheClosed(id, closed) {
+    const now = new Date().toISOString();
+    const { error } = await supabase()
+      .from(TRANCHES)
+      .update({ closed_at: closed ? now : null, updated_at: now })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async softDeleteTranche(id) {
+    const now = new Date().toISOString();
+    const { error } = await supabase()
+      .from(TRANCHES)
+      .update({ deleted_at: now, updated_at: now })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreTranche(id) {
+    const { error } = await supabase()
+      .from(TRANCHES)
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async fundingLedger(): Promise<Array<{ tranche: Tranche; debits: Debit[] }>> {
+    const db = supabase();
+
+    const [tranches, debits] = await Promise.all([
+      db
+        .from(TRANCHES)
+        .select()
+        .is("deleted_at", null)
+        .order("recv_date", { ascending: false })
+        .order("seq", { ascending: false }),
+      // Every debit in one request rather than one per bucket: two round trips
+      // whatever the number of tranches, and the grouping below costs nothing at
+      // this scale.
+      db.from(ALLOCATIONS).select("tranche_id, amount, source_kind").limit(20000),
+    ]);
+    if (tranches.error) throw tranches.error;
+    if (debits.error) throw debits.error;
+
+    const byTranche = new Map<string, Debit[]>();
+    for (const d of debits.data ?? []) {
+      const key = String(d.tranche_id);
+      const list = byTranche.get(key) ?? [];
+      list.push({
+        amount: Number(d.amount) || 0,
+        sourceKind: isSourceKind(d.source_kind) ? d.source_kind : "direct",
+      });
+      byTranche.set(key, list);
+    }
+
+    return (tranches.data ?? []).map((row) => ({
+      tranche: rowToTranche(row as TrancheRow),
+      debits: byTranche.get(String((row as TrancheRow).id)) ?? [],
+    }));
+  },
+
+  async listAllocations(trancheId): Promise<Allocation[]> {
+    const { data, error } = await supabase()
+      .from(ALLOCATIONS)
+      .select()
+      .eq("tranche_id", trancheId)
+      .order("source_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((r) => rowToAllocation(r as AllocationRow));
+  },
+
+  async allocate(rows: NewAllocation[]): Promise<void> {
+    if (rows.length === 0) return;
+    const db = supabase();
+    const now = new Date().toISOString();
+
+    // The two guards, checked before anything is written.
+    //
+    // Read-then-write rather than one transaction: PostgREST has no transaction
+    // to enrol these in without a stored function, and adding one would be
+    // another migration the operator has to remember. The window is between the
+    // check and the insert, and the portal has one operator at one desk — the
+    // same bargain the sequence allocators above already make. The insert is a
+    // single statement, so a split is still all-or-nothing.
+    const perTranche = new Map<string, number>();
+    const perSource = new Map<string, { requested: number; row: NewAllocation }>();
+
+    for (const r of rows) {
+      perTranche.set(r.trancheId, paisa(r.amount) + (perTranche.get(r.trancheId) ?? 0));
+      const key = `${r.sourceKind}:${r.sourceId}`;
+      const seen = perSource.get(key);
+      perSource.set(key, { requested: paisa(r.sourceAmount) + (seen?.requested ?? 0), row: r });
+    }
+
+    // Totalled per bucket and per expense first: a split of one voucher across
+    // two tranches has to be judged as one act, or each half passes on its own
+    // and the pair overdraws.
+    for (const [trancheId, requested] of perTranche) {
+      const bucket = await db
+        .from(TRANCHES)
+        .select("tranche_no, recv_amount, recv_currency")
+        .eq("id", trancheId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (bucket.error) throw bucket.error;
+      if (!bucket.data) throw new Error("That tranche no longer exists.");
+
+      const drawn = await db.from(ALLOCATIONS).select("amount").eq("tranche_id", trancheId);
+      if (drawn.error) throw drawn.error;
+
+      const total = (drawn.data ?? []).reduce((sum, r) => sum + paisa(Number(r.amount) || 0), 0);
+      const remaining = paisa(Number(bucket.data.recv_amount) || 0) - total;
+      if (requested > remaining) {
+        throw new Error(
+          overdrawMessage(
+            String(bucket.data.tranche_no),
+            String(bucket.data.recv_currency || "PKR"),
+            remaining / 100,
+            requested / 100,
+          ),
+        );
+      }
+    }
+
+    for (const { requested, row } of perSource.values()) {
+      // A document with no recorded total has no ceiling to check against —
+      // that is the point of letting a blank-amount voucher be attributed on
+      // the operator's word.
+      if (row.sourceTotal == null) continue;
+
+      const existing = await db
+        .from(ALLOCATIONS)
+        .select("source_amount")
+        .eq("source_kind", row.sourceKind)
+        .eq("source_id", row.sourceId);
+      if (existing.error) throw existing.error;
+
+      const already = (existing.data ?? []).reduce(
+        (sum, r) => sum + paisa(Number(r.source_amount) || 0),
+        0,
+      );
+      if (already + requested > paisa(row.sourceTotal)) {
+        throw new Error(
+          overAllocateMessage(
+            row.sourceRef,
+            row.sourceCurrency || "PKR",
+            row.sourceTotal,
+            already / 100,
+            requested / 100,
+          ),
+        );
+      }
+    }
+
+    const { error } = await db
+      .from(ALLOCATIONS)
+      .insert(
+        rows.map((r) => ({
+          id: newId(),
+          created_at: now,
+          updated_at: now,
+          ...allocationColumns(r),
+        })),
+      );
+    if (error) throw error;
+  },
+
+  async updateAllocation(id, amount, sourceAmount, note) {
+    const db = supabase();
+
+    const current = await db.from(ALLOCATIONS).select().eq("id", id).maybeSingle();
+    if (current.error) throw current.error;
+    if (!current.data) throw new Error("That allocation no longer exists.");
+    const row = current.data as AllocationRow;
+
+    const bucket = await db
+      .from(TRANCHES)
+      .select("tranche_no, recv_amount, recv_currency")
+      .eq("id", row.tranche_id)
+      .maybeSingle();
+    if (bucket.error) throw bucket.error;
+    if (!bucket.data) throw new Error("That tranche no longer exists.");
+
+    // Both guards again, with this row's own current figures excluded from the
+    // running totals — otherwise correcting a row downwards is refused for
+    // exceeding a balance it is itself the reason for.
+    const drawn = await db
+      .from(ALLOCATIONS)
+      .select("amount")
+      .eq("tranche_id", row.tranche_id)
+      .neq("id", id);
+    if (drawn.error) throw drawn.error;
+
+    const total = (drawn.data ?? []).reduce((sum, r) => sum + paisa(Number(r.amount) || 0), 0);
+    const remaining = paisa(Number(bucket.data.recv_amount) || 0) - total;
+    if (paisa(amount) > remaining) {
+      throw new Error(
+        overdrawMessage(
+          String(bucket.data.tranche_no),
+          String(bucket.data.recv_currency || "PKR"),
+          remaining / 100,
+          amount,
+        ),
+      );
+    }
+
+    if (row.source_total != null) {
+      const others = await db
+        .from(ALLOCATIONS)
+        .select("source_amount")
+        .eq("source_kind", row.source_kind)
+        .eq("source_id", row.source_id)
+        .neq("id", id);
+      if (others.error) throw others.error;
+
+      const already = (others.data ?? []).reduce(
+        (sum, r) => sum + paisa(Number(r.source_amount) || 0),
+        0,
+      );
+      if (already + paisa(sourceAmount) > paisa(Number(row.source_total))) {
+        throw new Error(
+          overAllocateMessage(
+            row.source_ref ?? "",
+            row.source_currency || "PKR",
+            Number(row.source_total),
+            already / 100,
+            sourceAmount,
+          ),
+        );
+      }
+    }
+
+    const { error } = await db
+      .from(ALLOCATIONS)
+      .update({
+        amount,
+        source_amount: sourceAmount,
+        // Kept consistent with the two amounts rather than left at whatever it
+        // was: a corrected pair with a stale rate is three numbers that no
+        // longer multiply together.
+        rate: sourceAmount > 0 ? amount / sourceAmount : 1,
+        note: note?.trim() || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async removeAllocation(id) {
+    // Hard delete, unlike everything else in the portal. An allocation carries
+    // no number of its own and is nobody's record — it is a statement about
+    // where money came from, and an incorrect one should leave no trace.
+    const { error } = await supabase().from(ALLOCATIONS).delete().eq("id", id);
+    if (error) throw error;
+  },
+
+  async allocatable(): Promise<AllocatableItem[]> {
+    const db = supabase();
+
+    const [vouchers, orders, food, direct, placed, liveTranches] = await Promise.all([
+      db
+        .from(TABLE)
+        .select("id, voucher_no, company, status, recipient_name, description, amount, voucher_date, created_at")
+        .is("deleted_at", null)
+        .limit(5000),
+      // Cancelled orders are excluded: nothing was ever spent on one, so
+      // offering it would invite attributing money that never moved. Drafts are
+      // offered — a draft that was in fact paid is exactly what this ledger is
+      // for catching.
+      db
+        .from(POS)
+        .select("id, po_no, company, status, currency, total, vendor_name, subject, po_date, created_at")
+        .is("deleted_at", null)
+        .neq("status", "cancelled")
+        .limit(5000),
+      db
+        .from(FOOD)
+        .select("id, entry_no, status, currency, amount, vendor, details, date")
+        .is("deleted_at", null)
+        .limit(5000),
+      db
+        .from(DIRECT)
+        .select("id, entry_no, company, currency, amount, payee, details, date")
+        .is("deleted_at", null)
+        .limit(5000),
+      // Plainly, with no embedded join, and paired with the tranche list below
+      // in the app. PostgREST can embed the parent row here, but the shape it
+      // returns depends on how it reads the foreign key, and a query whose
+      // result shape has to be guessed at is a poor foundation for the one
+      // figure this module exists to get right. The SQLite backend joins in SQL;
+      // this one assembles in the app, which is the same bargain `spendRows`
+      // already makes.
+      db.from(ALLOCATIONS).select("source_kind, source_id, source_amount, amount, tranche_id").limit(20000),
+      db.from(TRANCHES).select("id, tranche_no").is("deleted_at", null),
+    ]);
+    if (vouchers.error) throw vouchers.error;
+    if (orders.error) throw orders.error;
+    if (food.error) throw food.error;
+    if (direct.error) throw direct.error;
+    if (placed.error) throw placed.error;
+    if (liveTranches.error) throw liveTranches.error;
+
+    // Allocations against a deleted tranche are dropped, matching the SQLite
+    // backend's inner join: a deleted bucket's debits must not go on making an
+    // expense look attributed.
+    const trancheNo = new Map(
+      (liveTranches.data ?? []).map((t) => [String(t.id), String(t.tranche_no)]),
+    );
+
+    const day = (value: unknown, fallback: unknown) =>
+      String(value ?? fallback ?? "").slice(0, 10);
+
+    return assembleAllocatable({
+      vouchers: (vouchers.data ?? []).map((v) => ({
+        id: String(v.id),
+        ref: String(v.voucher_no),
+        company: String(v.company),
+        status: String(v.status),
+        recipient_name: (v.recipient_name as string | null) ?? null,
+        description: (v.description as string | null) ?? null,
+        amount: v.amount as number | string | null,
+        date: day(v.voucher_date, v.created_at),
+      })),
+      orders: (orders.data ?? []).map((o) => ({
+        id: String(o.id),
+        ref: String(o.po_no),
+        company: String(o.company),
+        status: String(o.status),
+        currency: (o.currency as string | null) ?? null,
+        total: o.total as number | string | null,
+        vendor_name: (o.vendor_name as string | null) ?? null,
+        subject: (o.subject as string | null) ?? null,
+        date: day(o.po_date, o.created_at),
+      })),
+      food: (food.data ?? []).map((f) => ({
+        id: String(f.id),
+        ref: String(f.entry_no),
+        status: String(f.status),
+        currency: (f.currency as string | null) ?? null,
+        amount: f.amount as number | string | null,
+        vendor: (f.vendor as string | null) ?? null,
+        details: (f.details as string | null) ?? null,
+        date: day(f.date, null),
+      })),
+      direct: (direct.data ?? []).map((d) => ({
+        id: String(d.id),
+        ref: String(d.entry_no),
+        company: (d.company as string | null) ?? null,
+        currency: (d.currency as string | null) ?? null,
+        amount: d.amount as number | string | null,
+        payee: (d.payee as string | null) ?? null,
+        details: (d.details as string | null) ?? null,
+        date: day(d.date, null),
+      })),
+      placed: (placed.data ?? [])
+        .filter((p) => trancheNo.has(String(p.tranche_id)))
+        .map((p) => ({
+          source_kind: String(p.source_kind),
+          source_id: String(p.source_id),
+          source_amount: p.source_amount as number | string,
+          amount: p.amount as number | string,
+          tranche_id: String(p.tranche_id),
+          tranche_no: trancheNo.get(String(p.tranche_id)) ?? "",
+        })),
+    });
+  },
+
+  async createDirect(fields: DirectFields, allocateTo: string | null): Promise<DirectExpense> {
+    const db = supabase();
+    const period = periodOf();
+
+    let entry: DirectExpense | null = null;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { data: highest, error: maxErr } = await db
+        .from(DIRECT)
+        .select("seq")
+        .eq("period", period)
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+      const now = new Date().toISOString();
+
+      const { data, error } = await db
+        .from(DIRECT)
+        .insert({
+          id: newId(),
+          entry_no: formatDirectNo(period, seq),
+          seq,
+          period,
+          created_at: now,
+          updated_at: now,
+          ...directColumns(fields),
+        })
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code !== "23505" || attempt === 5) throw error;
+        continue;
+      }
+
+      entry = rowToDirect(data as DirectRow);
+      break;
+    }
+    if (!entry) throw new Error("Could not assign a direct entry number after several attempts");
+
+    // The allocation as a second statement, where SQLite does both in one
+    // transaction. The entry is the record and the allocation is a statement
+    // about it, so if this half fails the entry survives and shows up in the
+    // queue to be allocated by hand — which is a recoverable state, unlike a
+    // lost expense.
+    if (allocateTo) {
+      const bucket = await db
+        .from(TRANCHES)
+        .select("recv_currency")
+        .eq("id", allocateTo)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (bucket.error) throw bucket.error;
+
+      // Skipped on a currency mismatch: there is no rate to convert at, and
+      // inventing one is worse than leaving the entry in the queue for somebody
+      // to allocate with a rate they chose. The action says which happened.
+      if (
+        bucket.data &&
+        String(bucket.data.recv_currency || "PKR") === (fields.currency || "PKR")
+      ) {
+        await supabaseStore.allocate([
+          {
+            trancheId: allocateTo,
+            sourceKind: "direct",
+            sourceId: entry.id,
+            amount: entry.amount,
+            sourceAmount: entry.amount,
+            sourceTotal: entry.amount,
+            sourceCurrency: entry.currency,
+            rate: 1,
+            sourceRef: entry.entryNo,
+            sourceLabel: entry.details || entry.payee,
+            sourceCompany: entry.company,
+            sourceDate: entry.date,
+            note: null,
+          },
+        ]);
+      }
+    }
+
+    return entry;
+  },
+
+  async getDirect(id) {
+    const { data, error } = await supabase().from(DIRECT).select().eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToDirect(data as DirectRow) : null;
+  },
+
+  async updateDirect(id, fields: DirectFields): Promise<DirectExpense> {
+    const { data, error } = await supabase()
+      .from(DIRECT)
+      .update({ updated_at: new Date().toISOString(), ...directColumns(fields) })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToDirect(data as DirectRow);
+  },
+
+  async softDeleteDirect(id) {
+    const now = new Date().toISOString();
+    const { error } = await supabase()
+      .from(DIRECT)
+      .update({ deleted_at: now, updated_at: now })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreDirect(id) {
+    const { error } = await supabase()
+      .from(DIRECT)
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async listDirect(): Promise<DirectExpense[]> {
+    const { data, error } = await supabase()
+      .from(DIRECT)
+      .select()
+      .is("deleted_at", null)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) throw error;
+    return (data ?? []).map((r) => rowToDirect(r as DirectRow));
+  },
+
+  async directPayees(): Promise<string[]> {
+    // Newest first, because the most recent spelling of a name wins.
+    const { data, error } = await supabase()
+      .from(DIRECT)
+      .select()
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(400);
+    if (error) throw error;
+    return directPayeesFrom((data ?? []) as DirectRow[]);
   },
 
   /* ---- settings -------------------------------------------------------- */

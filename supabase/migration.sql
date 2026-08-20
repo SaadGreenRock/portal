@@ -378,6 +378,174 @@ create index if not exists notifications_search_idx
   on public.notifications (company, headline, sender);
 
 -- ---------------------------------------------------------------------------
+-- Investor funding: tranches, and what each one paid for
+-- ---------------------------------------------------------------------------
+-- Money arrives from one outside investor in lumps rather than per purchase: a
+-- wire of dollars, converted at whatever rate that week gave, landing as rupees
+-- in a Pakistani account. Every expense the portal records is then paid out of
+-- one of those lumps. These three tables are the ledger tying the two together.
+--
+-- The dependency runs one way and only one way. This section reads vouchers,
+-- purchase orders and food entries so it can offer them for allocation; none of
+-- those tables gained a column for this, and nothing in those modules reads a
+-- tranche. Drop these three tables and every screen that existed before behaves
+-- exactly as it did.
+--
+-- A tranche stores exactly two figures -- what was sent and what was received --
+-- and everything else about it is arithmetic on those. There is deliberately no
+-- rate column: derived as received / sent it can never disagree with the two
+-- numbers printed beside it, and it is automatically the *effective* rate, with
+-- the bank's charge on the inward remittance already inside it, because the
+-- received figure is what actually landed in the account. A gross amount plus a
+-- separate fee column would give two ways to state one thing, and the bank
+-- statement only agrees with one of them.
+create table if not exists public.funding_tranches (
+  id             uuid primary key,
+  -- `TR-001`, continuous and never resetting. No year+month, for the same
+  -- reason an asset number carries none: you refer to "the fourth tranche" for
+  -- years afterwards, and a sequence that restarted monthly would put two
+  -- `-001` labels on two different wires.
+  tranche_no     text        not null unique,
+  -- Unique on its own, not on (period, seq): there is no period. Deleted rows
+  -- keep their number, so a number is never handed out twice.
+  seq            integer     not null unique,
+  label          text        not null default '',
+  funder         text        not null default '',
+  -- What left the investor's account.
+  sent_amount    numeric(14, 2) not null default 0,
+  sent_currency  text        not null default 'USD',
+  -- Nullable, unlike the received date: a tranche is often logged the day it
+  -- lands, before anybody has looked up when it was actually wired.
+  sent_date      date,
+  -- What landed here, net of bank charges -- the pool everything draws from.
+  recv_amount    numeric(14, 2) not null default 0,
+  recv_currency  text        not null default 'PKR',
+  -- NOT NULL because it orders the buckets, and the order is not cosmetic: a
+  -- split fills the oldest open tranche first, because that is how the money
+  -- was actually spent.
+  recv_date      date        not null,
+  account        text,
+  reference      text,
+  notes          text,
+  -- Set when a bucket is closed by hand with money still in it. The one part of
+  -- a bucket's state that is stored rather than derived, because it is a
+  -- decision: a bucket with 2,400 rupees left that nothing will ever be small
+  -- enough to spend should stop being offered. The remainder is stated on the
+  -- card and still counts in total received; it is never moved into another
+  -- bucket, because it never moved in the bank.
+  closed_at      timestamptz,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  -- Same reasoning as every other module: the row stays, so the number stays
+  -- spent and a deleted tranche's figures remain reconstructable.
+  deleted_at     timestamptz
+);
+
+create index if not exists tranches_recv_date_idx
+  on public.funding_tranches (recv_date desc);
+
+-- One debit from one bucket.
+--
+-- The rule the whole module rests on: an allocation carries its OWN amount
+-- rather than pointing at a document's total. That single choice is what lets
+-- one expense be paid out of two tranches, lets an expense sit half allocated
+-- while the next tranche is still in the air, lets a voucher whose amount was
+-- left blank to be written in by hand still be attributed, and stops an edit to
+-- a voucher in September from silently moving a bucket that was closed in July.
+--
+-- Three amounts, and the difference between them is the whole currency story:
+--
+--   amount         what leaves the bucket, in the bucket's received currency.
+--                  The authoritative figure -- the only one a balance is built
+--                  from.
+--   source_amount  how much of the document this covers, in the document's own
+--                  currency. What the over-allocation guard counts, so a split
+--                  adds up against the document rather than against the bucket.
+--   source_total   the document's whole total when this row was written, so a
+--                  ledger line can say "part of 340,000" without joining three
+--                  other tables, and so drift is detectable later.
+--
+-- On the ordinary case -- a rupee voucher against a rupee bucket -- the first
+-- two are equal and rate is 1. They part company only when the document is in
+-- another currency, which today means a purchase order raised in SAR.
+--
+-- The snapshot columns are the same habit as the voucher table's denormalised
+-- recipient_name and amount: a tranche's ledger renders without joining to
+-- three modules, and a line still reads correctly after the document behind it
+-- is deleted.
+create table if not exists public.tranche_allocations (
+  id              uuid primary key,
+  tranche_id      uuid        not null
+                              references public.funding_tranches (id) on delete cascade,
+  source_kind     text        not null
+                              check (source_kind in ('voucher', 'po', 'food', 'direct')),
+  source_id       uuid        not null,
+  amount          numeric(14, 2) not null,
+  source_amount   numeric(14, 2) not null,
+  -- NULL where the document records no total -- a voucher left blank to be
+  -- written in at signing. That is why such a row can never read as fully
+  -- allocated: there is nothing to compare against.
+  source_total    numeric(14, 2),
+  source_currency text        not null default 'PKR',
+  rate            numeric(16, 6) not null default 1,
+  source_ref      text        not null default '',
+  source_label    text        not null default '',
+  source_company  text,
+  source_date     date,
+  note            text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists tranche_alloc_tranche_idx
+  on public.tranche_allocations (tranche_id);
+
+-- Backs the question the picker asks of every row it draws: how much of this
+-- expense is already in a bucket, and which ones.
+create index if not exists tranche_alloc_source_idx
+  on public.tranche_allocations (source_kind, source_id);
+
+-- An expense that lives only in this ledger.
+--
+-- Confidential in a structural sense rather than an enforced one: nothing
+-- outside the funding section reads this table, so these never appear in the
+-- expenditure report, on the landing card's figures, or anywhere in either
+-- company workspace. What that does not do is keep out somebody who already has
+-- the portal password -- there is one gate and it opens everything.
+--
+-- The honest consequence, which the tranche screen states rather than hides: a
+-- bucket's allocations will exceed what the expenditure report knows about, by
+-- exactly the value of the direct entries in it.
+--
+-- `TE-202608-001` -- period and sequence, no company prefix, the same choice
+-- the food log made and for the same reason.
+create table if not exists public.tranche_expenses (
+  id           uuid primary key,
+  entry_no     text        not null unique,
+  seq          integer     not null,
+  period       text        not null,
+  date         date        not null,
+  payee        text        not null default '',
+  details      text        not null default '',
+  amount       numeric(14, 2) not null default 0,
+  currency     text        not null default 'PKR',
+  -- A label if it belongs to one company, NULL for neither. Never parsed into
+  -- an accounting split -- the same rule the food log's ordered_for follows.
+  company      text,
+  notes        text,
+  receipt_key  text,
+  receipt_name text,
+  receipt_at   timestamptz,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  deleted_at   timestamptz,
+  constraint tranche_expenses_period_seq_key unique (period, seq)
+);
+
+create index if not exists tranche_expenses_date_idx
+  on public.tranche_expenses (date desc);
+
+-- ---------------------------------------------------------------------------
 -- Per-company settings
 -- ---------------------------------------------------------------------------
 -- One JSON document per company. A new module adds a section to the document
@@ -397,6 +565,9 @@ alter table public.asset_holdings         enable row level security;
 alter table public.food_expenses          enable row level security;
 alter table public.company_settings       enable row level security;
 alter table public.notifications          enable row level security;
+alter table public.funding_tranches       enable row level security;
+alter table public.tranche_allocations    enable row level security;
+alter table public.tranche_expenses       enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 

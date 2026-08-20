@@ -19,6 +19,18 @@ import {
   type RfqDoc,
   type RfqStatus,
 } from "../rfq/types";
+import {
+  isSourceKind,
+  type AllocatableItem,
+  type Allocation,
+  type DirectExpense,
+  type DirectFields,
+  type NewAllocation,
+  type Placement,
+  type SourceKind,
+  type Tranche,
+  type TrancheFields,
+} from "../tranches/types";
 import type { Voucher, VoucherFields, VoucherStatus } from "../types";
 
 export const newId = () => randomUUID();
@@ -732,4 +744,402 @@ export function rowToNotification(r: NotificationRow): Notification {
     pdfAt: r.pdf_at ?? null,
     deletedAt: r.deleted_at ?? null,
   };
+}
+
+/* -------------------------------------------------------------------------
+ * Investor funding
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * `TR-001` — the tranche marker and a running sequence.
+ *
+ * No year+month, and the sequence never resets. Same reasoning as an asset
+ * number: a tranche is referred to as "the fourth one" for years afterwards, and
+ * a sequence that restarted monthly would put two `-001` labels on two different
+ * wires. The padding is a minimum rather than a limit — the hundredth tranche is
+ * `TR-100`.
+ */
+export function formatTrancheNo(seq: number): string {
+  return `TR-${String(seq).padStart(3, "0")}`;
+}
+
+/**
+ * `TE-202608-001` — the direct-entry marker, year+month, the month's sequence.
+ *
+ * No company prefix, like the food log: an entry paid out of investor money may
+ * belong to neither company, and `formatDocNo` cannot be reused because its
+ * first argument is a `CompanySlug`.
+ */
+export function formatDirectNo(period: string, seq: number): string {
+  return `TE-${period}-${String(seq).padStart(3, "0")}`;
+}
+
+export interface TrancheRow {
+  id: string;
+  tranche_no: string;
+  seq: number;
+  label: string | null;
+  funder: string | null;
+  sent_amount: number | string;
+  sent_currency: string | null;
+  sent_date: string | null;
+  recv_amount: number | string;
+  recv_currency: string | null;
+  recv_date: string;
+  account: string | null;
+  reference: string | null;
+  notes: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/**
+ * Postgres `numeric` arrives through PostgREST as a string, so every money
+ * column is coerced here rather than at the call sites — the same reason
+ * `rowToFood` does it. Left to the callers, a total would be addition on SQLite
+ * and string concatenation on Supabase.
+ */
+export function rowToTranche(r: TrancheRow): Tranche {
+  return {
+    id: r.id,
+    trancheNo: r.tranche_no,
+    seq: r.seq,
+    label: r.label ?? "",
+    funder: r.funder ?? "",
+    sentAmount: Number(r.sent_amount) || 0,
+    sentCurrency: r.sent_currency || "USD",
+    sentDate: r.sent_date ?? "",
+    recvAmount: Number(r.recv_amount) || 0,
+    recvCurrency: r.recv_currency || "PKR",
+    recvDate: String(r.recv_date).slice(0, 10),
+    account: r.account ?? null,
+    reference: r.reference ?? null,
+    notes: r.notes ?? null,
+    closedAt: r.closed_at ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at ?? null,
+  };
+}
+
+/** A tranche's editable fields as columns, for an insert or an update. */
+export function trancheColumns(f: TrancheFields) {
+  return {
+    label: f.label.trim(),
+    funder: f.funder.trim(),
+    sent_amount: f.sentAmount,
+    sent_currency: f.sentCurrency || "USD",
+    // Empty string is not a date a date column can hold, and NULL is the honest
+    // answer for "we have not looked up when it was wired yet".
+    sent_date: f.sentDate || null,
+    recv_amount: f.recvAmount,
+    recv_currency: f.recvCurrency || "PKR",
+    recv_date: f.recvDate,
+    account: f.account?.trim() || null,
+    reference: f.reference?.trim() || null,
+    notes: f.notes?.trim() || null,
+  };
+}
+
+export interface AllocationRow {
+  id: string;
+  tranche_id: string;
+  source_kind: string;
+  source_id: string;
+  amount: number | string;
+  source_amount: number | string;
+  source_total: number | string | null;
+  source_currency: string | null;
+  rate: number | string;
+  source_ref: string | null;
+  source_label: string | null;
+  source_company: string | null;
+  source_date: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function rowToAllocation(r: AllocationRow): Allocation {
+  return {
+    id: r.id,
+    trancheId: r.tranche_id,
+    sourceKind: isSourceKind(r.source_kind) ? r.source_kind : "direct",
+    sourceId: r.source_id,
+    amount: Number(r.amount) || 0,
+    sourceAmount: Number(r.source_amount) || 0,
+    sourceTotal: r.source_total == null ? null : Number(r.source_total),
+    sourceCurrency: r.source_currency || "PKR",
+    // Falls back to 1 rather than 0: a rate of zero would make a converted
+    // figure vanish, where 1 at least states the amounts unchanged.
+    rate: Number(r.rate) || 1,
+    sourceRef: r.source_ref ?? "",
+    sourceLabel: r.source_label ?? "",
+    sourceCompany: (r.source_company as CompanySlug | null) ?? null,
+    sourceDate: r.source_date ? String(r.source_date).slice(0, 10) : "",
+    note: r.note ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+/** A new debit as columns. The id and stamps are the caller's business. */
+export function allocationColumns(a: NewAllocation) {
+  return {
+    tranche_id: a.trancheId,
+    source_kind: a.sourceKind,
+    source_id: a.sourceId,
+    amount: a.amount,
+    source_amount: a.sourceAmount,
+    source_total: a.sourceTotal,
+    source_currency: a.sourceCurrency || "PKR",
+    rate: a.rate,
+    source_ref: a.sourceRef,
+    source_label: a.sourceLabel,
+    source_company: a.sourceCompany,
+    source_date: a.sourceDate || null,
+    note: a.note?.trim() || null,
+  };
+}
+
+export interface DirectRow {
+  id: string;
+  entry_no: string;
+  seq: number;
+  period: string;
+  date: string;
+  payee: string | null;
+  details: string | null;
+  amount: number | string;
+  currency: string | null;
+  company: string | null;
+  notes: string | null;
+  receipt_key: string | null;
+  receipt_name: string | null;
+  receipt_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function rowToDirect(r: DirectRow): DirectExpense {
+  return {
+    id: r.id,
+    entryNo: r.entry_no,
+    seq: r.seq,
+    period: r.period,
+    date: String(r.date).slice(0, 10),
+    payee: r.payee ?? "",
+    details: r.details ?? "",
+    amount: Number(r.amount) || 0,
+    currency: r.currency || "PKR",
+    company: (r.company as CompanySlug | null) ?? null,
+    notes: r.notes ?? null,
+    receiptKey: r.receipt_key ?? null,
+    receiptName: r.receipt_name ?? null,
+    receiptAt: r.receipt_at ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at ?? null,
+  };
+}
+
+export function directColumns(f: DirectFields) {
+  return {
+    date: f.date,
+    payee: f.payee.trim(),
+    details: f.details.trim(),
+    amount: f.amount,
+    currency: f.currency || "PKR",
+    company: f.company,
+    notes: f.notes?.trim() || null,
+  };
+}
+
+/**
+ * Payee names as already typed, most recent first, for the form's datalist.
+ *
+ * Same approach as vendors on purchase orders and payers on the food log: there
+ * is no list to keep up to date, and the spelling from the most recent entry
+ * wins so a correction is not undone by a suggestion from an older row. Rows
+ * must arrive newest first.
+ */
+export function directPayeesFrom(rows: DirectRow[]): string[] {
+  const seen = new Map<string, string>();
+  for (const row of rows) {
+    const value = (row.payee ?? "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (!seen.has(key)) seen.set(key, value);
+  }
+  return [...seen.values()];
+}
+
+/** The four row shapes `allocatable` selects, and the debits already written. */
+export interface AllocatableSources {
+  vouchers: Array<{
+    id: string;
+    ref: string;
+    company: string;
+    status: string;
+    recipient_name: string | null;
+    description: string | null;
+    amount: number | string | null;
+    date: string;
+  }>;
+  orders: Array<{
+    id: string;
+    ref: string;
+    company: string;
+    status: string;
+    currency: string | null;
+    total: number | string | null;
+    vendor_name: string | null;
+    subject: string | null;
+    date: string;
+  }>;
+  food: Array<{
+    id: string;
+    ref: string;
+    status: string;
+    currency: string | null;
+    amount: number | string | null;
+    vendor: string | null;
+    details: string | null;
+    date: string;
+  }>;
+  direct: Array<{
+    id: string;
+    ref: string;
+    company: string | null;
+    currency: string | null;
+    amount: number | string | null;
+    payee: string | null;
+    details: string | null;
+    date: string;
+  }>;
+  placed: Array<{
+    source_kind: string;
+    source_id: string;
+    source_amount: number | string;
+    amount: number | string;
+    tranche_id: string;
+    tranche_no: string;
+  }>;
+}
+
+/**
+ * Four tables into one shape, with what is already allocated attached.
+ *
+ * The seam between the funding section and the rest of the portal, and it lives
+ * here rather than in either backend so both tell the picker the same story —
+ * which module a row came from, what it is called, who was paid, and how much of
+ * it is spoken for. A fifth expense module later adds one field to
+ * `AllocatableSources` and one loop below; nothing downstream changes.
+ *
+ * `allocated` is summed in the *document's* own currency, from `source_amount`
+ * rather than `amount`. That is what makes the over-allocation guard meaningful
+ * for a purchase order raised in SAR and paid from a rupee bucket: the ceiling
+ * is SAR 4,000, not the rupees it happened to cost.
+ */
+export function assembleAllocatable(input: AllocatableSources): AllocatableItem[] {
+  const placements = new Map<string, Placement[]>();
+  const allocated = new Map<string, number>();
+
+  for (const p of input.placed) {
+    const key = `${p.source_kind}:${p.source_id}`;
+    const list = placements.get(key) ?? [];
+    list.push({
+      trancheId: p.tranche_id,
+      trancheNo: p.tranche_no,
+      sourceAmount: Number(p.source_amount) || 0,
+      amount: Number(p.amount) || 0,
+    });
+    placements.set(key, list);
+    allocated.set(key, (allocated.get(key) ?? 0) + (Number(p.source_amount) || 0));
+  }
+
+  const attach = (kind: SourceKind, id: string) => {
+    const key = `${kind}:${id}`;
+    return {
+      // Rounded once, here: summing paisa-precise figures and comparing the
+      // float against a document total is how a fully allocated expense ends up
+      // one paisa short of full and back in the queue for ever.
+      allocated: Math.round((allocated.get(key) ?? 0) * 100) / 100,
+      placements: (placements.get(key) ?? []).sort((a, b) =>
+        a.trancheNo < b.trancheNo ? -1 : 1,
+      ),
+    };
+  };
+
+  const num = (v: number | string | null): number | null =>
+    v == null ? null : Number(v) || 0;
+
+  const items: AllocatableItem[] = [
+    ...input.vouchers.map((v) => ({
+      kind: "voucher" as const,
+      id: v.id,
+      ref: v.ref,
+      company: v.company as CompanySlug,
+      date: String(v.date).slice(0, 10),
+      party: (v.recipient_name ?? "").trim(),
+      description: (v.description ?? "").trim(),
+      // Stated rather than stored, as in spendRows: the voucher template prints
+      // "AMOUNT PAID (PKR)" and amount-words speaks Rupees.
+      currency: "PKR",
+      amount: num(v.amount),
+      status: v.status,
+      ...attach("voucher", v.id),
+    })),
+    ...input.orders.map((o) => ({
+      kind: "po" as const,
+      id: o.id,
+      ref: o.ref,
+      company: o.company as CompanySlug,
+      date: String(o.date).slice(0, 10),
+      party: (o.vendor_name ?? "").trim(),
+      description: (o.subject ?? "").trim(),
+      currency: o.currency || "PKR",
+      amount: num(o.total),
+      status: o.status,
+      ...attach("po", o.id),
+    })),
+    ...input.food.map((f) => ({
+      kind: "food" as const,
+      id: f.id,
+      // Null, not a company: a lunch ordered for both belongs to neither
+      // workspace, which is the food log's founding rule.
+      company: null,
+      ref: f.ref,
+      date: String(f.date).slice(0, 10),
+      party: (f.vendor ?? "").trim(),
+      description: (f.details ?? "").trim(),
+      currency: f.currency || "PKR",
+      amount: num(f.amount),
+      status: f.status,
+      ...attach("food", f.id),
+    })),
+    ...input.direct.map((d) => ({
+      kind: "direct" as const,
+      id: d.id,
+      ref: d.ref,
+      company: (d.company as CompanySlug | null) ?? null,
+      date: String(d.date).slice(0, 10),
+      party: (d.payee ?? "").trim(),
+      description: (d.details ?? "").trim(),
+      currency: d.currency || "PKR",
+      amount: num(d.amount),
+      // A direct entry has no lifecycle — it is money that went out. Stated so
+      // the picker's status column has something to draw rather than a blank.
+      status: "paid",
+      ...attach("direct", d.id),
+    })),
+  ];
+
+  // Newest first, matching every other list in the portal. The picker re-sorts
+  // to oldest-first for the work queue, where clearing the backlog in the order
+  // the money went out is what you want.
+  return items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }

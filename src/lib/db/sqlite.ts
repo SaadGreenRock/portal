@@ -31,44 +31,71 @@ import {
 import { todayIso } from "../format";
 import { mergeSettings, type CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
+import {
+  isSourceKind,
+  overAllocateMessage,
+  overdrawMessage,
+  paisa,
+  type AllocatableItem,
+  type Allocation,
+  type Debit,
+  type DirectExpense,
+  type DirectFields,
+  type NewAllocation,
+  type Tranche,
+  type TrancheFields,
+} from "../tranches/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
 import type { NewAsset, NewNotification, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
 import {
+  allocationColumns,
+  assembleAllocatable,
   denormalize,
   denormalizePo,
   denormalizeRfq,
+  directColumns,
+  directPayeesFrom,
   employeeKey,
   employeeProfilesFrom,
   foodColumns,
   foodNamesFrom,
   formatAssetNo,
+  formatDirectNo,
   formatFoodNo,
   formatNotifNo,
   formatPoNo,
   formatRfqNo,
+  formatTrancheNo,
   formatVoucherNo,
   holderColumns,
   newId,
   periodOf,
   poStatusPatch,
   rfqStatusPatch,
+  rowToAllocation,
   rowToAsset,
+  rowToDirect,
   rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
   rowToNotification,
   rowToPo,
   rowToRfq,
+  rowToTranche,
+  trancheColumns,
   statusChangesDocument,
   rowToVoucher,
   vendorProfilesFrom,
+  type AllocationRow,
   type AssetRow,
+  type DirectRow,
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
   type NotificationRow,
   type PoRow,
   type RfqRow,
+  type TrancheRow,
   type VoucherRow,
 } from "./shared";
 
@@ -344,6 +371,110 @@ function connect(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS notifications_company_created
       ON notifications (company, created_at DESC);
+
+    -- Investor funding. Three tables, and the dependency runs one way: this
+    -- section reads vouchers, purchase orders and food entries so a bucket can
+    -- be filled from any of them, and none of those tables gained a column for
+    -- it. See src/lib/tranches/types.ts, and the fuller note in migration.sql.
+    --
+    -- No rate column on purpose: derived as recv / sent it can never disagree
+    -- with the two figures printed beside it, and it is automatically the
+    -- effective rate, with the bank's charge already inside it.
+    CREATE TABLE IF NOT EXISTS funding_tranches (
+      id             TEXT PRIMARY KEY,
+      -- TR-001, continuous. UNIQUE on seq alone because there is no period to
+      -- key on; deleted rows keep their number, so one is never reissued.
+      tranche_no     TEXT NOT NULL UNIQUE,
+      seq            INTEGER NOT NULL UNIQUE,
+      label          TEXT NOT NULL DEFAULT '',
+      funder         TEXT NOT NULL DEFAULT '',
+      sent_amount    REAL NOT NULL DEFAULT 0,
+      sent_currency  TEXT NOT NULL DEFAULT 'USD',
+      -- Nullable, unlike recv_date: a tranche is often logged the day it lands,
+      -- before anyone has looked up when it was wired.
+      sent_date      TEXT,
+      -- Net of bank charges: the pool everything draws from.
+      recv_amount    REAL NOT NULL DEFAULT 0,
+      recv_currency  TEXT NOT NULL DEFAULT 'PKR',
+      -- NOT NULL because it orders the buckets, and the order is not cosmetic:
+      -- a split fills the oldest open tranche first, because that is how the
+      -- money was actually spent.
+      recv_date      TEXT NOT NULL,
+      account        TEXT,
+      reference      TEXT,
+      notes          TEXT,
+      -- Closed by hand with money still in it. The one part of a bucket's state
+      -- that is stored rather than derived, because it is a decision.
+      closed_at      TEXT,
+      created_at     TEXT NOT NULL,
+      updated_at     TEXT NOT NULL,
+      deleted_at     TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS tranches_recv_date ON funding_tranches (recv_date DESC);
+
+    -- One debit from one bucket. An allocation carries its OWN amount rather
+    -- than pointing at a document's total, which is what lets one expense be
+    -- paid out of two tranches and stops a September edit from moving a bucket
+    -- closed in July. The three amounts are explained in tranches/types.ts.
+    CREATE TABLE IF NOT EXISTS tranche_allocations (
+      id              TEXT PRIMARY KEY,
+      tranche_id      TEXT NOT NULL REFERENCES funding_tranches (id) ON DELETE CASCADE,
+      source_kind     TEXT NOT NULL,
+      source_id       TEXT NOT NULL,
+      -- Leaves the bucket, in the bucket's received currency. Authoritative.
+      amount          REAL NOT NULL,
+      -- Portion of the document covered, in the document's currency. What the
+      -- over-allocation guard counts.
+      source_amount   REAL NOT NULL,
+      -- The document's total when this row was written. NULL where none was
+      -- recorded, which is why such a row can never read as fully allocated.
+      source_total    REAL,
+      source_currency TEXT NOT NULL DEFAULT 'PKR',
+      rate            REAL NOT NULL DEFAULT 1,
+      -- Snapshots, so a ledger line still reads after its document is deleted,
+      -- and a bucket renders without joining to three modules.
+      source_ref      TEXT NOT NULL DEFAULT '',
+      source_label    TEXT NOT NULL DEFAULT '',
+      source_company  TEXT,
+      source_date     TEXT,
+      note            TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS tranche_alloc_tranche
+      ON tranche_allocations (tranche_id);
+    -- Backs the question the picker asks of every row it draws: how much of
+    -- this expense is already in a bucket, and which ones.
+    CREATE INDEX IF NOT EXISTS tranche_alloc_source
+      ON tranche_allocations (source_kind, source_id);
+
+    -- An expense that lives only in this ledger. Confidential in a structural
+    -- sense: nothing outside the funding section reads this table.
+    CREATE TABLE IF NOT EXISTS tranche_expenses (
+      id           TEXT PRIMARY KEY,
+      entry_no     TEXT NOT NULL UNIQUE,
+      seq          INTEGER NOT NULL,
+      period       TEXT NOT NULL,
+      date         TEXT NOT NULL,
+      payee        TEXT NOT NULL DEFAULT '',
+      details      TEXT NOT NULL DEFAULT '',
+      amount       REAL NOT NULL DEFAULT 0,
+      currency     TEXT NOT NULL DEFAULT 'PKR',
+      -- A label if it belongs to one company, NULL for neither. Never parsed.
+      company      TEXT,
+      notes        TEXT,
+      receipt_key  TEXT,
+      receipt_name TEXT,
+      receipt_at   TEXT,
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL,
+      deleted_at   TEXT,
+      UNIQUE (period, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS tranche_expenses_date ON tranche_expenses (date DESC);
 
     -- One JSON document of settings per company, so a new module can add a
     -- section without a schema change.
@@ -1888,6 +2019,625 @@ export const sqliteStore: Store = {
         date: o.date,
       })),
     ];
+  },
+
+  /* ---- investor funding -------------------------------------------------- */
+
+  async createTranche(fields: TrancheFields): Promise<Tranche> {
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const insert = handle.prepare(`
+      INSERT INTO funding_tranches (
+        id, tranche_no, seq, label, funder, sent_amount, sent_currency, sent_date,
+        recv_amount, recv_currency, recv_date, account, reference, notes,
+        created_at, updated_at
+      ) VALUES (
+        @id, @tranche_no, @seq, @label, @funder, @sent_amount, @sent_currency, @sent_date,
+        @recv_amount, @recv_currency, @recv_date, @account, @reference, @notes,
+        @created_at, @created_at
+      )
+    `);
+
+    // Deleted rows are counted, as everywhere else: a number already quoted in a
+    // statement to the investor is spent even if the row was later binned.
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM funding_tranches`,
+    );
+
+    // UNIQUE(seq) is the real guard; the retry loop just picks up the next free
+    // number if we lost a race.
+    const claim = handle.transaction((): TrancheRow => {
+      const { seq } = nextSeq.get() as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        tranche_no: formatTrancheNo(seq),
+        seq,
+        created_at: now,
+        ...trancheColumns(fields),
+      });
+      return handle.prepare(`SELECT * FROM funding_tranches WHERE id = ?`).get(id) as TrancheRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToTranche(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a tranche number after several attempts");
+  },
+
+  async getTranche(id: string): Promise<Tranche | null> {
+    const row = connect()
+      .prepare(`SELECT * FROM funding_tranches WHERE id = ?`)
+      .get(id) as TrancheRow | undefined;
+    return row ? rowToTranche(row) : null;
+  },
+
+  async updateTranche(id: string, fields: TrancheFields): Promise<Tranche> {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE funding_tranches
+            SET label = @label, funder = @funder,
+                sent_amount = @sent_amount, sent_currency = @sent_currency,
+                sent_date = @sent_date,
+                recv_amount = @recv_amount, recv_currency = @recv_currency,
+                recv_date = @recv_date,
+                account = @account, reference = @reference, notes = @notes,
+                updated_at = @updated_at
+          WHERE id = @id`,
+      )
+      .run({ id, updated_at: new Date().toISOString(), ...trancheColumns(fields) });
+
+    const row = handle
+      .prepare(`SELECT * FROM funding_tranches WHERE id = ?`)
+      .get(id) as TrancheRow | undefined;
+    if (!row) throw new Error("Tranche not found");
+    return rowToTranche(row);
+  },
+
+  async setTrancheClosed(id: string, closed: boolean): Promise<void> {
+    connect()
+      .prepare(
+        `UPDATE funding_tranches SET closed_at = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(closed ? new Date().toISOString() : null, new Date().toISOString(), id);
+  },
+
+  async softDeleteTranche(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    connect()
+      .prepare(`UPDATE funding_tranches SET deleted_at = ?, updated_at = ? WHERE id = ?`)
+      .run(now, now, id);
+  },
+
+  async restoreTranche(id: string): Promise<void> {
+    connect()
+      .prepare(`UPDATE funding_tranches SET deleted_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async fundingLedger(): Promise<Array<{ tranche: Tranche; debits: Debit[] }>> {
+    const handle = connect();
+
+    const tranches = handle
+      .prepare(
+        `SELECT * FROM funding_tranches
+          WHERE deleted_at IS NULL
+          ORDER BY recv_date DESC, seq DESC`,
+      )
+      .all() as TrancheRow[];
+
+    // One query for every debit rather than one per bucket. Two round trips
+    // whatever the number of tranches, and the grouping below costs nothing at
+    // this scale.
+    const debits = handle
+      .prepare(`SELECT tranche_id, amount, source_kind FROM tranche_allocations`)
+      .all() as Array<{ tranche_id: string; amount: number; source_kind: string }>;
+
+    const byTranche = new Map<string, Debit[]>();
+    for (const d of debits) {
+      const list = byTranche.get(d.tranche_id) ?? [];
+      list.push({
+        amount: Number(d.amount) || 0,
+        sourceKind: isSourceKind(d.source_kind) ? d.source_kind : "direct",
+      });
+      byTranche.set(d.tranche_id, list);
+    }
+
+    return tranches.map((row) => ({
+      tranche: rowToTranche(row),
+      debits: byTranche.get(row.id) ?? [],
+    }));
+  },
+
+  async listAllocations(trancheId: string): Promise<Allocation[]> {
+    return (
+      connect()
+        .prepare(
+          `SELECT * FROM tranche_allocations
+            WHERE tranche_id = ?
+            ORDER BY source_date DESC, created_at DESC`,
+        )
+        .all(trancheId) as AllocationRow[]
+    ).map(rowToAllocation);
+  },
+
+  async allocate(rows: NewAllocation[]): Promise<void> {
+    if (rows.length === 0) return;
+
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const insert = handle.prepare(`
+      INSERT INTO tranche_allocations (
+        id, tranche_id, source_kind, source_id, amount, source_amount, source_total,
+        source_currency, rate, source_ref, source_label, source_company, source_date,
+        note, created_at, updated_at
+      ) VALUES (
+        @id, @tranche_id, @source_kind, @source_id, @amount, @source_amount, @source_total,
+        @source_currency, @rate, @source_ref, @source_label, @source_company, @source_date,
+        @note, @created_at, @created_at
+      )
+    `);
+
+    const bucketOf = handle.prepare(
+      `SELECT tranche_no, recv_amount, recv_currency FROM funding_tranches
+        WHERE id = ? AND deleted_at IS NULL`,
+    );
+    const drawnFrom = handle.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM tranche_allocations WHERE tranche_id = ?`,
+    );
+    const againstSource = handle.prepare(
+      `SELECT COALESCE(SUM(source_amount), 0) AS total FROM tranche_allocations
+        WHERE source_kind = ? AND source_id = ?`,
+    );
+
+    // The whole batch is checked before any of it is written, and the requested
+    // rows are totalled per bucket and per expense first: a split of one voucher
+    // across two tranches has to be judged as one act, or each half passes on
+    // its own and the pair overdraws.
+    const write = handle.transaction(() => {
+      const perTranche = new Map<string, number>();
+      const perSource = new Map<string, { requested: number; row: NewAllocation }>();
+
+      for (const r of rows) {
+        perTranche.set(r.trancheId, paisa(r.amount) + (perTranche.get(r.trancheId) ?? 0));
+        const key = `${r.sourceKind}:${r.sourceId}`;
+        const seen = perSource.get(key);
+        perSource.set(key, {
+          requested: paisa(r.sourceAmount) + (seen?.requested ?? 0),
+          row: r,
+        });
+      }
+
+      for (const [trancheId, requested] of perTranche) {
+        const bucket = bucketOf.get(trancheId) as
+          | { tranche_no: string; recv_amount: number; recv_currency: string }
+          | undefined;
+        if (!bucket) throw new Error("That tranche no longer exists.");
+
+        const { total } = drawnFrom.get(trancheId) as { total: number };
+        const remaining = paisa(Number(bucket.recv_amount) || 0) - paisa(Number(total) || 0);
+        if (requested > remaining) {
+          throw new Error(
+            overdrawMessage(
+              bucket.tranche_no,
+              bucket.recv_currency || "PKR",
+              remaining / 100,
+              requested / 100,
+            ),
+          );
+        }
+      }
+
+      for (const { requested, row } of perSource.values()) {
+        // A document with no recorded total has no ceiling to check against —
+        // that is the whole point of allowing a blank-amount voucher to be
+        // attributed on the operator's word.
+        if (row.sourceTotal == null) continue;
+        const { total: already } = againstSource.get(row.sourceKind, row.sourceId) as {
+          total: number;
+        };
+        const ceiling = paisa(row.sourceTotal);
+        if (paisa(Number(already) || 0) + requested > ceiling) {
+          throw new Error(
+            overAllocateMessage(
+              row.sourceRef,
+              row.sourceCurrency || "PKR",
+              row.sourceTotal,
+              (Number(already) || 0),
+              requested / 100,
+            ),
+          );
+        }
+      }
+
+      for (const r of rows) {
+        insert.run({ id: newId(), created_at: now, ...allocationColumns(r) });
+      }
+    });
+
+    write();
+  },
+
+  async updateAllocation(
+    id: string,
+    amount: number,
+    sourceAmount: number,
+    note: string | null,
+  ): Promise<void> {
+    const handle = connect();
+
+    const write = handle.transaction(() => {
+      const current = handle
+        .prepare(`SELECT * FROM tranche_allocations WHERE id = ?`)
+        .get(id) as AllocationRow | undefined;
+      if (!current) throw new Error("That allocation no longer exists.");
+
+      const bucket = handle
+        .prepare(
+          `SELECT tranche_no, recv_amount, recv_currency FROM funding_tranches WHERE id = ?`,
+        )
+        .get(current.tranche_id) as
+        | { tranche_no: string; recv_amount: number; recv_currency: string }
+        | undefined;
+      if (!bucket) throw new Error("That tranche no longer exists.");
+
+      // Both guards again, with this row's own current figures taken out of the
+      // running totals first — otherwise correcting a row downwards is refused
+      // for exceeding a balance it is itself the reason for.
+      const { total: drawn } = handle
+        .prepare(
+          `SELECT COALESCE(SUM(amount), 0) AS total FROM tranche_allocations
+            WHERE tranche_id = ? AND id != ?`,
+        )
+        .get(current.tranche_id, id) as { total: number };
+
+      const remaining = paisa(Number(bucket.recv_amount) || 0) - paisa(Number(drawn) || 0);
+      if (paisa(amount) > remaining) {
+        throw new Error(
+          overdrawMessage(
+            bucket.tranche_no,
+            bucket.recv_currency || "PKR",
+            remaining / 100,
+            amount,
+          ),
+        );
+      }
+
+      if (current.source_total != null) {
+        const { total: already } = handle
+          .prepare(
+            `SELECT COALESCE(SUM(source_amount), 0) AS total FROM tranche_allocations
+              WHERE source_kind = ? AND source_id = ? AND id != ?`,
+          )
+          .get(current.source_kind, current.source_id, id) as { total: number };
+
+        const ceiling = paisa(Number(current.source_total));
+        if (paisa(Number(already) || 0) + paisa(sourceAmount) > ceiling) {
+          throw new Error(
+            overAllocateMessage(
+              current.source_ref ?? "",
+              current.source_currency || "PKR",
+              Number(current.source_total),
+              Number(already) || 0,
+              sourceAmount,
+            ),
+          );
+        }
+      }
+
+      handle
+        .prepare(
+          `UPDATE tranche_allocations
+              SET amount = ?, source_amount = ?,
+                  rate = ?, note = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          amount,
+          sourceAmount,
+          // Kept consistent with the two amounts rather than left at whatever it
+          // was: a corrected pair with a stale rate is three numbers that no
+          // longer multiply together.
+          sourceAmount > 0 ? amount / sourceAmount : 1,
+          note?.trim() || null,
+          new Date().toISOString(),
+          id,
+        );
+    });
+
+    write();
+  },
+
+  async removeAllocation(id: string): Promise<void> {
+    // Hard delete, unlike everything else in the portal. An allocation carries
+    // no number of its own and is nobody's record — it is a statement about
+    // where money came from, and an incorrect one should leave no trace.
+    connect().prepare(`DELETE FROM tranche_allocations WHERE id = ?`).run(id);
+  },
+
+  async allocatable(): Promise<AllocatableItem[]> {
+    const handle = connect();
+
+    // Vouchers are PKR by construction — the template prints "AMOUNT PAID (PKR)"
+    // — so the currency is stated rather than stored, the same as in spendRows.
+    // `amount` is NULL when the operator left it blank to write in by hand.
+    const vouchers = handle
+      .prepare(
+        `SELECT id, voucher_no AS ref, company, status, recipient_name, description, amount,
+                COALESCE(voucher_date, date(created_at)) AS date
+           FROM vouchers
+          WHERE deleted_at IS NULL`,
+      )
+      .all() as Array<{
+      id: string;
+      ref: string;
+      company: string;
+      status: string;
+      recipient_name: string | null;
+      description: string | null;
+      amount: number | null;
+      date: string;
+    }>;
+
+    // Cancelled orders are excluded: nothing was ever spent on one, so offering
+    // it for allocation would invite attributing money that never moved. Drafts
+    // are offered — a draft that was in fact paid is exactly the kind of thing
+    // this ledger is for catching.
+    const orders = handle
+      .prepare(
+        `SELECT id, po_no AS ref, company, status, currency, total, vendor_name, subject,
+                COALESCE(po_date, date(created_at)) AS date
+           FROM purchase_orders
+          WHERE deleted_at IS NULL AND status != 'cancelled'`,
+      )
+      .all() as Array<{
+      id: string;
+      ref: string;
+      company: string;
+      status: string;
+      currency: string;
+      total: number | null;
+      vendor_name: string | null;
+      subject: string | null;
+      date: string;
+    }>;
+
+    const food = handle
+      .prepare(
+        `SELECT id, entry_no AS ref, status, currency, amount, vendor, details, date
+           FROM food_expenses
+          WHERE deleted_at IS NULL`,
+      )
+      .all() as Array<{
+      id: string;
+      ref: string;
+      status: string;
+      currency: string;
+      amount: number | null;
+      vendor: string | null;
+      details: string | null;
+      date: string;
+    }>;
+
+    const direct = handle
+      .prepare(
+        `SELECT id, entry_no AS ref, company, currency, amount, payee, details, date
+           FROM tranche_expenses
+          WHERE deleted_at IS NULL`,
+      )
+      .all() as Array<{
+      id: string;
+      ref: string;
+      company: string | null;
+      currency: string;
+      amount: number | null;
+      payee: string | null;
+      details: string | null;
+      date: string;
+    }>;
+
+    const placed = handle
+      .prepare(
+        `SELECT a.source_kind, a.source_id, a.source_amount, a.amount,
+                a.tranche_id, t.tranche_no
+           FROM tranche_allocations a
+           JOIN funding_tranches t ON t.id = a.tranche_id
+          WHERE t.deleted_at IS NULL`,
+      )
+      .all() as Array<{
+      source_kind: string;
+      source_id: string;
+      source_amount: number;
+      amount: number;
+      tranche_id: string;
+      tranche_no: string;
+    }>;
+
+    return assembleAllocatable({ vouchers, orders, food, direct, placed });
+  },
+
+  async createDirect(fields: DirectFields, allocateTo: string | null): Promise<DirectExpense> {
+    const handle = connect();
+    const now = new Date().toISOString();
+    const period = periodOf();
+
+    const insert = handle.prepare(`
+      INSERT INTO tranche_expenses (
+        id, entry_no, seq, period, date, payee, details, amount, currency,
+        company, notes, created_at, updated_at
+      ) VALUES (
+        @id, @entry_no, @seq, @period, @date, @payee, @details, @amount, @currency,
+        @company, @notes, @created_at, @created_at
+      )
+    `);
+
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM tranche_expenses WHERE period = ?`,
+    );
+
+    const allocation = handle.prepare(`
+      INSERT INTO tranche_allocations (
+        id, tranche_id, source_kind, source_id, amount, source_amount, source_total,
+        source_currency, rate, source_ref, source_label, source_company, source_date,
+        note, created_at, updated_at
+      ) VALUES (
+        @id, @tranche_id, 'direct', @source_id, @amount, @amount, @amount,
+        @currency, 1, @ref, @label, @company, @date, NULL, @created_at, @created_at
+      )
+    `);
+
+    // The expense and its allocation in one transaction, the way createAsset
+    // writes an asset and its first holding: an expense typed into a bucket is
+    // already attributed by the act of typing it there, and asking twice is
+    // asking to be forgotten once.
+    const claim = handle.transaction((): DirectRow => {
+      const { seq } = nextSeq.get(period) as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        entry_no: formatDirectNo(period, seq),
+        seq,
+        period,
+        created_at: now,
+        ...directColumns(fields),
+      });
+
+      if (allocateTo) {
+        const bucket = handle
+          .prepare(
+            `SELECT tranche_no, recv_amount, recv_currency FROM funding_tranches
+              WHERE id = ? AND deleted_at IS NULL`,
+          )
+          .get(allocateTo) as
+          | { tranche_no: string; recv_amount: number; recv_currency: string }
+          | undefined;
+
+        // Silently skipping is deliberate for a currency mismatch — there is no
+        // rate to convert at, and inventing one is worse than leaving the entry
+        // in the queue for somebody to allocate with a rate they chose. The
+        // action tells the operator which happened.
+        if (bucket && (bucket.recv_currency || "PKR") === (fields.currency || "PKR")) {
+          const { total } = handle
+            .prepare(
+              `SELECT COALESCE(SUM(amount), 0) AS total FROM tranche_allocations
+                WHERE tranche_id = ?`,
+            )
+            .get(allocateTo) as { total: number };
+
+          const remaining =
+            paisa(Number(bucket.recv_amount) || 0) - paisa(Number(total) || 0);
+          if (paisa(fields.amount) > remaining) {
+            throw new Error(
+              overdrawMessage(
+                bucket.tranche_no,
+                bucket.recv_currency || "PKR",
+                remaining / 100,
+                fields.amount,
+              ),
+            );
+          }
+
+          allocation.run({
+            id: newId(),
+            tranche_id: allocateTo,
+            source_id: id,
+            amount: fields.amount,
+            currency: fields.currency || "PKR",
+            ref: formatDirectNo(period, seq),
+            label: fields.details.trim() || fields.payee.trim(),
+            company: fields.company,
+            date: fields.date,
+            created_at: now,
+          });
+        }
+      }
+
+      return handle
+        .prepare(`SELECT * FROM tranche_expenses WHERE id = ?`)
+        .get(id) as DirectRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToDirect(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a direct entry number after several attempts");
+  },
+
+  async getDirect(id: string): Promise<DirectExpense | null> {
+    const row = connect()
+      .prepare(`SELECT * FROM tranche_expenses WHERE id = ?`)
+      .get(id) as DirectRow | undefined;
+    return row ? rowToDirect(row) : null;
+  },
+
+  async updateDirect(id: string, fields: DirectFields): Promise<DirectExpense> {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE tranche_expenses
+            SET date = @date, payee = @payee, details = @details, amount = @amount,
+                currency = @currency, company = @company, notes = @notes,
+                updated_at = @updated_at
+          WHERE id = @id`,
+      )
+      .run({ id, updated_at: new Date().toISOString(), ...directColumns(fields) });
+
+    const row = handle
+      .prepare(`SELECT * FROM tranche_expenses WHERE id = ?`)
+      .get(id) as DirectRow | undefined;
+    if (!row) throw new Error("Entry not found");
+    return rowToDirect(row);
+  },
+
+  async softDeleteDirect(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    connect()
+      .prepare(`UPDATE tranche_expenses SET deleted_at = ?, updated_at = ? WHERE id = ?`)
+      .run(now, now, id);
+  },
+
+  async restoreDirect(id: string): Promise<void> {
+    connect()
+      .prepare(`UPDATE tranche_expenses SET deleted_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async listDirect(): Promise<DirectExpense[]> {
+    return (
+      connect()
+        .prepare(
+          `SELECT * FROM tranche_expenses
+            WHERE deleted_at IS NULL
+            ORDER BY date DESC, created_at DESC`,
+        )
+        .all() as DirectRow[]
+    ).map(rowToDirect);
+  },
+
+  async directPayees(): Promise<string[]> {
+    return directPayeesFrom(
+      connect()
+        .prepare(
+          `SELECT * FROM tranche_expenses
+            WHERE deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 400`,
+        )
+        .all() as DirectRow[],
+    );
   },
 
   /* ---- settings -------------------------------------------------------- */

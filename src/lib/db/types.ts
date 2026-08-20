@@ -35,6 +35,16 @@ import type {
 } from "../rfq/types";
 import type { CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
+import type {
+  Allocation,
+  AllocatableItem,
+  Debit,
+  DirectExpense,
+  DirectFields,
+  NewAllocation,
+  Tranche,
+  TrancheFields,
+} from "../tranches/types";
 import type { HistoryQuery, Signatory, Voucher, VoucherFields } from "../types";
 
 /**
@@ -370,6 +380,126 @@ export interface SpendStore {
   spendRows(company: CompanySlug): Promise<SpendRow[]>;
 }
 
+/**
+ * Investor funding.
+ *
+ * The only interface here that reads another module's tables. `allocatable`
+ * gathers vouchers, purchase orders and food entries into one shape so a bucket
+ * can be filled from any of them; nothing flows the other way, and no table
+ * outside this section gained a column for it.
+ */
+export interface TrancheStore {
+  /**
+   * Writes a tranche and reserves its number. `TR-001`, continuous — the
+   * sequence never resets, so the same guard the other modules use against a
+   * concurrent double-claim applies here with no period to key on.
+   */
+  createTranche(fields: TrancheFields): Promise<Tranche>;
+
+  getTranche(id: string): Promise<Tranche | null>;
+
+  /** Corrects the figures. Number, close state and audit stamps are untouched. */
+  updateTranche(id: string, fields: TrancheFields): Promise<Tranche>;
+
+  /**
+   * Closes a bucket with money still in it, or reopens it.
+   *
+   * Reversible on purpose: the remainder you decided was too small to spend in
+   * August is exactly the remainder something turns out to fit in November.
+   */
+  setTrancheClosed(id: string, closed: boolean): Promise<void>;
+
+  /** The row stays, so the number stays spent — as everywhere else. */
+  softDeleteTranche(id: string): Promise<void>;
+  restoreTranche(id: string): Promise<void>;
+
+  /**
+   * Every live tranche with its debits attached, newest received first.
+   *
+   * One method rather than a list and a per-tranche follow-up, because every
+   * screen in the section needs both halves: the landing card's figure, the
+   * index's cards and a bucket's own page are all `stand()` over this. Keeping
+   * the arithmetic in that one pure function is what stops the figure on the
+   * front page from disagreeing with the figure one click away.
+   */
+  fundingLedger(): Promise<Array<{ tranche: Tranche; debits: Debit[] }>>;
+
+  /** One bucket's ledger, newest first. */
+  listAllocations(trancheId: string): Promise<Allocation[]>;
+
+  /**
+   * Writes debits, all of them or none.
+   *
+   * Takes an array rather than one row because a split is two rows that only
+   * make sense together: half a split leaves a bucket with a balance that is
+   * wrong and an expense that looks attributed.
+   *
+   * Enforces both guards, because this is the only place that can:
+   *
+   *   an expense may not be allocated for more than it is worth, counted in the
+   *   document's own currency; and
+   *
+   *   a bucket may not be drawn below zero. A bucket that can go negative is not
+   *   a bucket, and one negative balance makes every figure on the page need
+   *   reading with a caveat.
+   *
+   * Throws with the shortfall named, so the caller can offer the split rather
+   * than just refusing.
+   */
+  allocate(rows: NewAllocation[]): Promise<void>;
+
+  /** Corrects one debit. Same two guards. */
+  updateAllocation(
+    id: string,
+    amount: number,
+    sourceAmount: number,
+    note: string | null,
+  ): Promise<void>;
+
+  /** Removes a debit. The expense returns to the queue by that much. */
+  removeAllocation(id: string): Promise<void>;
+
+  /**
+   * Every expense in the portal that can go in a bucket, with how much of it
+   * already is.
+   *
+   * Unpaged and unaggregated, for the reason `spendRows` gives: PostgREST cannot
+   * GROUP BY without a stored function, and at the scale of a small company's
+   * paperwork reading the rows and adding them up in the app costs nothing. It
+   * would need revisiting at tens of thousands of records — the filters on the
+   * picker are applied over the result rather than in the query for the same
+   * reason.
+   */
+  allocatable(): Promise<AllocatableItem[]>;
+
+  /**
+   * Writes a direct entry, and — when it is being logged from inside a bucket —
+   * its allocation in the same breath.
+   *
+   * One call rather than two, the way `createAsset` writes an asset and its
+   * first holding: an expense typed into a bucket is already attributed by the
+   * act of typing it there, and asking twice is asking to be forgotten once.
+   *
+   * `allocateTo` is ignored when the entry's currency differs from that
+   * bucket's received currency — there is no rate to convert at, and inventing
+   * one silently is worse than leaving the row in the queue.
+   */
+  createDirect(fields: DirectFields, allocateTo: string | null): Promise<DirectExpense>;
+
+  getDirect(id: string): Promise<DirectExpense | null>;
+  updateDirect(id: string, fields: DirectFields): Promise<DirectExpense>;
+
+  /** The row stays, so the number stays spent. */
+  softDeleteDirect(id: string): Promise<void>;
+  restoreDirect(id: string): Promise<void>;
+
+  /** Every live direct entry, newest first. */
+  listDirect(): Promise<DirectExpense[]>;
+
+  /** Payee names already typed, newest use first, for the form's datalist. */
+  directPayees(): Promise<string[]>;
+}
+
 export interface SettingsStore {
   /** Always returns a complete object; unset fields fall back to the defaults. */
   getSettings(company: CompanySlug): Promise<CompanySettings>;
@@ -416,5 +546,6 @@ export interface Store
     AssetStore,
     FoodStore,
     SpendStore,
+    TrancheStore,
     SettingsStore,
     NotificationStore {}
