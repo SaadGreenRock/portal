@@ -10,13 +10,27 @@ import { formatDate, spanInDays } from "@/lib/format";
  * Reads as the sentence the register exists to answer: this number, this thing,
  * is with this person, since this date. An asset nobody has says so plainly
  * rather than showing an empty column, because "in stock" is an answer.
+ *
+ * `leavers` is the set of register entries marked as having left. An asset still
+ * out with one of them is the case worth catching on this screen — the laptop
+ * really is still in their bag, and nothing else will bring it up.
  */
-export default function AssetRow({ asset, company }: { asset: Asset; company: string }) {
+export default function AssetRow({
+  asset,
+  company,
+  leavers,
+}: {
+  asset: Asset;
+  company: string;
+  /** Ids of employees who have left. Empty when the register is unavailable. */
+  leavers?: Set<string>;
+}) {
   const drop = deleteAsset.bind(null, asset.id);
   const undelete = restoreAsset.bind(null, asset.id);
 
   const free = inStock(asset);
   const held = free ? "" : spanInDays(asset.heldSince, "");
+  const withLeaver = !free && Boolean(asset.holderId) && Boolean(leavers?.has(asset.holderId));
 
   return (
     <li className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:px-5">
@@ -53,6 +67,15 @@ export default function AssetRow({ asset, company }: { asset: Asset; company: st
         {asset.condition !== "good" ? (
           <span className="chip bg-red-100 text-red-900">
             {CONDITION_LABELS[asset.condition]}
+          </span>
+        ) : null}
+
+        {/* Nothing is auto-returned when somebody leaves: the laptop really is
+            still with them, and pretending otherwise is how it stops being
+            chased. So it is flagged instead. */}
+        {withLeaver ? (
+          <span className="chip bg-amber-100 text-amber-900" title="The person holding this has left the company.">
+            Holder has left
           </span>
         ) : null}
 

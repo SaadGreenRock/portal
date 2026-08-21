@@ -7,18 +7,19 @@ import type {
   AssetFields,
   AssetHolding,
   AssetQuery,
-  EmployeeProfile,
   HoldingQuery,
   ReturnFields,
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
 import {
   duplicateNumber,
+  isEmployeeStatus,
   type Employee,
   type EmployeeCounts,
   type EmployeeFields,
   type EmployeeQuery,
   type EmployeeStatus,
+  type EmployeeSummary,
 } from "../employees/types";
 import {
   summariseFood,
@@ -75,7 +76,6 @@ import {
   employeeColumns,
   employeeKey,
   employeeNoKey,
-  employeeProfilesFrom,
   foodColumns,
   foodNamesFrom,
   formatAssetNo,
@@ -87,6 +87,8 @@ import {
   formatTrancheNo,
   formatVoucherNo,
   holderColumns,
+  holdingColumns,
+  IN_STOCK_COLUMNS,
   newId,
   periodOf,
   poStatusPatch,
@@ -1393,19 +1395,19 @@ export const sqliteStore: Store = {
     const insertAsset = handle.prepare(`
       INSERT INTO assets (
         id, asset_no, company, seq, asset_name, condition,
-        holder_name, holder_no, held_since, created_at, updated_at
+        holder_name, holder_no, holder_id, held_since, created_at, updated_at
       ) VALUES (
         @id, @asset_no, @company, @seq, @asset_name, 'good',
-        @holder_name, @holder_no, @held_since, @created_at, @created_at
+        @holder_name, @holder_no, @holder_id, @held_since, @created_at, @created_at
       )
     `);
 
     const insertHolding = handle.prepare(`
       INSERT INTO asset_holdings (
-        id, asset_id, company, employee_name, employee_no, allotted_on,
+        id, asset_id, company, employee_name, employee_no, employee_id, allotted_on,
         returned_on, condition, note, created_at, updated_at
       ) VALUES (
-        @id, @asset_id, @company, @employee_name, @employee_no, @allotted_on,
+        @id, @asset_id, @company, @employee_name, @employee_no, @employee_id, @allotted_on,
         NULL, 'good', '', @created_at, @created_at
       )
     `);
@@ -1418,7 +1420,8 @@ export const sqliteStore: Store = {
 
     // The asset and its first holding in one transaction, so the register can
     // never show a holder the history does not have. UNIQUE (company, seq) is
-    // the real guard on the number.
+    // the real guard on the number. With no allotment there is simply no second
+    // insert, and the asset is in stock from the start.
     const claim = handle.transaction((): AssetRow => {
       const { seq } = nextSeq.get(company) as { seq: number };
       const id = newId();
@@ -1429,17 +1432,19 @@ export const sqliteStore: Store = {
         seq,
         asset_name: fields.assetName,
         created_at: now,
-        ...holderColumns(allot),
+        // An asset with no first holder starts in stock, which the register
+        // could not represent before the employee dropdown existed.
+        ...(allot ? holderColumns(allot) : IN_STOCK_COLUMNS),
       });
-      insertHolding.run({
-        id: newId(),
-        asset_id: id,
-        company,
-        employee_name: allot.employeeName,
-        employee_no: allot.employeeNo,
-        allotted_on: allot.allottedOn || null,
-        created_at: now,
-      });
+      if (allot) {
+        insertHolding.run({
+          id: newId(),
+          asset_id: id,
+          company,
+          created_at: now,
+          ...holdingColumns(allot),
+        });
+      }
       return handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as AssetRow;
     });
 
@@ -1483,7 +1488,8 @@ export const sqliteStore: Store = {
         .prepare(
           `UPDATE assets SET
               asset_name = @asset_name, updated_at = @updated_at,
-              holder_name = @holder_name, holder_no = @holder_no, held_since = @held_since
+              holder_name = @holder_name, holder_no = @holder_no,
+              holder_id = @holder_id, held_since = @held_since
             WHERE id = @id`,
         )
         .run({
@@ -1495,6 +1501,7 @@ export const sqliteStore: Store = {
             : {
                 holder_name: current.holder_name,
                 holder_no: current.holder_no,
+                holder_id: current.holder_id,
                 held_since: current.held_since,
               }),
         });
@@ -1504,16 +1511,11 @@ export const sqliteStore: Store = {
           .prepare(
             `UPDATE asset_holdings SET
                 employee_name = @employee_name, employee_no = @employee_no,
-                allotted_on = @allotted_on, updated_at = @updated_at
+                employee_id = @employee_id, allotted_on = @allotted_on,
+                updated_at = @updated_at
               WHERE id = @id`,
           )
-          .run({
-            id: open.id,
-            employee_name: holder.employeeName,
-            employee_no: holder.employeeNo,
-            allotted_on: holder.allottedOn || null,
-            updated_at: now,
-          });
+          .run({ id: open.id, updated_at: now, ...holdingColumns(holder) });
       }
 
       return handle.prepare(`SELECT * FROM assets WHERE id = ?`).get(id) as AssetRow;
@@ -1551,7 +1553,7 @@ export const sqliteStore: Store = {
       handle
         .prepare(
           `UPDATE assets SET
-              holder_name = '', holder_no = '', held_since = NULL,
+              holder_name = '', holder_no = '', holder_id = NULL, held_since = NULL,
               condition = @condition, updated_at = @updated_at
             WHERE id = @id`,
         )
@@ -1581,10 +1583,10 @@ export const sqliteStore: Store = {
       handle
         .prepare(
           `INSERT INTO asset_holdings (
-              id, asset_id, company, employee_name, employee_no, allotted_on,
+              id, asset_id, company, employee_name, employee_no, employee_id, allotted_on,
               returned_on, condition, note, created_at, updated_at
             ) VALUES (
-              @id, @asset_id, @company, @employee_name, @employee_no, @allotted_on,
+              @id, @asset_id, @company, @employee_name, @employee_no, @employee_id, @allotted_on,
               NULL, 'good', '', @created_at, @created_at
             )`,
         )
@@ -1592,16 +1594,15 @@ export const sqliteStore: Store = {
           id: newId(),
           asset_id: id,
           company: current.company,
-          employee_name: allot.employeeName,
-          employee_no: allot.employeeNo,
-          allotted_on: allot.allottedOn || null,
           created_at: now,
+          ...holdingColumns(allot),
         });
 
       handle
         .prepare(
           `UPDATE assets SET
-              holder_name = @holder_name, holder_no = @holder_no, held_since = @held_since,
+              holder_name = @holder_name, holder_no = @holder_no,
+              holder_id = @holder_id, held_since = @held_since,
               updated_at = @updated_at
             WHERE id = @id`,
         )
@@ -1713,6 +1714,14 @@ export const sqliteStore: Store = {
     if (query.view === "open") where.push("h.returned_on IS NULL");
     else if (query.view === "closed") where.push("h.returned_on IS NOT NULL");
 
+    // Matched on the link, never the name: an employee's record must show what
+    // was genuinely allotted to that register entry and not somebody else who
+    // happens to share a spelling.
+    if (query.employeeId) {
+      where.push("h.employee_id = @employeeId");
+      params.employeeId = query.employeeId;
+    }
+
     if (query.q?.trim()) {
       where.push(`(
         h.employee_name LIKE @q COLLATE NOCASE OR
@@ -1762,24 +1771,41 @@ export const sqliteStore: Store = {
     return { rows: rows.map(rowToHoldingWithAsset), total };
   },
 
-  async listEmployees(company: CompanySlug): Promise<EmployeeProfile[]> {
-    // Capped like the vendor list. Past this many holdings the suggestions are
-    // already more than a person will scroll, and the count beside a name is a
-    // hint rather than a figure anyone reports on.
-    const rows = connect()
+  async employeeDirectory(company: CompanySlug): Promise<EmployeeSummary[]> {
+    const handle = connect();
+
+    const employees = handle
       .prepare(
-        `SELECT employee_name, employee_no, returned_on, created_at FROM asset_holdings
-          WHERE company = ?
-          ORDER BY created_at DESC
-          LIMIT 1000`,
+        `SELECT id, employee_no, name, status FROM employees
+          WHERE company = ? AND deleted_at IS NULL
+          ORDER BY name COLLATE NOCASE ASC`,
       )
       .all(company) as Array<{
-      employee_name: string;
+      id: string;
       employee_no: string;
-      returned_on: string | null;
-      created_at: string;
+      name: string;
+      status: string;
     }>;
-    return employeeProfilesFrom(rows);
+
+    // One grouped count rather than a query per person: the dropdown draws the
+    // whole list on every asset form, and a register of forty people would
+    // otherwise be forty round trips to render one select.
+    const held = handle
+      .prepare(
+        `SELECT holder_id, COUNT(*) AS n FROM assets
+          WHERE company = ? AND deleted_at IS NULL AND holder_id IS NOT NULL
+          GROUP BY holder_id`,
+      )
+      .all(company) as Array<{ holder_id: string; n: number }>;
+    const counts = new Map(held.map((h) => [h.holder_id, h.n]));
+
+    return employees.map((e) => ({
+      id: e.id,
+      employeeNo: e.employee_no ?? "",
+      name: e.name ?? "",
+      status: isEmployeeStatus(e.status) ? e.status : "active",
+      holding: counts.get(e.id) ?? 0,
+    }));
   },
 
 

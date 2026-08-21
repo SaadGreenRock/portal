@@ -5,7 +5,6 @@ import type {
   AssetFields,
   AssetHolding,
   AssetQuery,
-  EmployeeProfile,
   HoldingQuery,
   HoldingWithAsset,
   ReturnFields,
@@ -39,6 +38,7 @@ import type {
   EmployeeFields,
   EmployeeQuery,
   EmployeeStatus,
+  EmployeeSummary,
 } from "../employees/types";
 import type { CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
@@ -204,16 +204,22 @@ export interface RfqStore {
 export interface NewAsset {
   company: CompanySlug;
   fields: AssetFields;
-  /** The first holding. An asset is logged as it is handed to someone. */
-  allot: AllotFields;
+  /**
+   * The first holding, or null to log the asset into stock.
+   *
+   * It used to be required, which meant an asset entered the register by being
+   * handed to somebody — so a laptop bought last week that nobody has yet could
+   * not be recorded at all. Null is now an ordinary answer.
+   */
+  allot: AllotFields | null;
 }
 
 export interface AssetStore {
   /**
-   * Reserves the next asset number for a company, writes the asset, and opens
-   * its first holding. The sequence is per company and never resets, so the
-   * number is the permanent label for the physical item. Safe against
-   * concurrent calls, like the others.
+   * Reserves the next asset number for a company, writes the asset, and — when
+   * an allotment is supplied — opens its first holding. The sequence is per
+   * company and never resets, so the number is the permanent label for the
+   * physical item. Safe against concurrent calls, like the others.
    */
   createAsset(input: NewAsset): Promise<Asset>;
 
@@ -266,11 +272,6 @@ export interface AssetStore {
    */
   searchHoldings(query: HoldingQuery): Promise<{ rows: HoldingWithAsset[]; total: number }>;
 
-  /**
-   * Employees as last allotted to, newest first. Assembled from the holdings
-   * themselves, so there is no employee list to keep up to date.
-   */
-  listEmployees(company: CompanySlug): Promise<EmployeeProfile[]>;
 }
 
 export interface NewEmployee {
@@ -324,6 +325,17 @@ export interface EmployeeStore {
   searchEmployees(query: EmployeeQuery): Promise<{ rows: Employee[]; total: number }>;
 
   employeeCounts(company: CompanySlug): Promise<EmployeeCounts>;
+
+  /**
+   * Every live employee reduced to what the asset dropdown and the register's
+   * leaver flag need, with what each is holding right now.
+   *
+   * One method for both, deliberately: the dropdown wants the active ones and
+   * the asset register wants to know which holders have left, and splitting that
+   * into two queries would let the two screens disagree about who is still here.
+   * Filter with `allotable` at the point of use.
+   */
+  employeeDirectory(company: CompanySlug): Promise<EmployeeSummary[]>;
 }
 
 export interface FoodStore {

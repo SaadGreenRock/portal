@@ -5,18 +5,19 @@ import type {
   AssetFields,
   AssetHolding,
   AssetQuery,
-  EmployeeProfile,
   HoldingQuery,
   ReturnFields,
 } from "../assets/types";
 import type { CompanySlug } from "../companies";
 import {
   duplicateNumber,
+  isEmployeeStatus,
   type Employee,
   type EmployeeCounts,
   type EmployeeFields,
   type EmployeeQuery,
   type EmployeeStatus,
+  type EmployeeSummary,
 } from "../employees/types";
 import {
   summariseFood,
@@ -73,7 +74,6 @@ import {
   employeeColumns,
   employeeKey,
   employeeNoKey,
-  employeeProfilesFrom,
   foodColumns,
   foodNamesFrom,
   formatAssetNo,
@@ -85,6 +85,7 @@ import {
   formatTrancheNo,
   formatVoucherNo,
   holderColumns,
+  holdingColumns,
   IN_STOCK_COLUMNS,
   newId,
   periodOf,
@@ -913,7 +914,9 @@ export const supabaseStore: Store = {
           condition: "good",
           created_at: now,
           updated_at: now,
-          ...holderColumns(allot),
+          // An asset with no first holder starts in stock, which the register
+          // could not represent before the employee dropdown existed.
+          ...(allot ? holderColumns(allot) : IN_STOCK_COLUMNS),
         })
         .select()
         .single();
@@ -924,21 +927,23 @@ export const supabaseStore: Store = {
         continue;
       }
 
-      // The asset owns the number, so it goes in first; the holding references it.
-      const { error: holdErr } = await db.from(HOLDINGS).insert({
-        id: newId(),
-        asset_id: id,
-        company,
-        employee_name: allot.employeeName,
-        employee_no: allot.employeeNo,
-        allotted_on: allot.allottedOn || null,
-        returned_on: null,
-        condition: "good",
-        note: "",
-        created_at: now,
-        updated_at: now,
-      });
-      if (holdErr) throw holdErr;
+      // The asset owns the number, so it goes in first; the holding references
+      // it. With no allotment there is no holding at all, and the asset is in
+      // stock from the start.
+      if (allot) {
+        const { error: holdErr } = await db.from(HOLDINGS).insert({
+          id: newId(),
+          asset_id: id,
+          company,
+          returned_on: null,
+          condition: "good",
+          note: "",
+          created_at: now,
+          updated_at: now,
+          ...holdingColumns(allot),
+        });
+        if (holdErr) throw holdErr;
+      }
 
       return rowToAsset(data as AssetRow);
     }
@@ -962,12 +967,7 @@ export const supabaseStore: Store = {
     if (open && holder) {
       const { error } = await db
         .from(HOLDINGS)
-        .update({
-          employee_name: holder.employeeName,
-          employee_no: holder.employeeNo,
-          allotted_on: holder.allottedOn || null,
-          updated_at: now,
-        })
+        .update({ updated_at: now, ...holdingColumns(holder) })
         .eq("id", open.id);
       if (error) throw error;
     }
@@ -1041,14 +1041,12 @@ export const supabaseStore: Store = {
       id: newId(),
       asset_id: id,
       company: asset.company,
-      employee_name: allot.employeeName,
-      employee_no: allot.employeeNo,
-      allotted_on: allot.allottedOn || null,
       returned_on: null,
       condition: "good",
       note: "",
       created_at: now,
       updated_at: now,
+      ...holdingColumns(allot),
     });
     if (holdErr) throw holdErr;
 
@@ -1184,6 +1182,11 @@ export const supabaseStore: Store = {
     if (query.view === "open") q = q.is("returned_on", null);
     else if (query.view === "closed") q = q.not("returned_on", "is", null);
 
+    // Matched on the link, never the name: an employee's record must show what
+    // was genuinely allotted to that register entry and not somebody else who
+    // happens to share a spelling.
+    if (query.employeeId) q = q.eq("employee_id", query.employeeId);
+
     if (query.q?.trim()) {
       const term = query.q.trim().replace(/[%,()]/g, " ");
       // PostgREST cannot put an embedded table's column inside .or(), so the
@@ -1224,23 +1227,44 @@ export const supabaseStore: Store = {
     };
   },
 
-  async listEmployees(company: CompanySlug): Promise<EmployeeProfile[]> {
-    // Capped like the vendor list; see the note in the SQLite backend.
-    const { data, error } = await supabase()
-      .from(HOLDINGS)
-      .select("employee_name, employee_no, returned_on, created_at")
-      .eq("company", company)
-      .order("created_at", { ascending: false })
-      .limit(1000);
-    if (error) throw error;
-    return employeeProfilesFrom(
-      (data ?? []) as Array<{
-        employee_name: string;
-        employee_no: string;
-        returned_on: string | null;
-        created_at: string;
-      }>,
-    );
+  async employeeDirectory(company: CompanySlug): Promise<EmployeeSummary[]> {
+    const db = supabase();
+
+    const [people, held] = await Promise.all([
+      db
+        .from(EMPLOYEES)
+        .select("id, employee_no, name, status")
+        .eq("company", company)
+        .is("deleted_at", null)
+        .order("name", { ascending: true })
+        .limit(5000),
+      // Every held asset in one request rather than a query per person: the
+      // dropdown draws the whole list on every asset form, and a register of
+      // forty people would otherwise be forty round trips to render one select.
+      db
+        .from(ASSETS)
+        .select("holder_id")
+        .eq("company", company)
+        .is("deleted_at", null)
+        .not("holder_id", "is", null)
+        .limit(5000),
+    ]);
+    if (people.error) throw people.error;
+    if (held.error) throw held.error;
+
+    const counts = new Map<string, number>();
+    for (const row of held.data ?? []) {
+      const key = String(row.holder_id);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    return (people.data ?? []).map((e) => ({
+      id: String(e.id),
+      employeeNo: String(e.employee_no ?? ""),
+      name: String(e.name ?? ""),
+      status: isEmployeeStatus(e.status) ? e.status : "active",
+      holding: counts.get(String(e.id)) ?? 0,
+    }));
   },
 
 

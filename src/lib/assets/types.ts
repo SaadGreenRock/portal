@@ -15,6 +15,12 @@ import type { CompanySlug } from "../companies";
  * An asset is returned before it is given to anyone else: there is no direct
  * hand-over from one employee to the next, so at any moment an asset is either
  * with exactly one person or in stock, and its holdings never overlap.
+ *
+ * An asset may also be logged with nobody holding it. It could not always be:
+ * the first version of this module made an allotment part of creating an asset,
+ * so a laptop bought last week that nobody has yet could not be recorded at all.
+ * The employee register made the fix natural — the holder is chosen from a list
+ * that opens on nobody.
  */
 
 /** What state the thing came back in. Recorded per return, and on the asset. */
@@ -39,11 +45,32 @@ export interface AssetFields {
   assetName: string;
 }
 
-/** Who is taking it, and from when. One of these opens a holding. */
+/**
+ * Who is taking it, and from when. One of these opens a holding.
+ *
+ * Three fields where there used to be two, and the third is the whole of what
+ * pass two changed. `employeeId` is the link into the register; the name and
+ * number beside it are the snapshot of who that was at the time, which is what
+ * keeps a closed holding readable after somebody's name is corrected years
+ * later — the same habit the tranche ledger uses for its source documents.
+ *
+ * The caller resolves the id into the snapshot, not the store: it is the action
+ * that knows which company it is acting for, and so the only place that can
+ * check the employee belongs to it.
+ */
 export interface AllotFields {
-  /** Who is taking the asset. */
+  /**
+   * The register entry taking the asset.
+   *
+   * Empty in exactly one case: correcting a holding that predates the employee
+   * register, where the operator left the dropdown on "keep as typed". The
+   * action then carries the existing name and number through unchanged rather
+   * than blanking them.
+   */
+  employeeId: string;
+  /** Snapshot of their name when the asset was handed over. */
   employeeName: string;
-  /** The employee number the company already issued. Not generated here. */
+  /** Snapshot of their employee number. */
   employeeNo: string;
   /** ISO date (yyyy-mm-dd), or "" if not recorded. */
   allottedOn: string;
@@ -68,6 +95,13 @@ export interface AssetHolding extends AllotFields {
   id: string;
   assetId: string;
   company: CompanySlug;
+  /**
+   * Null on every holding recorded before the employee register existed. That
+   * is not a gap to be repaired — the name and number on the row are what was
+   * true at the time, and they still read correctly. It only means the holding
+   * does not roll up under anybody's record.
+   */
+  employeeId: string;
   /** "" while the holding is open. */
   returnedOn: string;
   /** Only meaningful once returned. */
@@ -110,6 +144,14 @@ export interface Asset extends AssetFields {
    */
   holderName: string;
   holderNo: string;
+  /**
+   * The register entry currently holding it, cached alongside the name.
+   *
+   * "" means one of two ordinary things: the asset is in stock, or it is out
+   * with somebody recorded before the register existed. `holderName` is what
+   * tells those two apart.
+   */
+  holderId: string;
   /** ISO date the current holding began. "" when in stock. */
   heldSince: string;
   /**
@@ -128,22 +170,6 @@ export interface Asset extends AssetFields {
 /** True when nobody has it. */
 export const inStock = (a: Asset): boolean => !a.holderName;
 
-/**
- * An employee as the register knows them, assembled from their holdings.
- *
- * There is no employee table: the same reasoning as the vendor list on purchase
- * orders. Names and numbers come from what has already been typed, so nothing
- * has to be maintained and the form can offer them back.
- */
-export interface EmployeeProfile {
-  name: string;
-  no: string;
-  /** How many assets they are holding right now. */
-  holding: number;
-  /** ISO timestamp of their most recent allotment. */
-  lastUsed: string;
-}
-
 export interface AssetQuery {
   company: CompanySlug;
   /** Free text across asset no., asset name and the current holder. */
@@ -159,6 +185,12 @@ export interface AssetQuery {
 
 export interface HoldingQuery {
   company: CompanySlug;
+  /**
+   * One employee's holdings, for their record. Matches on the link rather than
+   * the name, so it returns what was genuinely allotted to that register entry
+   * and never somebody else who happens to share a spelling.
+   */
+  employeeId?: string;
   /** Free text across employee name and number, asset no. and asset name. */
   q?: string;
   /** "open" is still out, "closed" is returned. */
@@ -191,9 +223,9 @@ export function emptyAsset(): AssetFields {
   return { assetName: "" };
 }
 
-/** A blank allotment, dated today. */
+/** A blank allotment, dated today and belonging to nobody yet. */
 export function emptyAllot(today: string): AllotFields {
-  return { employeeName: "", employeeNo: "", allottedOn: today };
+  return { employeeId: "", employeeName: "", employeeNo: "", allottedOn: today };
 }
 
 /** A blank return, dated today. */

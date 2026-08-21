@@ -51,11 +51,19 @@ export default async function AssetRegister({
   };
 
   const db = await store();
-  const [listed, counted] = await Promise.all([
+  const [listed, counted, directory] = await Promise.all([
     tryTable(() => db.searchAssets(query)),
     tryTable(() => db.assetCounts(company.slug)),
+    // Tolerated on its own: an unmigrated employee register must not stop the
+    // asset register from listing assets. Without it the leaver flags simply do
+    // not appear, which is the same bargain every other badge here makes.
+    tryTable(() => db.employeeDirectory(company.slug)),
   ]);
   if (!listed.ok || !counted.ok) return <ModuleUnavailable module="Assets" />;
+
+  const leavers = new Set(
+    (directory.ok ? directory.value : []).filter((e) => e.status === "left").map((e) => e.id),
+  );
 
   const { rows, total } = listed.value;
   const counts = counted.value;
@@ -182,7 +190,12 @@ export default async function AssetRegister({
         <>
           <ul className="space-y-2.5">
             {rows.map((asset) => (
-              <AssetRow key={asset.id} asset={asset} company={company.slug} />
+              <AssetRow
+                key={asset.id}
+                asset={asset}
+                company={company.slug}
+                leavers={leavers}
+              />
             ))}
           </ul>
 

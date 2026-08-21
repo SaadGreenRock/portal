@@ -1,6 +1,7 @@
 import Link from "next/link";
-import EmployeeSuggestions from "@/components/EmployeeSuggestions";
-import type { AllotFields, AssetFields, EmployeeProfile } from "@/lib/assets/types";
+import EmployeePicker from "@/components/EmployeePicker";
+import type { AllotFields, AssetFields } from "@/lib/assets/types";
+import type { EmployeeSummary } from "@/lib/employees/types";
 
 /**
  * The asset form: what the thing is, and — when somebody has it — who.
@@ -11,9 +12,13 @@ import type { AllotFields, AssetFields, EmployeeProfile } from "@/lib/assets/typ
  * preview, which needs state, while this is a few fields and a form that submits
  * without JavaScript cannot half-work.
  *
- * `holder` is null when the asset is in stock. The holder fields are then left
- * out entirely rather than disabled, because there is no open holding for them to
- * correct — giving it to somebody is the Allot form, not this one.
+ * `holder` is null when an existing asset is in stock. The holder fields are then
+ * left out entirely rather than disabled, because there is no open holding for
+ * them to correct — giving it to somebody is the Allot form, not this one.
+ *
+ * `allowNobody` is what makes a new asset able to start in stock. It could not
+ * before: an allotment was part of creating an asset, so a laptop bought last
+ * week that nobody has yet could not be recorded at all.
  *
  * `required` and `maxLength` mirror what the action enforces. The action is still
  * the authority; the attributes exist so the operator is told before the round
@@ -24,20 +29,33 @@ export default function AssetForm({
   asset,
   holder,
   employees,
+  company,
   submitLabel,
   cancelHref,
   assetNo,
+  allowNobody = false,
 }: {
   action: (form: FormData) => Promise<void>;
   asset: AssetFields;
-  /** The open holding to correct, or null when the asset is in stock. */
+  /** The open holding to correct, or null when an existing asset is in stock. */
   holder: AllotFields | null;
-  employees: EmployeeProfile[];
+  employees: EmployeeSummary[];
+  company: string;
   submitLabel: string;
   cancelHref: string;
   /** The number already assigned, shown read-only. `null` before it exists. */
   assetNo: string | null;
+  /** New assets may be logged with nobody holding them. */
+  allowNobody?: boolean;
 }) {
+  // A holding recorded before the employee register existed: it has a name but
+  // no link. Offered back as "keep as typed" so correcting the date cannot
+  // silently blank a name nobody can recover.
+  const keep =
+    holder && !holder.employeeId && holder.employeeName
+      ? { name: holder.employeeName, no: holder.employeeNo }
+      : null;
+
   return (
     <form action={action} className="card p-5 sm:p-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -69,41 +87,14 @@ export default function AssetForm({
 
         {holder ? (
           <>
-            <div>
-              <label className="label mb-1.5" htmlFor="employeeName">
-                Held by
-              </label>
-              <input
-                id="employeeName"
-                name="employeeName"
-                defaultValue={holder.employeeName}
-                list="employee-names"
-                required
-                maxLength={160}
-                autoComplete="off"
-                placeholder="Who has it"
-                className="input"
-              />
-            </div>
-
-            <div>
-              <label className="label mb-1.5" htmlFor="employeeNo">
-                Employee number
-              </label>
-              <input
-                id="employeeNo"
-                name="employeeNo"
-                defaultValue={holder.employeeNo}
-                list="employee-numbers"
-                maxLength={40}
-                autoComplete="off"
-                placeholder="As already issued"
-                className="input mono"
-              />
-              <p className="mt-1.5 text-[12.5px] text-ink-soft">
-                The number your company already gave them. Not generated here.
-              </p>
-            </div>
+            <EmployeePicker
+              employees={employees}
+              company={company}
+              value={holder.employeeId}
+              keep={keep}
+              required={!allowNobody}
+              label={allowNobody ? "Give it to" : "Held by"}
+            />
 
             <div>
               <label className="label mb-1.5" htmlFor="allottedOn">
@@ -117,16 +108,20 @@ export default function AssetForm({
                 className="input"
               />
             </div>
-
-            <EmployeeSuggestions employees={employees} />
           </>
         ) : null}
       </div>
 
-      {holder ? (
+      {holder && !allowNobody ? (
         <p className="mt-4 text-[12.5px] leading-relaxed text-ink-soft">
           Editing here corrects the current holding. To record that it came back,
           use Return — that closes this period and keeps it in the history.
+        </p>
+      ) : null}
+      {allowNobody ? (
+        <p className="mt-4 text-[12.5px] leading-relaxed text-ink-soft">
+          Leave the holder as <em>In stock</em> if nobody has it yet. You can hand it over any
+          time from the asset&rsquo;s own screen, and that is what starts its history.
         </p>
       ) : null}
 

@@ -123,6 +123,52 @@ export function missingDetails(e: Employee): string[] {
   return gaps;
 }
 
+/**
+ * An employee reduced to what a dropdown and a register flag need.
+ *
+ * Replaces the `EmployeeProfile` the asset register used to assemble from its
+ * own holdings. That list could only ever contain names already typed, which is
+ * exactly the circularity the register exists to break — you could not hand an
+ * asset to somebody until you had already handed them one.
+ *
+ * `holding` is what they have out right now, which is the useful thing to know
+ * while deciding whether to give them another.
+ */
+export interface EmployeeSummary {
+  id: string;
+  employeeNo: string;
+  name: string;
+  status: EmployeeStatus;
+  holding: number;
+}
+
+/**
+ * Why this employee cannot be given an asset, or null when they can.
+ *
+ * A function rather than three checks inlined in the asset action, so the rule
+ * that keeps the two companies apart is one testable thing. The company check is
+ * not a formality: the employee id arrives as a form value, and the whole point
+ * of two registers is that neither can reach into the other.
+ */
+export function allotError(
+  employee: Pick<Employee, "name" | "company" | "status" | "deletedAt"> | null,
+  company: CompanySlug,
+): string | null {
+  if (!employee || employee.deletedAt || employee.company !== company) {
+    return "That employee is not on this company's register.";
+  }
+  if (employee.status === "left") {
+    return (
+      `${employee.name} is marked as having left. ` +
+      `Put them back on the register first, or choose somebody else.`
+    );
+  }
+  return null;
+}
+
+/** Only these may be given an asset. A leaver cannot be handed a laptop. */
+export const allotable = (e: EmployeeSummary): boolean => e.status === "active";
+
 export interface EmployeeQuery {
   company: CompanySlug;
   /** Free text across name, employee number, CNIC and phone. */

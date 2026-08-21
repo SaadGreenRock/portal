@@ -1,5 +1,6 @@
-import EmployeeSuggestions from "@/components/EmployeeSuggestions";
-import type { AllotFields, EmployeeProfile } from "@/lib/assets/types";
+import EmployeePicker from "@/components/EmployeePicker";
+import type { AllotFields } from "@/lib/assets/types";
+import type { EmployeeSummary } from "@/lib/employees/types";
 
 /**
  * Hands an in-stock asset to somebody, opening a new holding.
@@ -12,10 +13,12 @@ export default function AllotForm({
   action,
   initial,
   employees,
+  company,
 }: {
   action: (form: FormData) => Promise<void>;
   initial: AllotFields;
-  employees: EmployeeProfile[];
+  employees: EmployeeSummary[];
+  company: string;
 }) {
   return (
     <form action={action} className="card p-5 sm:p-6">
@@ -24,39 +27,13 @@ export default function AllotForm({
         This opens a new holding. The previous ones stay in the history below.
       </p>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <div>
-          <label className="label mb-1.5" htmlFor="allot-name">
-            Employee name
-          </label>
-          <input
-            id="allot-name"
-            name="employeeName"
-            defaultValue={initial.employeeName}
-            list="employee-names"
-            required
-            maxLength={160}
-            autoComplete="off"
-            placeholder="Who is taking it"
-            className="input"
-          />
-        </div>
-
-        <div>
-          <label className="label mb-1.5" htmlFor="allot-no">
-            Employee number
-          </label>
-          <input
-            id="allot-no"
-            name="employeeNo"
-            defaultValue={initial.employeeNo}
-            list="employee-numbers"
-            maxLength={40}
-            autoComplete="off"
-            placeholder="As already issued"
-            className="input mono"
-          />
-        </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <EmployeePicker
+          employees={employees}
+          company={company}
+          value={initial.employeeId}
+          label="Who is taking it"
+        />
 
         <div>
           <label className="label mb-1.5" htmlFor="allot-on">
@@ -71,8 +48,6 @@ export default function AllotForm({
           />
         </div>
       </div>
-
-      <EmployeeSuggestions employees={employees} />
 
       <button type="submit" className="btn btn-primary mt-5">
         Allot it

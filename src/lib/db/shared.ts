@@ -5,7 +5,6 @@ import {
   type AllotFields,
   type Asset,
   type AssetHolding,
-  type EmployeeProfile,
   type HoldingWithAsset,
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
@@ -419,6 +418,8 @@ export interface AssetRow {
   /** Cache of the open holding. Empty name means in stock. */
   holder_name: string;
   holder_no: string;
+  /** The register entry holding it. NULL in stock, and on pre-register history. */
+  holder_id: string | null;
   held_since: string | null;
   created_at: string;
   updated_at: string;
@@ -435,6 +436,7 @@ export function rowToAsset(r: AssetRow): Asset {
     condition: isCondition(r.condition) ? r.condition : "good",
     holderName: r.holder_name ?? "",
     holderNo: r.holder_no ?? "",
+    holderId: r.holder_id ?? "",
     heldSince: r.held_since ?? "",
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -449,6 +451,8 @@ export interface HoldingRow {
   company: string;
   employee_name: string;
   employee_no: string;
+  /** NULL on every holding recorded before the employee register existed. */
+  employee_id: string | null;
   allotted_on: string | null;
   /** NULL while the holding is open. */
   returned_on: string | null;
@@ -465,6 +469,7 @@ export function rowToHolding(r: HoldingRow): AssetHolding {
     company: r.company as CompanySlug,
     employeeName: r.employee_name ?? "",
     employeeNo: r.employee_no ?? "",
+    employeeId: r.employee_id ?? "",
     allottedOn: r.allotted_on ?? "",
     returnedOn: r.returned_on ?? "",
     condition: isCondition(r.condition) ? r.condition : "good",
@@ -499,7 +504,20 @@ export function holderColumns(a: AllotFields) {
   return {
     holder_name: a.employeeName,
     holder_no: a.employeeNo,
+    // Empty only when correcting a holding that predates the register, where the
+    // action carries the existing values through rather than blanking them.
+    holder_id: a.employeeId || null,
     held_since: a.allottedOn || null,
+  };
+}
+
+/** The same four, for the holdings table, which names them differently. */
+export function holdingColumns(a: AllotFields) {
+  return {
+    employee_name: a.employeeName,
+    employee_no: a.employeeNo,
+    employee_id: a.employeeId || null,
+    allotted_on: a.allottedOn || null,
   };
 }
 
@@ -507,6 +525,7 @@ export function holderColumns(a: AllotFields) {
 export const IN_STOCK_COLUMNS = {
   holder_name: "",
   holder_no: "",
+  holder_id: null,
   held_since: null,
 } as const;
 
@@ -520,45 +539,6 @@ export const IN_STOCK_COLUMNS = {
  */
 export const employeeKey = (name: string, no: string): string =>
   no.trim() ? `no:${no.trim().toLowerCase()}` : `name:${name.trim().toLowerCase()}`;
-
-/**
- * Builds the employee list from holdings.
- *
- * Same approach as the vendor list on purchase orders: there is no employee
- * table to maintain, so the form offers back what has already been typed. The
- * most recent holding wins for the spelling of a name — a correction should not
- * be undone by a suggestion from an older row. Rows must arrive newest first.
- *
- * `holding` counts only open holdings, so the hint beside a suggested name reads
- * as what they have now rather than everything they have ever been given.
- */
-export function employeeProfilesFrom(
-  rows: Array<{
-    employee_name: string;
-    employee_no: string;
-    returned_on: string | null;
-    created_at: string;
-  }>,
-): EmployeeProfile[] {
-  const byKey = new Map<string, EmployeeProfile>();
-
-  for (const row of rows) {
-    const name = (row.employee_name ?? "").trim();
-    const no = (row.employee_no ?? "").trim();
-    if (!name && !no) continue;
-
-    const open = !row.returned_on;
-    const key = employeeKey(name, no);
-    const seen = byKey.get(key);
-    if (seen) {
-      if (open) seen.holding += 1;
-      continue;
-    }
-    byKey.set(key, { name, no, holding: open ? 1 : 0, lastUsed: row.created_at });
-  }
-
-  return [...byKey.values()].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
-}
 
 /* -------------------------------------------------------------------------
  * Food

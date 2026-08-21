@@ -7,6 +7,7 @@ import { requireCompany, type CompanySlug } from "../companies";
 import { store } from "../db";
 import { todayIso } from "../format";
 import { text } from "../po/parse";
+import { allotError } from "../employees/types";
 import { isCondition, type AllotFields, type AssetFields, type ReturnFields } from "./types";
 
 /**
@@ -48,16 +49,49 @@ function readAsset(form: FormData): AssetFields {
   return { assetName };
 }
 
-function readAllot(form: FormData): AllotFields {
-  const allot: AllotFields = {
-    employeeName: text(form.get("employeeName"), 160, "Employee name"),
-    employeeNo: text(form.get("employeeNo"), 40, "Employee number"),
-    allottedOn: isoDate(form.get("allottedOn")),
+/**
+ * Who is taking the asset, resolved from the employee register.
+ *
+ * The form posts an id, and this turns it into the id plus a snapshot of the
+ * name and number — so a closed holding still reads correctly after somebody is
+ * renamed in the register years later.
+ *
+ * Resolved here rather than in the store because this is the layer that knows
+ * which company it is acting for, and so the only one that can refuse an
+ * employee belonging to the other. That check is not a formality: an id is a
+ * hidden form value, and the whole point of the two registers is that neither
+ * can reach into the other.
+ *
+ * `keep` is the asset's current holder, supplied when correcting a holding that
+ * predates the register. Leaving the dropdown alone then carries the typed name
+ * through unchanged instead of blanking it.
+ */
+async function readAllot(
+  company: CompanySlug,
+  form: FormData,
+  keep?: { employeeId: string; employeeName: string; employeeNo: string },
+): Promise<AllotFields> {
+  const allottedOn = isoDate(form.get("allottedOn"));
+  const employeeId = text(form.get("employeeId"), 64, "Employee");
+
+  if (!employeeId) {
+    // Only legitimate on a correction to an unlinked holding, where "keep as
+    // typed" is an option the form offers on purpose.
+    if (keep?.employeeName) return { ...keep, allottedOn };
+    throw new Error("Choose who is taking the asset.");
+  }
+
+  const db = await store();
+  const employee = await db.getEmployee(employeeId);
+  const refusal = allotError(employee, company);
+  if (refusal || !employee) throw new Error(refusal ?? "That employee could not be found.");
+
+  return {
+    employeeId: employee.id,
+    employeeName: employee.name,
+    employeeNo: employee.employeeNo,
+    allottedOn,
   };
-  // Without a name there is nobody to have it, and the holding would be a
-  // period in nobody's possession.
-  if (!allot.employeeName) throw new Error("Enter the employee's name.");
-  return allot;
 }
 
 function readReturn(form: FormData): ReturnFields {
@@ -92,10 +126,13 @@ export async function createAsset(companySlug: string, form: FormData) {
   const company = requireCompany(companySlug);
 
   const db = await store();
+  // Empty means nobody has it yet, which is now an ordinary way for an asset to
+  // enter the register — a laptop bought last week that is still in the cupboard.
+  const takenBy = text(form.get("employeeId"), 64, "Employee");
   const asset = await db.createAsset({
     company: company.slug as CompanySlug,
     fields: readAsset(form),
-    allot: readAllot(form),
+    allot: takenBy ? await readAllot(company.slug as CompanySlug, form) : null,
   });
 
   revalidateAssets(company.slug);
@@ -116,7 +153,13 @@ export async function saveAsset(id: string, form: FormData) {
   const asset = await db.updateAsset(
     id,
     readAsset(form),
-    existing.holderName ? readAllot(form) : null,
+    existing.holderName
+      ? await readAllot(existing.company, form, {
+          employeeId: existing.holderId,
+          employeeName: existing.holderName,
+          employeeNo: existing.holderNo,
+        })
+      : null,
   );
 
   revalidateAssets(asset.company, asset.id);
@@ -145,7 +188,7 @@ export async function allotAsset(id: string, form: FormData) {
   if (!existing) throw new Error("Asset not found");
   requireLive(existing);
 
-  const asset = await db.allotAsset(id, readAllot(form));
+  const asset = await db.allotAsset(id, await readAllot(existing.company, form));
 
   revalidateAssets(asset.company, asset.id);
   redirect(`/${asset.company}/assets/${asset.id}?allotted=1`);

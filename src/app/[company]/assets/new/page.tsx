@@ -25,7 +25,7 @@ export default async function LogAsset({
   if (!company) notFound();
 
   const db = await store();
-  const employees = await tryTable(() => db.listEmployees(company.slug));
+  const employees = await tryTable(() => db.employeeDirectory(company.slug));
   if (!employees.ok) return <ModuleUnavailable module="Assets" />;
 
   // Bound to this workspace, so the form can never post into the other company.
@@ -35,9 +35,10 @@ export default async function LogAsset({
     <>
       <div className="mb-6">
         <h1 className="text-[20px] font-bold tracking-tight">New asset</h1>
-        <p className="mt-1 text-[14px] text-ink-soft">
+        <p className="mt-1 max-w-2xl text-[14px] leading-relaxed text-ink-soft">
           Saving assigns the next {company.prefix}-A number, which is permanent — write it on the
-          item.
+          item. If nobody has it yet, leave the holder as <em>In stock</em>; it can be handed over
+          later.
         </p>
       </div>
 
@@ -46,9 +47,11 @@ export default async function LogAsset({
         asset={emptyAsset()}
         holder={emptyAllot(todayIso())}
         employees={employees.value}
-        submitLabel="Save and allot"
+        company={company.slug}
+        submitLabel="Add asset"
         cancelHref={`/${company.slug}/assets`}
         assetNo={null}
+        allowNobody
       />
     </>
   );

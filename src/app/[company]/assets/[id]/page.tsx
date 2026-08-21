@@ -59,7 +59,7 @@ export default async function AssetRecord({
   const [found, holdings, employees] = await Promise.all([
     tryTable(() => db.getAsset(id)),
     tryTable(() => db.listHoldings(id)),
-    tryTable(() => db.listEmployees(company.slug)),
+    tryTable(() => db.employeeDirectory(company.slug)),
   ]);
   if (!found.ok) return <ModuleUnavailable module="Assets" />;
 
@@ -71,6 +71,12 @@ export default async function AssetRecord({
   const free = inStock(asset);
   const timeline = holdings.ok ? holdings.value : [];
   const people = employees.ok ? employees.value : [];
+
+  // The holder as the register knows them, when the holding is linked at all.
+  // Absent means one of two ordinary things: nobody has it, or it went out
+  // before the register existed and carries only a typed name.
+  const holder = asset.holderId ? people.find((e) => e.id === asset.holderId) : undefined;
+  const holderLeft = holder?.status === "left";
 
   const drop = deleteAsset.bind(null, asset.id);
   const undelete = restoreAsset.bind(null, asset.id);
@@ -115,14 +121,28 @@ export default async function AssetRecord({
           </div>
           <p className="mt-1 text-[14px] text-ink-soft">
             {asset.assetName}
-            {free
-              ? " — nobody has it"
-              : ` — with ${asset.holderName}${
-                  asset.heldSince ? ` since ${formatDate(asset.heldSince)}` : ""
-                }`}
-            {!free && spanInDays(asset.heldSince, "")
-              ? ` (${spanInDays(asset.heldSince, "")})`
-              : ""}
+            {free ? (
+              " — nobody has it"
+            ) : (
+              <>
+                {" — with "}
+                {/* Linked only when the holding is linked. An unlinked name is
+                    still the truth about the handover; it just has nowhere to
+                    go. */}
+                {asset.holderId ? (
+                  <Link
+                    href={`/${company.slug}/employees/${asset.holderId}`}
+                    className="font-medium text-ink underline decoration-ink-line underline-offset-2 hover:decoration-current"
+                  >
+                    {asset.holderName}
+                  </Link>
+                ) : (
+                  asset.holderName
+                )}
+                {asset.heldSince ? ` since ${formatDate(asset.heldSince)}` : ""}
+                {spanInDays(asset.heldSince, "") ? ` (${spanInDays(asset.heldSince, "")})` : ""}
+              </>
+            )}
           </p>
         </div>
 
@@ -142,6 +162,36 @@ export default async function AssetRecord({
         </div>
       </div>
 
+      {/* Nothing is auto-returned when somebody leaves — the laptop really is
+          still with them — so the one thing this screen can do is say so. */}
+      {holderLeft && !asset.deletedAt ? (
+        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
+          <strong className="font-semibold">{asset.holderName} has left {company.name}</strong> and
+          still has this. Record its return when it comes back — nothing has been returned
+          automatically, because it has not actually come back.{" "}
+          <Link
+            href={`/${company.slug}/employees/${asset.holderId}`}
+            className="underline underline-offset-2"
+          >
+            Open their record
+          </Link>
+          .
+        </div>
+      ) : null}
+
+      {/* A holding from before the employee register: the name is what was true
+          at the time and still reads correctly, but it belongs to nobody, so
+          nothing rolls up under a person. Saying so is what makes linking it an
+          obvious thing to do rather than a mystery. */}
+      {!free && !asset.holderId && !asset.deletedAt ? (
+        <div className="mb-5 rounded-xl border border-ink-line bg-wash-soft p-4 text-[13px] leading-relaxed text-ink-soft">
+          This holding was recorded before the employee register existed, so{" "}
+          <span className="font-medium text-ink">{asset.holderName}</span> is a typed name rather
+          than a register entry. Pick them from <em>Held by</em> below and save to link the two —
+          the asset will then appear on their record.
+        </div>
+      ) : null}
+
       {asset.deletedAt ? (
         <div className="card p-5 sm:p-6">
           <dl className="grid gap-4 sm:grid-cols-2">
@@ -158,7 +208,12 @@ export default async function AssetRecord({
         <div className="space-y-5">
           {/* The handover comes first: it is why the screen was opened. */}
           {free ? (
-            <AllotForm action={giveOut} initial={emptyAllot(todayIso())} employees={people} />
+            <AllotForm
+              action={giveOut}
+              initial={emptyAllot(todayIso())}
+              employees={people}
+              company={company.slug}
+            />
           ) : (
             <ReturnForm
               action={giveBack}
@@ -174,12 +229,14 @@ export default async function AssetRecord({
               free
                 ? null
                 : {
+                    employeeId: asset.holderId,
                     employeeName: asset.holderName,
                     employeeNo: asset.holderNo,
                     allottedOn: asset.heldSince,
                   }
             }
             employees={people}
+            company={company.slug}
             submitLabel="Save changes"
             cancelHref={`/${company.slug}/assets`}
             assetNo={asset.assetNo}
