@@ -55,9 +55,6 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
               <Link href="/food/new" className="btn btn-primary">
                 New entry
               </Link>
-              <Link href="/" className="btn btn-ghost">
-                ← Companies
-              </Link>
               <HeaderControls />
             </div>
           </div>

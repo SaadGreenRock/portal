@@ -63,9 +63,6 @@ export default async function Expenditure({
               </p>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Link href="/" className="btn btn-ghost">
-                ← Companies
-              </Link>
               <HeaderControls />
             </div>
           </div>

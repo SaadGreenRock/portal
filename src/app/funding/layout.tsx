@@ -55,9 +55,6 @@ export default async function FundingLayout({ children }: { children: React.Reac
               <Link href="/funding/new" className="btn btn-primary">
                 New tranche
               </Link>
-              <Link href="/" className="btn btn-ghost">
-                ← Companies
-              </Link>
               <HeaderControls />
             </div>
           </div>

@@ -1,11 +1,12 @@
+import HomeButton from "@/components/HomeButton";
 import LockButton from "@/components/LockButton";
 import PortalClock from "@/components/PortalClock";
 import ThemeToggle from "@/components/ThemeToggle";
 import Weather from "@/components/Weather";
 
 /**
- * The right-hand end of every header in the portal: what time it is, the theme,
- * and the way out.
+ * The right-hand end of every header in the portal: the way home, what time it
+ * is, the theme, and the way out.
  *
  * One component rather than the same three tags written into five headers. Lock
  * and the theme control were already duplicated across all of them — the company
@@ -22,11 +23,18 @@ import Weather from "@/components/Weather";
 export default function HeaderControls() {
   return (
     <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+      {/* First, where the "← Companies" button it replaces used to sit, and as
+          far from Lock as this group has room for — see HomeButton for why those
+          two are kept apart. It is also the one control here that is worth
+          reaching for in a hurry, so it goes where nothing arriving later can
+          move it. */}
+      <HomeButton />
+
       {/* Left of the clock, and hidden below `sm`. The workspace header is
           already at its limit on a phone — 88px for a company name that needs
           88px — so there is nothing to give, and a phone knows the weather
-          without being told. It also arrives at the *left* of this group, so
-          nothing already on screen moves when it appears. */}
+          without being told. It arrives to the right of Home, so the one thing
+          in this group with a fixed place keeps it when the weather lands. */}
       <Weather />
       <PortalClock iso={new Date().toISOString()} />
       <ThemeToggle />
