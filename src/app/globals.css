@@ -640,40 +640,39 @@ html:not([data-theme]) .theme-mark-system {
 /* --------------------------------------------------------------------------
    The light crossing a loading screen.
 
-   One sweep for the whole screen, not one per bar. That is the only decision in
-   here that really matters: a gradient animated on each placeholder gives forty
-   little glints all reaching their brightest at the same instant, which reads as
-   forty things flickering. Anchored to the screen instead, the same effect reads
-   as a single light passing over the page — and the shapes it crosses light up
-   in the order they are laid out, which is what makes it look intentional.
+   One sweep per tile: each card, row and panel lights its own width, rather
+   than a single band crossing the page and giving any one card a slice of
+   itself at a time. A tile is the unit the eye actually reads on these screens,
+   so it is the unit the light travels.
 
-   Done as one `::after` over the whole skeleton and moved with a transform,
-   so it composites on the GPU and costs no layout — the same reason the lock
-   screen's sheets drift on `translate3d` and nothing else.
+   They are not in lockstep. Each tile starts a beat after the one before it —
+   `--tile` is its position, and the delay follows from that — so the grid lights
+   as a wave rolling through it rather than as everything flashing at once, which
+   is the one way per-tile shimmer goes wrong. A tile that says nothing about its
+   position keeps the delay of zero, which is right for the ones that stand
+   alone.
+
+   Moved with a transform and nothing else, so it composites on the GPU and
+   costs no layout — the same reason the lock screen's sheets drift on
+   `translate3d`.
 
    The angle is what turns a wipe into a sweep. At 100deg the band leans, so a
-   tall card lights from its bottom-left to its top-right rather than all at once
+   card lights from its bottom-left to its top-right rather than all at once
    down a vertical edge.
 
-   The placeholder greys are deepened here rather than in the skeletons that use
-   them, which is what makes the sweep visible at all. The portal's own washes
-   are a few levels off white — right for a disabled field on a card, and far too
-   pale to show a white glaze passing over them. Redefining the three tokens on
-   this one class deepens every `bg-wash` inside a skeleton at once, keeps the
-   three tones in the same order they were chosen in, and leaves every other
-   wash in the portal alone.
+   The placeholder greys are deepened on `.skeleton` rather than in the files
+   that use them, which is what makes any of this visible. The portal's own
+   washes are a few levels off white — right for a disabled field on a card, and
+   far too pale to show a white glaze passing over. Redefining the three tokens
+   in one place deepens every `bg-wash` inside a skeleton at once, keeps the
+   three tones in the order they were chosen in, and leaves every other wash in
+   the portal alone.
 
-   Reduced motion gets no sweep at all, and the still skeleton it was drawn as.
-   That is the promise the blanket rule at the top of this file makes, and here
-   it is also the honest answer: this animation carries no information the shapes
-   do not already carry.
+   Reduced motion gets no sweep and the still skeleton this was drawn as. That
+   is the promise the blanket rule at the top of this file makes, and here it is
+   also the honest answer: the sweep carries nothing the shapes do not.
    -------------------------------------------------------------------------- */
 .skeleton {
-  position: relative;
-  /* The band travels a full width past each edge, and has to be cut off there
-     rather than glazing the header above or the page beside it. */
-  overflow: hidden;
-
   --wash-soft: 240 240 238;
   --wash: 232 232 229;
   --wash-strong: 224 224 220;
@@ -684,21 +683,28 @@ html.dark .skeleton {
   --wash-strong: 53 53 50;
 }
 
-.skeleton::after {
+.skeleton-tile {
+  position: relative;
+  /* The band travels a full width past each edge, so it has to be cut off
+     there — and cut to the tile's own corner radius, which this inherits. */
+  overflow: hidden;
+}
+
+.skeleton-tile::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   background: linear-gradient(
     100deg,
-    transparent 38%,
+    transparent 32%,
     var(--shimmer) 50%,
-    transparent 62%
+    transparent 68%
   );
   /* Not drawn under reduced motion, rather than drawn and frozen. Left to the
-     blanket rule this would stop with the band parked mid-screen — a permanent
-     diagonal stripe across the placeholders, which is worse than the stillness
-     it was asked for. */
+     blanket rule this would stop with the band parked mid-tile — a permanent
+     diagonal stripe across every card, which is worse than the stillness it
+     was asked for. */
   display: none;
 }
 
@@ -712,12 +718,13 @@ html.dark .skeleton {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .skeleton::after {
+  .skeleton-tile::after {
     display: block;
     /* Linear, because an eased sweep on a loop stutters where it wraps. The
-       pace comes from the travel instead: two screen widths per pass, of which
+       pace comes from the travel instead: two tile widths per pass, of which
        the band is visible for about two thirds, so each sweep is followed by a
        breath rather than the next one treading on it. */
-    animation: skeleton-sweep 1.9s linear infinite;
+    animation: skeleton-sweep 1.6s linear infinite;
+    animation-delay: calc(var(--tile, 0) * 110ms);
   }
 }

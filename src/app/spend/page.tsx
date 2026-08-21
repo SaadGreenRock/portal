@@ -270,7 +270,7 @@ function ReportSkeleton() {
       <span className="sr-only">Loading…</span>
 
       {/* ---- both companies together ------------------------------------- */}
-      <section className="card mb-5 overflow-hidden">
+      <section className="skeleton-tile card mb-5">
         <header className="border-b border-ink-line px-5 py-4">
           <div className="h-4 w-36 rounded bg-wash-strong" />
           <div className="mt-2 h-3 w-56 max-w-full rounded bg-wash" />
@@ -308,7 +308,11 @@ function ReportSkeleton() {
       {/* ---- each company on its own ------------------------------------- */}
       <div className="grid gap-5 sm:grid-cols-2">
         {[0, 1].map((i) => (
-          <section key={i} className="card overflow-hidden">
+          <section
+            key={i}
+            className="skeleton-tile card"
+            style={{ "--tile": i + 1 } as React.CSSProperties}
+          >
             {/* Standing in for the brand stripe as well as the header: the real
                 card carries a 3px top border in the company's own colour, and
                 without it here the two cards lose the only thing that tells
@@ -334,7 +338,10 @@ function ReportSkeleton() {
       </div>
 
       {/* The note at the foot, which is three lines of small grey type. */}
-      <div className="mt-6 space-y-2">
+      <div
+        className="skeleton-tile mt-6 space-y-2"
+        style={{ "--tile": 3 } as React.CSSProperties}
+      >
         <div className="h-2.5 w-full rounded bg-wash-soft" />
         <div className="h-2.5 w-full rounded bg-wash-soft" />
         <div className="h-2.5 w-2/3 rounded bg-wash-soft" />

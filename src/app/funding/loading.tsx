@@ -20,7 +20,7 @@ export default function FundingLoading() {
       {/* Everything received: sent, received, allocated, left to spend. The
           hairline grid is the real panel's own — a gap-px grid over `ink-line`,
           so the four cells are divided here exactly as they will be. */}
-      <section className="card mb-5 overflow-hidden">
+      <section className="skeleton-tile card mb-5">
         <header className="border-b border-ink-line px-5 py-4">
           <div className="h-4 w-40 rounded bg-wash-strong" />
           <div className="mt-2 h-3 w-48 max-w-full rounded bg-wash" />
@@ -40,7 +40,11 @@ export default function FundingLoading() {
           three fills the screen and a fourth would only add grey. */}
       <div className="space-y-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="card p-5">
+          <div
+            key={i}
+            className="skeleton-tile card p-5"
+            style={{ "--tile": i + 1 } as React.CSSProperties}
+          >
             <div className="flex flex-wrap items-start justify-between gap-x-5 gap-y-2">
               <div>
                 <div className="flex items-center gap-2.5">
