@@ -5,11 +5,14 @@ import {
   type AllotFields,
   type Asset,
   type AssetHolding,
+  type AssetPhoto,
+  type AssetThumb,
   type HoldingWithAsset,
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
 import {
   isEmployeeStatus,
+  type DocKind,
   type Employee,
   type EmployeeFields,
 } from "../employees/types";
@@ -1224,3 +1227,75 @@ export function employeeColumns(f: EmployeeFields) {
  */
 export const employeeNoKey = (no: string): string =>
   no.trim().toLowerCase().replace(/[\s-]+/g, "");
+
+/* -------------------------------------------------------------------------
+ * Asset photographs
+ * ---------------------------------------------------------------------------*/
+
+export interface PhotoRow {
+  id: string;
+  asset_id: string;
+  company: string;
+  key: string;
+  name: string | null;
+  taken_on: string;
+  info: string | null;
+  created_at: string;
+}
+
+export function rowToPhoto(r: PhotoRow): AssetPhoto {
+  return {
+    id: r.id,
+    assetId: r.asset_id,
+    company: r.company as CompanySlug,
+    key: r.key,
+    name: r.name ?? "",
+    takenOn: String(r.taken_on).slice(0, 10),
+    info: r.info ?? "",
+    createdAt: r.created_at,
+  };
+}
+
+/**
+ * The newest photograph per asset, from a set of rows.
+ *
+ * Ties are broken by `created_at`, which matters more than it looks: several
+ * pictures of one asset are often uploaded in a batch after the fact, all dated
+ * the same day, and without a tiebreaker which one the register shows would vary
+ * between backends and between page loads.
+ *
+ * Rows may arrive in any order.
+ */
+export function newestPerAsset(rows: PhotoRow[]): AssetThumb[] {
+  const best = new Map<string, PhotoRow>();
+  for (const row of rows) {
+    const held = best.get(row.asset_id);
+    if (
+      !held ||
+      row.taken_on > held.taken_on ||
+      (row.taken_on === held.taken_on && row.created_at > held.created_at)
+    ) {
+      best.set(row.asset_id, row);
+    }
+  }
+  return [...best.values()].map((r) => ({
+    assetId: r.asset_id,
+    key: r.key,
+    takenOn: String(r.taken_on).slice(0, 10),
+  }));
+}
+
+/** The three columns a scan occupies, named by kind. */
+export function docColumns(
+  kind: DocKind,
+  doc: { key: string; name: string } | null,
+  at: string | null,
+) {
+  return kind === "cnic"
+    ? { cnic_key: doc?.key ?? null, cnic_name: doc?.name ?? null, cnic_at: at }
+    : { passport_key: doc?.key ?? null, passport_name: doc?.name ?? null, passport_at: at };
+}
+
+/** Which column holds the key for a kind, for reading the previous one. */
+export const docKeyColumn = (kind: DocKind): "cnic_key" | "passport_key" =>
+  kind === "cnic" ? "cnic_key" : "passport_key";

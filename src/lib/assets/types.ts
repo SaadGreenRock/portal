@@ -170,6 +170,51 @@ export interface Asset extends AssetFields {
 /** True when nobody has it. */
 export const inStock = (a: Asset): boolean => !a.holderName;
 
+/**
+ * One photograph of an asset, dated and described.
+ *
+ * A log rather than a single picture, because the value is in the sequence: one
+ * photo says what a laptop looks like, four say it left in one piece in July and
+ * came back with a cracked lid in September — which is the argument that
+ * actually has to be had.
+ *
+ * There is deliberately no "primary photo" flag. The newest by `takenOn` is the
+ * thumbnail on the register, so there is no second piece of state to keep
+ * correct, and no way for the flag and the dates to disagree.
+ */
+export interface PhotoFields {
+  /**
+   * The date the picture shows, which is not when it was uploaded — the log is
+   * often caught up on days later. Same reasoning as a food entry's order date.
+   */
+  takenOn: string;
+  /** What the picture is of. The reason a log beats a photo. */
+  info: string;
+}
+
+export interface AssetPhoto extends PhotoFields {
+  id: string;
+  assetId: string;
+  company: CompanySlug;
+  /** Storage key, resolved through /api/file so it stays behind the password. */
+  key: string;
+  /** The original filename, for the download link. */
+  name: string;
+  createdAt: string;
+}
+
+/** The newest photograph of an asset, for the register's thumbnail. */
+export interface AssetThumb {
+  assetId: string;
+  key: string;
+  takenOn: string;
+}
+
+/** A blank photo, dated today. */
+export function emptyPhoto(today: string): PhotoFields {
+  return { takenOn: today, info: "" };
+}
+
 export interface AssetQuery {
   company: CompanySlug;
   /** Free text across asset no., asset name and the current holder. */

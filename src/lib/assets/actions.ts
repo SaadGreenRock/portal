@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "../auth";
@@ -7,6 +8,8 @@ import { requireCompany, type CompanySlug } from "../companies";
 import { store } from "../db";
 import { todayIso } from "../format";
 import { text } from "../po/parse";
+import { deleteFile, putFile, storageKeys } from "../storage";
+import { readUpload } from "../uploads";
 import { allotError } from "../employees/types";
 import { isCondition, type AllotFields, type AssetFields, type ReturnFields } from "./types";
 
@@ -217,6 +220,78 @@ export async function restoreAsset(id: string) {
   if (!asset) throw new Error("Asset not found");
 
   await db.restoreAsset(id);
+  revalidateAssets(asset.company, asset.id);
+  redirect(`/${asset.company}/assets/${asset.id}`);
+}
+
+/* -------------------------------------------------------------------------
+ * Photographs
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * Puts the chosen file in storage and hands back the key.
+ *
+ * The browser has already re-encoded a phone photograph before it got here — see
+ * `shrink-image.ts`, which exists because a serverless request body is capped
+ * well below what a modern camera produces. `readUpload` is the backstop for
+ * anything that reached this point without passing through the form.
+ */
+async function storePhoto(
+  company: string,
+  assetNo: string,
+  form: FormData,
+): Promise<{ key: string; name: string }> {
+  const { file, ext } = readUpload(form, "photo");
+  const key = storageKeys.assetPhoto(company, assetNo, randomUUID(), ext);
+  await putFile(
+    key,
+    Buffer.from(await file.arrayBuffer()),
+    file.type || "application/octet-stream",
+  );
+  return { key, name: file.name };
+}
+
+/** Files a picture against an asset. Many per asset — nothing is replaced. */
+export async function addAssetPhoto(id: string, form: FormData) {
+  await requireAuth();
+  const db = await store();
+  const asset = await db.getAsset(id);
+  if (!asset) throw new Error("Asset not found");
+  requireLive(asset);
+
+  const info = text(form.get("info"), 300, "What the picture shows");
+  const stored = await storePhoto(asset.company, asset.assetNo, form);
+
+  try {
+    await db.addAssetPhoto(id, {
+      takenOn: isoDate(form.get("takenOn")) || todayIso(),
+      info,
+      ...stored,
+    });
+  } catch (err) {
+    // The file is already in the bucket. Without this it would sit there
+    // unreferenced for ever — nothing else knows its key.
+    await deleteFile(stored.key);
+    throw err;
+  }
+
+  revalidateAssets(asset.company, asset.id);
+  redirect(`/${asset.company}/assets/${asset.id}?filed=1`);
+}
+
+/** Removes one picture, and the stored file with it. */
+export async function removeAssetPhoto(assetId: string, photoId: string) {
+  await requireAuth();
+  const db = await store();
+  const asset = await db.getAsset(assetId);
+  if (!asset) throw new Error("Asset not found");
+  requireLive(asset);
+
+  const gone = await db.removeAssetPhoto(photoId);
+  // A photograph is never shared — each has a key of its own — so unlike a food
+  // receipt there is no reference count to check before the file goes.
+  if (gone?.key) await deleteFile(gone.key);
+
   revalidateAssets(asset.company, asset.id);
   redirect(`/${asset.company}/assets/${asset.id}`);
 }

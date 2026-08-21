@@ -1,8 +1,9 @@
 import Link from "next/link";
 import ConfirmDelete from "@/components/ConfirmDelete";
 import { deleteAsset, restoreAsset } from "@/lib/assets/actions";
-import { CONDITION_LABELS, inStock, type Asset } from "@/lib/assets/types";
+import { CONDITION_LABELS, inStock, type Asset, type AssetThumb } from "@/lib/assets/types";
 import { formatDate, spanInDays } from "@/lib/format";
+import { fileUrl } from "@/lib/storage";
 
 /**
  * One asset on the register.
@@ -19,11 +20,18 @@ export default function AssetRow({
   asset,
   company,
   leavers,
+  thumb,
 }: {
   asset: Asset;
   company: string;
   /** Ids of employees who have left. Empty when the register is unavailable. */
   leavers?: Set<string>;
+  /**
+   * The asset's newest photograph. Absent for anything never photographed, which
+   * is most of the register on the day this ships — so the placeholder has to
+   * look deliberate rather than broken.
+   */
+  thumb?: AssetThumb;
 }) {
   const drop = deleteAsset.bind(null, asset.id);
   const undelete = restoreAsset.bind(null, asset.id);
@@ -38,6 +46,27 @@ export default function AssetRow({
         href={`/${company}/assets/${asset.id}`}
         className="row-link"
       >
+        {/* The picture leads, where there is one: on a register of physical
+            things, what it looks like identifies it faster than its number. */}
+        {thumb ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={fileUrl(thumb.key)}
+            alt=""
+            className="h-10 w-10 shrink-0 rounded-md border border-ink-line bg-wash object-cover"
+          />
+        ) : (
+          <span
+            aria-hidden
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-dashed border-ink-line text-ink-soft"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <circle cx="12" cy="12" r="3.2" />
+            </svg>
+          </span>
+        )}
+
         <div className="min-w-[8.5rem]">
           <div className="mono text-[14.5px] font-semibold">{asset.assetNo}</div>
           <div className="mono mt-0.5 text-[12px] text-ink-soft">

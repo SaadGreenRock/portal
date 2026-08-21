@@ -121,6 +121,25 @@ export const storageKeys = {
    */
   foodReceipt: (settlementId: string, ext: string) =>
     `food/settlements/${settlementId}/receipt${ext.startsWith(".") ? ext : `.${ext}`}`,
+  /**
+   * One photograph of one asset.
+   *
+   * Keyed on a per-photo id rather than on the asset, because an asset has many
+   * over its life and the whole point of the log is that a later picture does not
+   * replace an earlier one. The asset number is in the path only so a bucket
+   * listing is readable by a human.
+   */
+  assetPhoto: (company: string, assetNo: string, photoId: string, ext: string) =>
+    `${company}/${assetNo}/photos/${photoId}${ext.startsWith(".") ? ext : `.${ext}`}`,
+  /**
+   * An employee's CNIC or passport scan.
+   *
+   * Keyed on the employee's id, not their number. The number is typed by hand and
+   * editable, and a stored file must not need moving because somebody corrected a
+   * typo — the id never changes.
+   */
+  employeeDoc: (company: string, employeeId: string, kind: string, ext: string) =>
+    `${company}/employees/${employeeId}/${kind}${ext.startsWith(".") ? ext : `.${ext}`}`,
   /** A notification is composed once and never edited, so both files are
    *  written exactly once — unlike a purchase order's PDF, there is no
    *  "current version" to keep this key pointed at. */

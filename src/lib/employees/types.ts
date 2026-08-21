@@ -169,6 +169,33 @@ export function allotError(
 /** Only these may be given an asset. A leaver cannot be handed a laptop. */
 export const allotable = (e: EmployeeSummary): boolean => e.status === "active";
 
+/**
+ * Which scanned document. Two, kept apart because one person may have either,
+ * both or neither, and "identity document" as one slot would make you choose.
+ */
+export type DocKind = "cnic" | "passport";
+
+export const DOC_KINDS: DocKind[] = ["cnic", "passport"];
+
+export const DOC_LABELS: Record<DocKind, string> = {
+  cnic: "CNIC",
+  passport: "Passport",
+};
+
+export function isDocKind(v: unknown): v is DocKind {
+  return typeof v === "string" && (DOC_KINDS as string[]).includes(v);
+}
+
+/** The three columns a scan occupies, read off an employee by kind. */
+export function docOf(
+  employee: Employee,
+  kind: DocKind,
+): { key: string | null; name: string | null; at: string | null } {
+  return kind === "cnic"
+    ? { key: employee.cnicKey, name: employee.cnicName, at: employee.cnicAt }
+    : { key: employee.passportKey, name: employee.passportName, at: employee.passportAt };
+}
+
 export interface EmployeeQuery {
   company: CompanySlug;
   /** Free text across name, employee number, CNIC and phone. */

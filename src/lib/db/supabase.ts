@@ -4,7 +4,10 @@ import type {
   AssetCounts,
   AssetFields,
   AssetHolding,
+  AssetPhoto,
   AssetQuery,
+  AssetThumb,
+  PhotoFields,
   HoldingQuery,
   ReturnFields,
 } from "../assets/types";
@@ -12,6 +15,7 @@ import type { CompanySlug } from "../companies";
 import {
   duplicateNumber,
   isEmployeeStatus,
+  type DocKind,
   type Employee,
   type EmployeeCounts,
   type EmployeeFields,
@@ -84,6 +88,8 @@ import {
   formatRfqNo,
   formatTrancheNo,
   formatVoucherNo,
+  docColumns,
+  docKeyColumn,
   holderColumns,
   holdingColumns,
   IN_STOCK_COLUMNS,
@@ -99,6 +105,8 @@ import {
   rowToHolding,
   rowToHoldingWithAsset,
   rowToNotification,
+  newestPerAsset,
+  rowToPhoto,
   rowToPo,
   rowToRfq,
   rowToTranche,
@@ -114,6 +122,7 @@ import {
   type HoldingRow,
   type HoldingWithAssetRow,
   type NotificationRow,
+  type PhotoRow,
   type PoRow,
   type RfqRow,
   type TrancheRow,
@@ -189,6 +198,7 @@ const TRANCHES = "funding_tranches";
 const ALLOCATIONS = "tranche_allocations";
 const DIRECT = "tranche_expenses";
 const EMPLOYEES = "employees";
+const PHOTOS = "asset_photos";
 
 /**
  * The one holding on an asset that has not been returned, if any.
@@ -1227,6 +1237,49 @@ export const supabaseStore: Store = {
     };
   },
 
+  async attachEmployeeDoc(
+    id: string,
+    kind: DocKind,
+    doc: { key: string; name: string },
+  ): Promise<{ previousKey: string | null }> {
+    const db = supabase();
+    const column = docKeyColumn(kind);
+
+    const row = await db.from(EMPLOYEES).select(column).eq("id", id).maybeSingle();
+    if (row.error) throw row.error;
+    if (!row.data) throw new Error("Employee not found");
+
+    const now = new Date().toISOString();
+    const { error } = await db
+      .from(EMPLOYEES)
+      .update({ updated_at: now, ...docColumns(kind, doc, now) })
+      .eq("id", id);
+    if (error) throw error;
+
+    // Returned rather than deleted here: the store does not touch storage, so the
+    // caller removes the file it has just replaced.
+    const previous = (row.data as Record<string, unknown>)[column];
+    return { previousKey: previous ? String(previous) : null };
+  },
+
+  async detachEmployeeDoc(id: string, kind: DocKind): Promise<{ key: string | null }> {
+    const db = supabase();
+    const column = docKeyColumn(kind);
+
+    const row = await db.from(EMPLOYEES).select(column).eq("id", id).maybeSingle();
+    if (row.error) throw row.error;
+    if (!row.data) throw new Error("Employee not found");
+
+    const { error } = await db
+      .from(EMPLOYEES)
+      .update({ updated_at: new Date().toISOString(), ...docColumns(kind, null, null) })
+      .eq("id", id);
+    if (error) throw error;
+
+    const key = (row.data as Record<string, unknown>)[column];
+    return { key: key ? String(key) : null };
+  },
+
   async employeeDirectory(company: CompanySlug): Promise<EmployeeSummary[]> {
     const db = supabase();
 
@@ -1267,6 +1320,77 @@ export const supabaseStore: Store = {
     }));
   },
 
+
+  /* ---- asset photographs -------------------------------------------------- */
+
+  async addAssetPhoto(
+    assetId: string,
+    photo: PhotoFields & { key: string; name: string },
+  ): Promise<AssetPhoto> {
+    const db = supabase();
+
+    const asset = await db.from(ASSETS).select("company").eq("id", assetId).maybeSingle();
+    if (asset.error) throw asset.error;
+    if (!asset.data) throw new Error("Asset not found");
+
+    const { data, error } = await db
+      .from(PHOTOS)
+      .insert({
+        id: newId(),
+        asset_id: assetId,
+        company: String(asset.data.company),
+        key: photo.key,
+        name: photo.name,
+        // Defaulted rather than left null: a picture with no date cannot take its
+        // place in a sequence, and the sequence is the whole point of the log.
+        taken_on: photo.takenOn || todayIso(),
+        info: photo.info,
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    return rowToPhoto(data as PhotoRow);
+  },
+
+  async listAssetPhotos(assetId: string): Promise<AssetPhoto[]> {
+    const { data, error } = await supabase()
+      .from(PHOTOS)
+      .select()
+      .eq("asset_id", assetId)
+      .order("taken_on", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((r) => rowToPhoto(r as PhotoRow));
+  },
+
+  async removeAssetPhoto(id: string): Promise<{ key: string } | null> {
+    const db = supabase();
+
+    const row = await db.from(PHOTOS).select("key").eq("id", id).maybeSingle();
+    if (row.error) throw row.error;
+    if (!row.data) return null;
+
+    // Hard delete, and the file goes with it. A photograph carries no number and
+    // is nobody's record — a picture filed by mistake should leave no trace.
+    const { error } = await db.from(PHOTOS).delete().eq("id", id);
+    if (error) throw error;
+    return { key: String(row.data.key) };
+  },
+
+  async latestAssetPhotos(company: CompanySlug): Promise<AssetThumb[]> {
+    // Every photo for the company in one request, reduced by the shared helper —
+    // the same reduction the SQLite backend uses, so the two cannot disagree
+    // about which picture is the newest.
+    const { data, error } = await supabase()
+      .from(PHOTOS)
+      .select()
+      .eq("company", company)
+      .limit(20000);
+    if (error) throw error;
+    return newestPerAsset((data ?? []) as PhotoRow[]);
+  },
 
   /* ---- employees --------------------------------------------------------- */
 

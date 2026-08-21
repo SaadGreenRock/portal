@@ -4,6 +4,9 @@ import type {
   AssetCounts,
   AssetFields,
   AssetHolding,
+  AssetPhoto,
+  AssetThumb,
+  PhotoFields,
   AssetQuery,
   HoldingQuery,
   HoldingWithAsset,
@@ -33,6 +36,7 @@ import type {
   RfqStatus,
 } from "../rfq/types";
 import type {
+  DocKind,
   Employee,
   EmployeeCounts,
   EmployeeFields,
@@ -263,6 +267,34 @@ export interface AssetStore {
 
   assetCounts(company: CompanySlug): Promise<AssetCounts>;
 
+  /**
+   * Files a photograph against an asset. Many per asset, newest first — the log
+   * is the point, so nothing here replaces an existing picture.
+   */
+  addAssetPhoto(assetId: string, photo: PhotoFields & { key: string; name: string }): Promise<AssetPhoto>;
+
+  /** One asset's photographs, newest first by the date they show. */
+  listAssetPhotos(assetId: string): Promise<AssetPhoto[]>;
+
+  /**
+   * Removes one photograph and returns its storage key so the caller can delete
+   * the file.
+   *
+   * Unlike a food receipt, a photograph is never shared — each has a key of its
+   * own — so there is no reference count to check before the file goes.
+   */
+  removeAssetPhoto(id: string): Promise<{ key: string } | null>;
+
+  /**
+   * The newest photograph of every asset in a company, for the register's
+   * thumbnails.
+   *
+   * One query for the whole page rather than one per row. There is no primary
+   * flag to read: newest by `taken_on` is the answer, which is why the log needs
+   * no second piece of state.
+   */
+  latestAssetPhotos(company: CompanySlug): Promise<AssetThumb[]>;
+
   /** One asset's holdings, newest first — the timeline on its record. */
   listHoldings(assetId: string): Promise<AssetHolding[]>;
 
@@ -325,6 +357,19 @@ export interface EmployeeStore {
   searchEmployees(query: EmployeeQuery): Promise<{ rows: Employee[]; total: number }>;
 
   employeeCounts(company: CompanySlug): Promise<EmployeeCounts>;
+
+  /**
+   * Files a CNIC or passport scan against an employee, replacing whatever was
+   * there and returning the previous key so the caller can delete the old file.
+   */
+  attachEmployeeDoc(
+    id: string,
+    kind: DocKind,
+    doc: { key: string; name: string },
+  ): Promise<{ previousKey: string | null }>;
+
+  /** Takes a scan off an employee, returning its key so the file can go too. */
+  detachEmployeeDoc(id: string, kind: DocKind): Promise<{ key: string | null }>;
 
   /**
    * Every live employee reduced to what the asset dropdown and the register's

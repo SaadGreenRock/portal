@@ -5,6 +5,7 @@ import AssetForm from "@/components/AssetForm";
 import ConfirmDelete from "@/components/ConfirmDelete";
 import HoldingTimeline from "@/components/HoldingTimeline";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
+import PhotoLog from "@/components/PhotoLog";
 import ReturnForm from "@/components/ReturnForm";
 import {
   allotAsset,
@@ -45,6 +46,7 @@ export default async function AssetRecord({
     saved?: string;
     returned?: string;
     allotted?: string;
+    filed?: string;
   }>;
 }) {
   const { company: slug, id } = await params;
@@ -56,10 +58,11 @@ export default async function AssetRecord({
   const db = await store();
   // One pass: three sequential round trips on a serverless request is a visible
   // pause, and every screen state needs all three.
-  const [found, holdings, employees] = await Promise.all([
+  const [found, holdings, employees, photos] = await Promise.all([
     tryTable(() => db.getAsset(id)),
     tryTable(() => db.listHoldings(id)),
     tryTable(() => db.employeeDirectory(company.slug)),
+    tryTable(() => db.listAssetPhotos(id)),
   ]);
   if (!found.ok) return <ModuleUnavailable module="Assets" />;
 
@@ -75,6 +78,7 @@ export default async function AssetRecord({
   // The holder as the register knows them, when the holding is linked at all.
   // Absent means one of two ordinary things: nobody has it, or it went out
   // before the register existed and carries only a typed name.
+  const pictures = photos.ok ? photos.value : [];
   const holder = asset.holderId ? people.find((e) => e.id === asset.holderId) : undefined;
   const holderLeft = holder?.status === "left";
 
@@ -92,7 +96,9 @@ export default async function AssetRecord({
         ? "Allotted. The previous holdings are kept in the history below."
         : sp.saved
           ? "Saved."
-          : null;
+          : sp.filed
+            ? "Picture filed. The newest one is the thumbnail on the register."
+            : null;
 
   return (
     <>
@@ -243,6 +249,19 @@ export default async function AssetRecord({
           />
         </div>
       )}
+
+      {/* Under the forms and above the timeline: the pictures are about the
+          thing, and the timeline is about who had it. */}
+      {photos.ok ? (
+        <div className="mt-5">
+          <PhotoLog
+            photos={pictures}
+            assetId={asset.id}
+            assetNo={asset.assetNo}
+            frozen={Boolean(asset.deletedAt)}
+          />
+        </div>
+      ) : null}
 
       <div className="mt-6">
         <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">

@@ -7,8 +7,11 @@ import { requireCompany, type CompanySlug } from "../companies";
 import { store } from "../db";
 import { todayIso } from "../format";
 import { text } from "../po/parse";
+import { deleteFile, putFile, storageKeys } from "../storage";
+import { readUpload } from "../uploads";
 import {
   InputError,
+  isDocKind,
   isEmployeeStatus,
   type EmployeeFields,
   type FormState,
@@ -223,6 +226,71 @@ export async function restoreEmployee(id: string): Promise<{ error: string } | v
     if (err instanceof InputError) return { error: err.message };
     throw err;
   }
+
+  revalidateEmployees(employee.company, id);
+  redirect(`/${employee.company}/employees/${id}`);
+}
+
+/* -------------------------------------------------------------------------
+ * Documents
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * Files a CNIC or passport scan.
+ *
+ * Replacing rather than accumulating, unlike an asset's photographs: there is one
+ * current CNIC card, and a pile of scans of it would be a pile to search rather
+ * than a history worth keeping. The file it replaces is deleted, because nothing
+ * else can ever point at it.
+ */
+export async function attachEmployeeDoc(id: string, kind: string, form: FormData) {
+  await requireAuth();
+  if (!isDocKind(kind)) throw new Error("Unknown document.");
+
+  const db = await store();
+  const employee = await db.getEmployee(id);
+  if (!employee) throw new Error("Employee not found");
+  if (employee.deletedAt) {
+    throw new Error(`${employee.name} is deleted. Restore them before filing documents.`);
+  }
+
+  const { file, ext } = readUpload(form, "doc");
+  const key = storageKeys.employeeDoc(employee.company, employee.id, kind, ext);
+  await putFile(
+    key,
+    Buffer.from(await file.arrayBuffer()),
+    file.type || "application/octet-stream",
+  );
+
+  let previousKey: string | null = null;
+  try {
+    ({ previousKey } = await db.attachEmployeeDoc(id, kind, { key, name: file.name }));
+  } catch (err) {
+    // The file is already in the bucket, and nothing else knows its key.
+    await deleteFile(key);
+    throw err;
+  }
+
+  // A scan of the same kind is overwritten in place when the extension matches,
+  // so only delete a previous file that genuinely had a different key.
+  if (previousKey && previousKey !== key) await deleteFile(previousKey);
+
+  revalidateEmployees(employee.company, id);
+  redirect(`/${employee.company}/employees/${id}?filed=${kind}`);
+}
+
+/** Takes a scan off a record, and deletes the file. */
+export async function removeEmployeeDoc(id: string, kind: string) {
+  await requireAuth();
+  if (!isDocKind(kind)) throw new Error("Unknown document.");
+
+  const db = await store();
+  const employee = await db.getEmployee(id);
+  if (!employee) throw new Error("Employee not found");
+
+  const { key } = await db.detachEmployeeDoc(id, kind);
+  // Nothing shares an employee document, so it goes with the record of it.
+  if (key) await deleteFile(key);
 
   revalidateEmployees(employee.company, id);
   redirect(`/${employee.company}/employees/${id}`);

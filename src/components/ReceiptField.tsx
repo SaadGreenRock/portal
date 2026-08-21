@@ -5,7 +5,12 @@ import { formatBytes, shrinkImage } from "@/lib/shrink-image";
 import { MAX_UPLOAD_BYTES, UPLOAD_EXTENSIONS } from "@/lib/upload-limits";
 
 /**
- * The receipt picker inside a settle form.
+ * A file picker inside a larger form.
+ *
+ * Named for the settle form it was written for, and now also the picker for an
+ * asset's photographs and an employee's CNIC and passport scans — the three do
+ * the same job and share the one thing that is easy to get wrong, so `name` and
+ * `accept` are parameters rather than three copies of this file.
  *
  * Not `UploadFile`, which is a whole upload on its own — it builds its own
  * FormData and posts the moment a file is chosen. Here the file is one field of
@@ -27,12 +32,22 @@ import { MAX_UPLOAD_BYTES, UPLOAD_EXTENSIONS } from "@/lib/upload-limits";
  */
 export default function ReceiptField({
   id,
+  name = "receipt",
   label = "Receipt or invoice",
   hint = "Optional. Photo or PDF — photos are shrunk automatically.",
+  accept = "image/*,application/pdf,.heic,.heif,.tif,.tiff",
+  required = false,
+  optionalLabel = true,
 }: {
   id: string;
+  /** The form field. Defaults to the food log's, which was here first. */
+  name?: string;
   label?: string;
   hint?: string;
+  accept?: string;
+  required?: boolean;
+  /** Off where the file is the point of the form rather than an extra. */
+  optionalLabel?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -100,15 +115,17 @@ export default function ReceiptField({
   return (
     <div className="min-w-[12rem] flex-1">
       <label className="label mb-1.5" htmlFor={id}>
-        {label} <span className="font-normal normal-case">— optional</span>
+        {label}
+        {optionalLabel ? <span className="font-normal normal-case"> — optional</span> : null}
       </label>
       <input
         ref={input}
         id={id}
-        name="receipt"
+        name={name}
         type="file"
+        required={required}
         // Phones offer "Take Photo" for image/*; a desktop scanner makes a PDF.
-        accept="image/*,application/pdf,.heic,.heif,.tif,.tiff"
+        accept={accept}
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) void chosen(file);

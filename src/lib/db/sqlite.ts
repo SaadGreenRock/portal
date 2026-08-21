@@ -6,7 +6,10 @@ import type {
   AssetCounts,
   AssetFields,
   AssetHolding,
+  AssetPhoto,
   AssetQuery,
+  AssetThumb,
+  PhotoFields,
   HoldingQuery,
   ReturnFields,
 } from "../assets/types";
@@ -14,6 +17,7 @@ import { COMPANIES, type CompanySlug } from "../companies";
 import {
   duplicateNumber,
   isEmployeeStatus,
+  type DocKind,
   type Employee,
   type EmployeeCounts,
   type EmployeeFields,
@@ -86,6 +90,8 @@ import {
   formatRfqNo,
   formatTrancheNo,
   formatVoucherNo,
+  docColumns,
+  docKeyColumn,
   holderColumns,
   holdingColumns,
   IN_STOCK_COLUMNS,
@@ -101,6 +107,8 @@ import {
   rowToHolding,
   rowToHoldingWithAsset,
   rowToNotification,
+  newestPerAsset,
+  rowToPhoto,
   rowToPo,
   rowToRfq,
   rowToTranche,
@@ -116,6 +124,7 @@ import {
   type HoldingRow,
   type HoldingWithAssetRow,
   type NotificationRow,
+  type PhotoRow,
   type PoRow,
   type RfqRow,
   type TrancheRow,
@@ -1771,6 +1780,54 @@ export const sqliteStore: Store = {
     return { rows: rows.map(rowToHoldingWithAsset), total };
   },
 
+  async attachEmployeeDoc(
+    id: string,
+    kind: DocKind,
+    doc: { key: string; name: string },
+  ): Promise<{ previousKey: string | null }> {
+    const handle = connect();
+    const column = docKeyColumn(kind);
+
+    const row = handle
+      .prepare(`SELECT ${column} AS previous FROM employees WHERE id = ?`)
+      .get(id) as { previous: string | null } | undefined;
+    if (!row) throw new Error("Employee not found");
+
+    const now = new Date().toISOString();
+    const columns = docColumns(kind, doc, now);
+    const sets = Object.keys(columns)
+      .map((c) => `${c} = @${c}`)
+      .join(", ");
+    handle
+      .prepare(`UPDATE employees SET ${sets}, updated_at = @updated_at WHERE id = @id`)
+      .run({ id, updated_at: now, ...columns });
+
+    // Returned rather than deleted here: the store does not touch storage, so the
+    // caller removes the file it has just replaced.
+    return { previousKey: row.previous ?? null };
+  },
+
+  async detachEmployeeDoc(id: string, kind: DocKind): Promise<{ key: string | null }> {
+    const handle = connect();
+    const column = docKeyColumn(kind);
+
+    const row = handle
+      .prepare(`SELECT ${column} AS key FROM employees WHERE id = ?`)
+      .get(id) as { key: string | null } | undefined;
+    if (!row) throw new Error("Employee not found");
+
+    const now = new Date().toISOString();
+    const columns = docColumns(kind, null, null);
+    const sets = Object.keys(columns)
+      .map((c) => `${c} = @${c}`)
+      .join(", ");
+    handle
+      .prepare(`UPDATE employees SET ${sets}, updated_at = @updated_at WHERE id = @id`)
+      .run({ id, updated_at: now, ...columns });
+
+    return { key: row.key ?? null };
+  },
+
   async employeeDirectory(company: CompanySlug): Promise<EmployeeSummary[]> {
     const handle = connect();
 
@@ -1808,6 +1865,78 @@ export const sqliteStore: Store = {
     }));
   },
 
+
+  /* ---- asset photographs -------------------------------------------------- */
+
+  async addAssetPhoto(
+    assetId: string,
+    photo: PhotoFields & { key: string; name: string },
+  ): Promise<AssetPhoto> {
+    const handle = connect();
+    const now = new Date().toISOString();
+
+    const asset = handle
+      .prepare(`SELECT company FROM assets WHERE id = ?`)
+      .get(assetId) as { company: string } | undefined;
+    if (!asset) throw new Error("Asset not found");
+
+    const id = newId();
+    handle
+      .prepare(
+        `INSERT INTO asset_photos (id, asset_id, company, key, name, taken_on, info, created_at)
+         VALUES (@id, @asset_id, @company, @key, @name, @taken_on, @info, @created_at)`,
+      )
+      .run({
+        id,
+        asset_id: assetId,
+        company: asset.company,
+        key: photo.key,
+        name: photo.name,
+        // Defaulted rather than left null: a picture with no date cannot take its
+        // place in a sequence, and the sequence is the whole point of the log.
+        taken_on: photo.takenOn || todayIso(),
+        info: photo.info,
+        created_at: now,
+      });
+
+    return rowToPhoto(
+      handle.prepare(`SELECT * FROM asset_photos WHERE id = ?`).get(id) as PhotoRow,
+    );
+  },
+
+  async listAssetPhotos(assetId: string): Promise<AssetPhoto[]> {
+    return (
+      connect()
+        .prepare(
+          `SELECT * FROM asset_photos WHERE asset_id = ?
+            ORDER BY taken_on DESC, created_at DESC`,
+        )
+        .all(assetId) as PhotoRow[]
+    ).map(rowToPhoto);
+  },
+
+  async removeAssetPhoto(id: string): Promise<{ key: string } | null> {
+    const handle = connect();
+    const row = handle
+      .prepare(`SELECT key FROM asset_photos WHERE id = ?`)
+      .get(id) as { key: string } | undefined;
+    if (!row) return null;
+
+    // Hard delete, and the file goes with it. A photograph carries no number and
+    // is nobody's record — a picture filed by mistake should leave no trace.
+    handle.prepare(`DELETE FROM asset_photos WHERE id = ?`).run(id);
+    return { key: row.key };
+  },
+
+  async latestAssetPhotos(company: CompanySlug): Promise<AssetThumb[]> {
+    // Every photo for the company in one query, reduced in the app. A window
+    // function would do it in SQL, but the same reduction has to exist for the
+    // Supabase backend anyway, and one shared helper cannot disagree with itself.
+    const rows = connect()
+      .prepare(`SELECT * FROM asset_photos WHERE company = ?`)
+      .all(company) as PhotoRow[];
+    return newestPerAsset(rows);
+  },
 
   /* ---- employees --------------------------------------------------------- */
 

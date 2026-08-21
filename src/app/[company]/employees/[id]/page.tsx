@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import ActionButton from "@/components/ActionButton";
 import ConfirmDelete from "@/components/ConfirmDelete";
+import EmployeeDocs from "@/components/EmployeeDocs";
 import EmployeeForm from "@/components/EmployeeForm";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { getCompany } from "@/lib/companies";
@@ -30,7 +31,13 @@ export default async function EmployeeRecord({
   searchParams,
 }: {
   params: Promise<{ company: string; id: string }>;
-  searchParams: Promise<{ created?: string; saved?: string; left?: string; returned?: string }>;
+  searchParams: Promise<{
+    created?: string;
+    saved?: string;
+    left?: string;
+    returned?: string;
+    filed?: string;
+  }>;
 }) {
   const { company: slug, id } = await params;
   const sp = await searchParams;
@@ -74,7 +81,9 @@ export default async function EmployeeRecord({
         ? "Marked as having left. They stay on the register and in every holding they had."
         : sp.returned
           ? "Back on the active register."
-          : null;
+          : sp.filed
+            ? `${sp.filed === "cnic" ? "CNIC" : "Passport"} scan filed.`
+            : null;
 
   return (
     <>
@@ -239,6 +248,8 @@ export default async function EmployeeRecord({
         )}
       </section>
 
+      <EmployeeDocs employee={employee} frozen={Boolean(employee.deletedAt)} />
+
       <EmployeeForm
         action={save}
         employee={employee}
@@ -247,10 +258,7 @@ export default async function EmployeeRecord({
         numberLocked={false}
       />
 
-      <p className="mt-4 text-[12.5px] leading-relaxed text-ink-soft">
-        Document scans — CNIC and passport — arrive in the next pass. Nothing you type here will
-        need entering again.
-      </p>
+
     </>
   );
 }
