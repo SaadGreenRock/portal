@@ -14,7 +14,7 @@
  */
 export default function FundingLoading() {
   return (
-    <div aria-busy="true" aria-live="polite">
+    <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
 
       {/* Everything received: sent, received, allocated, left to spend. The
@@ -56,9 +56,10 @@ export default function FundingLoading() {
               </div>
             </div>
 
-            {/* The drawdown bar. Its own track is `wash-strong` at this exact
-                height and radius on the real card, so this one line of the
-                skeleton is not a stand-in at all — it is the empty bar. */}
+            {/* The drawdown bar, at the real one's height and radius — its own
+                empty track is `wash-strong` too, a shade paler than a skeleton
+                deepens it to. So this is very nearly not a stand-in at all,
+                which is why the bar under a loading tranche looks so settled. */}
             <div className="mt-4 h-3 rounded-full bg-wash-strong" />
 
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">

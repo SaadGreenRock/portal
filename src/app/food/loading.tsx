@@ -21,7 +21,7 @@
  */
 export default function FoodLoading() {
   return (
-    <div aria-busy="true" aria-live="polite">
+    <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
 
       {/* Spent to date, owed to vendors, owed to employees, orders pending. */}

@@ -266,7 +266,7 @@ async function Report({ range }: { range: SpendRange }) {
  */
 function ReportSkeleton() {
   return (
-    <div aria-busy="true" aria-live="polite">
+    <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
 
       {/* ---- both companies together ------------------------------------- */}

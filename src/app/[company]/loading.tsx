@@ -7,8 +7,16 @@
  * decoration.
  *
  * Deliberately a grey wash of the shape that is coming rather than a spinner:
- * it tells you what is arriving, and it does not move, so it cannot be mistaken
- * for progress that has stalled.
+ * it tells you what is arriving, which a turning ring cannot.
+ *
+ * A light crosses it, left to right, on a loop — see `.skeleton` in globals.css.
+ * This used to argue for stillness on the grounds that a moving indicator can be
+ * mistaken for progress that has stalled, and that is a real risk, but it is a
+ * risk that belongs to indicators which claim to measure something. A sweep
+ * measures nothing and never fills: it cannot be read as four fifths done and
+ * stuck, only as a screen that is still working. Perfectly still, this page had
+ * the opposite problem — on a long wait it read as a render that had finished
+ * and come out blank.
  *
  * Three tones, and it is the order of them that does the work rather than the
  * values: strongest for a heading, middle for body, faintest for a list. Taken
@@ -18,7 +26,7 @@
  */
 export default function WorkspaceLoading() {
   return (
-    <div aria-busy="true" aria-live="polite">
+    <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
 
       <div className="mb-6">

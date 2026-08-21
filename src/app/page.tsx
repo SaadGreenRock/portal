@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import NavPending from "@/components/NavPending";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
@@ -149,7 +150,7 @@ async function Picker() {
               // is covering the desk this week needs to see what is waiting
               // before being handed something to type into.
               href={`/${company.slug}`}
-              className="card card-link group flex flex-col gap-5 p-6"
+              className="card card-link group relative flex flex-col gap-5 p-6"
             >
               {/* Neither logo is dark — Green Rock's is white, Sportech's is
                   that acid yellow — so the panel behind them is what makes
@@ -206,13 +207,19 @@ async function Picker() {
                   <span className="mono text-ink-soft">{po.ok ? po.value.total : "—"}</span>
                 </div>
               </div>
+
+              {/* The workspace shell counts vouchers, orders and quotes before it
+                  can paint anything at all — its own skeleton included — so
+                  without this a pressed company card sits there looking unpressed
+                  for the length of three queries. */}
+              <NavPending className="inset-x-6 bottom-0" />
             </Link>
           );
         })}
       </div>
 
       {/* Below the fork in the road, because neither belongs to one company. */}
-      <Link href="/food" className="card card-link mt-4 flex items-center gap-4 p-5">
+      <Link href="/food" className="card card-link relative mt-4 flex items-center gap-4 p-5">
         <Tile
           day={{ wash: "#f7f1e8", ink: "#8a6534" }}
           night={{ wash: "#2a2015", ink: "#d9a76a" }}
@@ -235,9 +242,10 @@ async function Picker() {
         ) : (
           <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
         )}
+        <NavPending className="inset-x-5 bottom-0" />
       </Link>
 
-      <Link href="/spend" className="card card-link mt-3 flex items-center gap-4 p-5">
+      <Link href="/spend" className="card card-link relative mt-3 flex items-center gap-4 p-5">
         <Tile
           day={{ wash: "#eef4f4", ink: "#104751" }}
           night={{ wash: "#152625", ink: "#4fb3a1" }}
@@ -266,9 +274,10 @@ async function Picker() {
         ) : (
           <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
         )}
+        <NavPending className="inset-x-5 bottom-0" />
       </Link>
 
-      <Link href="/funding" className="card card-link mt-3 flex items-center gap-4 p-5">
+      <Link href="/funding" className="card card-link relative mt-3 flex items-center gap-4 p-5">
         <Tile
           day={{ wash: "#eef1f8", ink: "#2f4470" }}
           night={{ wash: "#171d2b", ink: "#93aae0" }}
@@ -297,6 +306,7 @@ async function Picker() {
         ) : (
           <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
         )}
+        <NavPending className="inset-x-5 bottom-0" />
       </Link>
     </>
   );
@@ -308,9 +318,9 @@ async function Picker() {
  *
  * The same three tones as the workspace skeleton and in the same order —
  * strongest for a name, middle for a line of body, faintest for a figure — so
- * the two screens read as one convention rather than two guesses. Still, not
- * pulsing, for the reason given there: a shape cannot be mistaken for progress
- * that has stalled.
+ * the two screens read as one convention rather than two guesses — including
+ * the light that crosses them, which is one sweep per screen and so arrives here
+ * without this component having to ask for it.
  *
  * Sized off the cards it stands in for rather than by eye. `<main>` centres its
  * column vertically, so a skeleton of the wrong height would drop the title and
@@ -319,7 +329,7 @@ async function Picker() {
  */
 function PickerSkeleton() {
   return (
-    <div aria-busy="true" aria-live="polite">
+    <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
 
       <div className="grid gap-4 sm:grid-cols-2">
