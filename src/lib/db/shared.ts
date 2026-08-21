@@ -9,6 +9,11 @@ import {
   type HoldingWithAsset,
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
+import {
+  isEmployeeStatus,
+  type Employee,
+  type EmployeeFields,
+} from "../employees/types";
 import { isFoodStatus, isPaymentType, type FoodExpense, type FoodFields } from "../food/types";
 import { isNotificationTag, type Notification } from "../notifications/types";
 import { poTotals } from "../po/totals";
@@ -1143,3 +1148,99 @@ export function assembleAllocatable(input: AllocatableSources): AllocatableItem[
   // the money went out is what you want.
   return items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
+
+/* -------------------------------------------------------------------------
+ * Employees
+ * ---------------------------------------------------------------------------*/
+
+export interface EmployeeRow {
+  id: string;
+  company: string;
+  employee_no: string;
+  name: string;
+  status: string;
+  left_on: string | null;
+  cnic: string | null;
+  cnic_key: string | null;
+  cnic_name: string | null;
+  cnic_at: string | null;
+  passport: string | null;
+  passport_key: string | null;
+  passport_name: string | null;
+  passport_at: string | null;
+  address: string | null;
+  phone: string | null;
+  kin_name: string | null;
+  kin_phone: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function rowToEmployee(r: EmployeeRow): Employee {
+  return {
+    id: r.id,
+    company: r.company as CompanySlug,
+    employeeNo: r.employee_no ?? "",
+    name: r.name ?? "",
+    status: isEmployeeStatus(r.status) ? r.status : "active",
+    leftOn: r.left_on ? String(r.left_on).slice(0, 10) : null,
+    cnic: r.cnic ?? null,
+    cnicKey: r.cnic_key ?? null,
+    cnicName: r.cnic_name ?? null,
+    cnicAt: r.cnic_at ?? null,
+    passport: r.passport ?? null,
+    passportKey: r.passport_key ?? null,
+    passportName: r.passport_name ?? null,
+    passportAt: r.passport_at ?? null,
+    address: r.address ?? null,
+    phone: r.phone ?? null,
+    kinName: r.kin_name ?? null,
+    kinPhone: r.kin_phone ?? null,
+    notes: r.notes ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at ?? null,
+  };
+}
+
+/**
+ * An employee's editable fields as columns.
+ *
+ * One normalisation that must not be left to a call site: `left_on` is forced to
+ * NULL while active, so a date left behind by marking somebody as returned
+ * cannot survive and go on reading as though they were still gone. The mirror of
+ * the rule `foodColumns` applies to `paid_at`.
+ *
+ * The optional text fields collapse an empty string to NULL. Absence and "" mean
+ * the same thing to a reader and it is not worth being able to tell them apart,
+ * but a NULL sorts and counts predictably where an empty string does not.
+ */
+export function employeeColumns(f: EmployeeFields) {
+  const blank = (v: string | null | undefined) => (v ?? "").trim() || null;
+  const active = f.status === "active";
+  return {
+    employee_no: f.employeeNo.trim(),
+    name: f.name.trim(),
+    status: f.status,
+    left_on: active ? null : f.leftOn || null,
+    cnic: blank(f.cnic),
+    passport: blank(f.passport),
+    address: blank(f.address),
+    phone: blank(f.phone),
+    kin_name: blank(f.kinName),
+    kin_phone: blank(f.kinPhone),
+    notes: blank(f.notes),
+  };
+}
+
+/**
+ * How an employee number is compared for the uniqueness guard.
+ *
+ * Case- and space-insensitive, because "emp 001", "EMP-001" and "emp-001" typed
+ * on three different days are one number to everybody except a database. The
+ * stored value keeps whatever was typed; only the comparison is loosened.
+ */
+export const employeeNoKey = (no: string): string =>
+  no.trim().toLowerCase().replace(/[\s-]+/g, "");

@@ -11,6 +11,14 @@ import type {
 } from "../assets/types";
 import type { CompanySlug } from "../companies";
 import {
+  duplicateNumber,
+  type Employee,
+  type EmployeeCounts,
+  type EmployeeFields,
+  type EmployeeQuery,
+  type EmployeeStatus,
+} from "../employees/types";
+import {
   summariseFood,
   type FoodCounts,
   type FoodExpense,
@@ -45,7 +53,15 @@ import {
   type TrancheFields,
 } from "../tranches/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewAsset, NewNotification, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
+import type {
+  NewAsset,
+  NewEmployee,
+  NewNotification,
+  NewPurchaseOrder,
+  NewRfq,
+  NewVoucher,
+  Store,
+} from "./types";
 import {
   allocationColumns,
   assembleAllocatable,
@@ -54,7 +70,9 @@ import {
   denormalizeRfq,
   directColumns,
   directPayeesFrom,
+  employeeColumns,
   employeeKey,
+  employeeNoKey,
   employeeProfilesFrom,
   foodColumns,
   foodNamesFrom,
@@ -75,6 +93,7 @@ import {
   rowToAllocation,
   rowToAsset,
   rowToDirect,
+  rowToEmployee,
   rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
@@ -89,6 +108,7 @@ import {
   type AllocationRow,
   type AssetRow,
   type DirectRow,
+  type EmployeeRow,
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
@@ -167,6 +187,7 @@ const NOTIFICATIONS = "notifications";
 const TRANCHES = "funding_tranches";
 const ALLOCATIONS = "tranche_allocations";
 const DIRECT = "tranche_expenses";
+const EMPLOYEES = "employees";
 
 /**
  * The one holding on an asset that has not been returned, if any.
@@ -200,6 +221,44 @@ function toSignatory(r: {
     name: r.name,
     createdAt: r.created_at,
   };
+}
+
+/**
+ * The live employee in this company already using a number, if any.
+ *
+ * Compared loosely — case and spacing folded — because "emp 001", "EMP-001" and
+ * "emp-001" typed on three different days are one number to everybody except a
+ * database. The stored value keeps whatever was typed; only the comparison is
+ * loosened, and the partial unique index stays as the exact-match backstop.
+ *
+ * Read into the app rather than expressed as a query: PostgREST has no way to
+ * apply that folding in a filter, and a company's register is a list of people
+ * rather than a table of transactions.
+ *
+ * `exceptId` is the row being edited, which must not be found as a clash with
+ * itself.
+ */
+async function findEmployeeByNo(
+  db: SupabaseClient,
+  company: CompanySlug,
+  employeeNo: string,
+  exceptId: string | null,
+): Promise<{ id: string; name: string } | null> {
+  const key = employeeNoKey(employeeNo);
+  if (!key) return null;
+
+  const { data, error } = await db
+    .from(EMPLOYEES)
+    .select("id, name, employee_no")
+    .eq("company", company)
+    .is("deleted_at", null)
+    .limit(5000);
+  if (error) throw error;
+
+  const hit = (data ?? []).find(
+    (r) => String(r.id) !== exceptId && employeeNoKey(String(r.employee_no)) === key,
+  );
+  return hit ? { id: String(hit.id), name: String(hit.name) } : null;
 }
 
 export const supabaseStore: Store = {
@@ -1184,6 +1243,191 @@ export const supabaseStore: Store = {
     );
   },
 
+
+  /* ---- employees --------------------------------------------------------- */
+
+  async createEmployee({ company, fields }: NewEmployee): Promise<Employee> {
+    const db = supabase();
+    const columns = employeeColumns(fields);
+
+    const clash = await findEmployeeByNo(db, company, columns.employee_no, null);
+    if (clash) throw duplicateNumber(columns.employee_no, clash.name);
+
+    const now = new Date().toISOString();
+    const { data, error } = await db
+      .from(EMPLOYEES)
+      .insert({ id: newId(), company, created_at: now, updated_at: now, ...columns })
+      .select()
+      .single();
+
+    // 23505 = unique_violation. The partial index caught an exact duplicate the
+    // loose check above did not — two requests racing, or a number that differs
+    // only in ways `employeeNoKey` folds. Reported as the same refusal rather
+    // than as a database error.
+    if (error) {
+      if (error.code === "23505") {
+        throw duplicateNumber(columns.employee_no, "somebody else on this register");
+      }
+      throw error;
+    }
+
+    return rowToEmployee(data as EmployeeRow);
+  },
+
+  async getEmployee(id) {
+    const { data, error } = await supabase()
+      .from(EMPLOYEES)
+      .select()
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? rowToEmployee(data as EmployeeRow) : null;
+  },
+
+  async updateEmployee(id, fields: EmployeeFields): Promise<Employee> {
+    const db = supabase();
+    const columns = employeeColumns(fields);
+
+    const current = await db.from(EMPLOYEES).select("company").eq("id", id).maybeSingle();
+    if (current.error) throw current.error;
+    if (!current.data) throw new Error("Employee not found");
+
+    // Ignoring this row: renumbering somebody to the number they already have
+    // would otherwise be refused as a clash with themselves.
+    const clash = await findEmployeeByNo(
+      db,
+      String(current.data.company) as CompanySlug,
+      columns.employee_no,
+      id,
+    );
+    if (clash) throw duplicateNumber(columns.employee_no, clash.name);
+
+    const { data, error } = await db
+      .from(EMPLOYEES)
+      .update({ updated_at: new Date().toISOString(), ...columns })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) {
+      if (error.code === "23505") {
+        throw duplicateNumber(columns.employee_no, "somebody else on this register");
+      }
+      throw error;
+    }
+    return rowToEmployee(data as EmployeeRow);
+  },
+
+  async setEmployeeStatus(id, status: EmployeeStatus, leftOn: string | null) {
+    const { error } = await supabase()
+      .from(EMPLOYEES)
+      .update({
+        status,
+        // Cleared on the way back to active: a returning employee still carrying
+        // a leaving date reads as though they were gone.
+        left_on: status === "active" ? null : leftOn || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async softDeleteEmployee(id) {
+    const now = new Date().toISOString();
+    const { error } = await supabase()
+      .from(EMPLOYEES)
+      .update({ deleted_at: now, updated_at: now })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreEmployee(id) {
+    const db = supabase();
+
+    // The number was freed when they were deleted, so somebody may be using it
+    // by now. Restoring into a clash would break the partial unique index, so it
+    // is refused with the same message — the operator renumbers one of the two.
+    const row = await db
+      .from(EMPLOYEES)
+      .select("company, employee_no")
+      .eq("id", id)
+      .maybeSingle();
+    if (row.error) throw row.error;
+    if (!row.data) throw new Error("Employee not found");
+
+    const clash = await findEmployeeByNo(
+      db,
+      String(row.data.company) as CompanySlug,
+      String(row.data.employee_no),
+      id,
+    );
+    if (clash) throw duplicateNumber(String(row.data.employee_no), clash.name);
+
+    const { error } = await db
+      .from(EMPLOYEES)
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  },
+
+  async searchEmployees(query: EmployeeQuery) {
+    let q = supabase()
+      .from(EMPLOYEES)
+      .select("*", { count: "exact" })
+      .eq("company", query.company);
+
+    if (query.view === "deleted") {
+      q = q.not("deleted_at", "is", null);
+    } else {
+      q = q.is("deleted_at", null);
+      if (query.view === "active") q = q.eq("status", "active");
+      else if (query.view === "left") q = q.eq("status", "left");
+    }
+
+    const term = query.q?.trim();
+    if (term) {
+      const like = `%${term.replace(/[,()]/g, " ")}%`;
+      q = q.or(
+        [
+          `name.ilike.${like}`,
+          `employee_no.ilike.${like}`,
+          `cnic.ilike.${like}`,
+          `phone.ilike.${like}`,
+        ].join(","),
+      );
+    }
+
+    // Active first, then by name — a register is read to look somebody up.
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+    const { data, error, count } = await q
+      .order("status", { ascending: true })
+      .order("name", { ascending: true })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return {
+      rows: (data ?? []).map((r) => rowToEmployee(r as EmployeeRow)),
+      total: count ?? 0,
+    };
+  },
+
+  async employeeCounts(company): Promise<EmployeeCounts> {
+    const { data, error } = await supabase()
+      .from(EMPLOYEES)
+      .select("status")
+      .eq("company", company)
+      .is("deleted_at", null)
+      .limit(5000);
+    if (error) throw error;
+
+    const rows = data ?? [];
+    return {
+      total: rows.length,
+      active: rows.filter((r) => r.status === "active").length,
+      left: rows.filter((r) => r.status === "left").length,
+    };
+  },
 
   /* ---- food ------------------------------------------------------------- */
 

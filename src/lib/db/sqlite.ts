@@ -13,6 +13,14 @@ import type {
 } from "../assets/types";
 import { COMPANIES, type CompanySlug } from "../companies";
 import {
+  duplicateNumber,
+  type Employee,
+  type EmployeeCounts,
+  type EmployeeFields,
+  type EmployeeQuery,
+  type EmployeeStatus,
+} from "../employees/types";
+import {
   summariseFood,
   type FoodCounts,
   type FoodExpense,
@@ -47,7 +55,15 @@ import {
   type TrancheFields,
 } from "../tranches/types";
 import type { HistoryQuery, Signatory, Voucher } from "../types";
-import type { NewAsset, NewNotification, NewPurchaseOrder, NewRfq, NewVoucher, Store } from "./types";
+import type {
+  NewAsset,
+  NewEmployee,
+  NewNotification,
+  NewPurchaseOrder,
+  NewRfq,
+  NewVoucher,
+  Store,
+} from "./types";
 import {
   allocationColumns,
   assembleAllocatable,
@@ -56,7 +72,9 @@ import {
   denormalizeRfq,
   directColumns,
   directPayeesFrom,
+  employeeColumns,
   employeeKey,
+  employeeNoKey,
   employeeProfilesFrom,
   foodColumns,
   foodNamesFrom,
@@ -76,6 +94,7 @@ import {
   rowToAllocation,
   rowToAsset,
   rowToDirect,
+  rowToEmployee,
   rowToFood,
   rowToHolding,
   rowToHoldingWithAsset,
@@ -90,6 +109,7 @@ import {
   type AllocationRow,
   type AssetRow,
   type DirectRow,
+  type EmployeeRow,
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
@@ -115,6 +135,37 @@ const toSignatory = (r: SignatoryRow): Signatory => ({
   name: r.name,
   createdAt: r.created_at,
 });
+
+/**
+ * The live employee in this company already using a number, if any.
+ *
+ * Compared loosely — case and spacing folded — because "emp 001", "EMP-001" and
+ * "emp-001" typed on three different days are one number to everybody except a
+ * database. The stored value keeps whatever was typed; only the comparison is
+ * loosened, and the unique index stays as the exact-match backstop.
+ *
+ * `exceptId` is the row being edited, which must not be found as a clash with
+ * itself.
+ */
+function findEmployeeByNo(
+  handle: Database.Database,
+  company: CompanySlug,
+  employeeNo: string,
+  exceptId: string | null,
+): { id: string; name: string } | null {
+  const key = employeeNoKey(employeeNo);
+  if (!key) return null;
+
+  const rows = handle
+    .prepare(
+      `SELECT id, name, employee_no FROM employees
+        WHERE company = ? AND deleted_at IS NULL`,
+    )
+    .all(company) as Array<{ id: string; name: string; employee_no: string }>;
+
+  const hit = rows.find((r) => r.id !== exceptId && employeeNoKey(r.employee_no) === key);
+  return hit ? { id: hit.id, name: hit.name } : null;
+}
 
 let db: Database.Database | null = null;
 
@@ -373,6 +424,72 @@ function connect(): Database.Database {
     CREATE INDEX IF NOT EXISTS notifications_company_created
       ON notifications (company, created_at DESC);
 
+    -- The employee register, per company. The record that did not exist: an
+    -- employee used to be two free-text columns on a holding, which is why
+    -- nothing could be stored about a person. See src/lib/employees/types.ts.
+    --
+    -- The only number in the portal that is typed rather than generated.
+    CREATE TABLE IF NOT EXISTS employees (
+      id            TEXT PRIMARY KEY,
+      company       TEXT NOT NULL,
+      employee_no   TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      -- 'active' or 'left'. Marked rather than deleted, so a leaver stays in
+      -- every holding they ever had while dropping out of the asset dropdown.
+      status        TEXT NOT NULL DEFAULT 'active',
+      left_on       TEXT,
+      -- Stored exactly as typed, never reformatted: it is compared by eye
+      -- against a card, and inserting or removing dashes is how the two come to
+      -- disagree.
+      cnic          TEXT,
+      cnic_key      TEXT,
+      cnic_name     TEXT,
+      cnic_at       TEXT,
+      passport      TEXT,
+      passport_key  TEXT,
+      passport_name TEXT,
+      passport_at   TEXT,
+      address       TEXT,
+      phone         TEXT,
+      -- Next of kin as two columns. A number with no name beside it is the thing
+      -- you would least want to be guessing at on the day you need it.
+      kin_name      TEXT,
+      kin_phone     TEXT,
+      notes         TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      -- Soft delete, so the holdings pointing at them never point into nothing.
+      deleted_at    TEXT
+    );
+
+    -- Among live rows only, unlike every other number in the portal. A voucher
+    -- number stays spent because it is printed on a thing; an employee number is
+    -- typed by hand, so a deleted record's number has to be free to type again
+    -- or a typo becomes permanent.
+    CREATE UNIQUE INDEX IF NOT EXISTS employees_company_no
+      ON employees (company, employee_no) WHERE deleted_at IS NULL;
+
+    CREATE INDEX IF NOT EXISTS employees_company_status
+      ON employees (company, status);
+
+    -- A dated log per asset rather than one picture: the value is in the
+    -- sequence. The newest by taken_on is the register's thumbnail, so there is
+    -- no "primary photo" flag to keep correct.
+    CREATE TABLE IF NOT EXISTS asset_photos (
+      id         TEXT PRIMARY KEY,
+      asset_id   TEXT NOT NULL REFERENCES assets (id) ON DELETE CASCADE,
+      company    TEXT NOT NULL,
+      key        TEXT NOT NULL,
+      name       TEXT NOT NULL DEFAULT '',
+      -- The date the picture shows, not when it was uploaded.
+      taken_on   TEXT NOT NULL,
+      info       TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS asset_photos_asset
+      ON asset_photos (asset_id, taken_on DESC);
+
     -- Investor funding. Three tables, and the dependency runs one way: this
     -- section reads vouchers, purchase orders and food entries so a bucket can
     -- be filled from any of them, and none of those tables gained a column for
@@ -510,6 +627,17 @@ const ADDED_COLUMNS: Array<[table: string, column: string, type: string]> = [
   ["food_expenses", "receipt_key", "TEXT"],
   ["food_expenses", "receipt_name", "TEXT"],
   ["food_expenses", "receipt_at", "TEXT"],
+  // The link to a real employee, added when the register arrived. The existing
+  // free-text holder_name / employee_name columns stay and become the snapshot
+  // of who the asset was handed to at the time, so every holding already
+  // recorded goes on reading correctly with no link at all. NULL therefore means
+  // one of two ordinary things: in stock, or recorded before the register.
+  //
+  // No REFERENCES clause: SQLite cannot add a foreign key by ALTER TABLE. The
+  // Postgres migration declares one with ON DELETE SET NULL, and this backend is
+  // the zero-setup local one.
+  ["assets", "holder_id", "TEXT"],
+  ["asset_holdings", "employee_id", "TEXT"],
 ];
 
 /** Brings a database created by an earlier version up to date. */
@@ -1654,6 +1782,176 @@ export const sqliteStore: Store = {
     return employeeProfilesFrom(rows);
   },
 
+
+  /* ---- employees --------------------------------------------------------- */
+
+  async createEmployee({ company, fields }: NewEmployee): Promise<Employee> {
+    const handle = connect();
+    const now = new Date().toISOString();
+    const columns = employeeColumns(fields);
+
+    const write = handle.transaction((): EmployeeRow => {
+      const clash = findEmployeeByNo(handle, company, columns.employee_no, null);
+      if (clash) throw duplicateNumber(columns.employee_no, clash.name);
+
+      const id = newId();
+      handle
+        .prepare(
+          `INSERT INTO employees (
+             id, company, employee_no, name, status, left_on, cnic, passport,
+             address, phone, kin_name, kin_phone, notes, created_at, updated_at
+           ) VALUES (
+             @id, @company, @employee_no, @name, @status, @left_on, @cnic, @passport,
+             @address, @phone, @kin_name, @kin_phone, @notes, @created_at, @created_at
+           )`,
+        )
+        .run({ id, company, created_at: now, ...columns });
+
+      return handle.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow;
+    });
+
+    return rowToEmployee(write());
+  },
+
+  async getEmployee(id: string): Promise<Employee | null> {
+    const row = connect()
+      .prepare(`SELECT * FROM employees WHERE id = ?`)
+      .get(id) as EmployeeRow | undefined;
+    return row ? rowToEmployee(row) : null;
+  },
+
+  async updateEmployee(id: string, fields: EmployeeFields): Promise<Employee> {
+    const handle = connect();
+    const columns = employeeColumns(fields);
+
+    const write = handle.transaction((): EmployeeRow => {
+      const current = handle
+        .prepare(`SELECT company FROM employees WHERE id = ?`)
+        .get(id) as { company: string } | undefined;
+      if (!current) throw new Error("Employee not found");
+
+      // Ignoring this row, or renumbering somebody to the number they already
+      // have would be refused as a clash with themselves.
+      const clash = findEmployeeByNo(
+        handle,
+        current.company as CompanySlug,
+        columns.employee_no,
+        id,
+      );
+      if (clash) throw duplicateNumber(columns.employee_no, clash.name);
+
+      handle
+        .prepare(
+          `UPDATE employees
+              SET employee_no = @employee_no, name = @name, status = @status,
+                  left_on = @left_on, cnic = @cnic, passport = @passport,
+                  address = @address, phone = @phone, kin_name = @kin_name,
+                  kin_phone = @kin_phone, notes = @notes, updated_at = @updated_at
+            WHERE id = @id`,
+        )
+        .run({ id, updated_at: new Date().toISOString(), ...columns });
+
+      return handle.prepare(`SELECT * FROM employees WHERE id = ?`).get(id) as EmployeeRow;
+    });
+
+    return rowToEmployee(write());
+  },
+
+  async setEmployeeStatus(
+    id: string,
+    status: EmployeeStatus,
+    leftOn: string | null,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    connect()
+      .prepare(`UPDATE employees SET status = ?, left_on = ?, updated_at = ? WHERE id = ?`)
+      // Cleared on the way back to active: a returning employee still carrying a
+      // leaving date reads as though they were gone.
+      .run(status, status === "active" ? null : leftOn || null, now, id);
+  },
+
+  async softDeleteEmployee(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    connect()
+      .prepare(`UPDATE employees SET deleted_at = ?, updated_at = ? WHERE id = ?`)
+      .run(now, now, id);
+  },
+
+  async restoreEmployee(id: string): Promise<void> {
+    const handle = connect();
+
+    // The number was freed when they were deleted, so somebody else may be using
+    // it by now. Restoring into a clash would break the unique index, so it is
+    // refused with the same message as a duplicate — the operator renumbers one
+    // of the two and tries again.
+    const row = handle
+      .prepare(`SELECT company, employee_no FROM employees WHERE id = ?`)
+      .get(id) as { company: string; employee_no: string } | undefined;
+    if (!row) throw new Error("Employee not found");
+
+    const clash = findEmployeeByNo(handle, row.company as CompanySlug, row.employee_no, id);
+    if (clash) throw duplicateNumber(row.employee_no, clash.name);
+
+    handle
+      .prepare(`UPDATE employees SET deleted_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async searchEmployees(query: EmployeeQuery) {
+    const handle = connect();
+    const where: string[] = ["company = @company"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    if (query.view === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+      if (query.view === "active") where.push("status = 'active'");
+      else if (query.view === "left") where.push("status = 'left'");
+    }
+
+    if (query.q?.trim()) {
+      where.push(`(
+        name        LIKE @q COLLATE NOCASE OR
+        employee_no LIKE @q COLLATE NOCASE OR
+        cnic        LIKE @q COLLATE NOCASE OR
+        phone       LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM employees WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    // Active first, then by name. A register is read to find a person, and
+    // alphabetical is how you look somebody up — unlike the asset register,
+    // which is read to find what is moving and so leads with what is out.
+    const rows = handle
+      .prepare(
+        `SELECT * FROM employees WHERE ${clause}
+          ORDER BY (status = 'left') ASC, name COLLATE NOCASE ASC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as EmployeeRow[];
+
+    return { rows: rows.map(rowToEmployee), total };
+  },
+
+  async employeeCounts(company: CompanySlug): Promise<EmployeeCounts> {
+    const rows = connect()
+      .prepare(
+        `SELECT status FROM employees WHERE company = ? AND deleted_at IS NULL`,
+      )
+      .all(company) as Array<{ status: string }>;
+
+    return {
+      total: rows.length,
+      active: rows.filter((r) => r.status === "active").length,
+      left: rows.filter((r) => r.status === "left").length,
+    };
+  },
 
   /* ---- food ------------------------------------------------------------- */
 

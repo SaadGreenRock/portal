@@ -378,6 +378,130 @@ create index if not exists notifications_search_idx
   on public.notifications (company, headline, sender);
 
 -- ---------------------------------------------------------------------------
+-- Employees
+-- ---------------------------------------------------------------------------
+-- Who works here, and how to reach them.
+--
+-- This is the record that did not exist. The asset register has always known an
+-- employee as two free-text columns on a holding -- a name and a number, typed
+-- fresh each time -- which costs nothing to maintain and is precisely why
+-- nothing could be recorded against it: there was nowhere to put a CNIC, a phone
+-- number or an address, because no row was *about a person*.
+--
+-- Strictly per company, structurally rather than by filtering. Numbering is a
+-- separate sequence per company, so Green Rock and Sportech can both have an 001
+-- and they are different people. Somebody working for both companies is two
+-- records, which is what "no mixing" means followed all the way through.
+--
+-- The number is typed by hand and never generated -- the only number in the
+-- portal that isn't. Everything below `name` is genuinely optional from the
+-- first day: the columns exist so that filling them in later needs no
+-- migration.
+create table if not exists public.employees (
+  id            uuid primary key,
+  company       text        not null,
+  -- Issued by the company, typed by the operator. Unique per company among live
+  -- rows; see the partial index below.
+  employee_no   text        not null,
+  name          text        not null,
+  -- Marked rather than deleted, so a leaver stays in the register and in every
+  -- holding they ever had while dropping out of the asset dropdown. Reversible.
+  status        text        not null default 'active'
+                            check (status in ('active', 'left')),
+  left_on       date,
+  -- Stored exactly as typed rather than reformatted: it is a number somebody
+  -- will read off a card and compare by eye, and helpfully inserting or removing
+  -- dashes is how the two come to disagree.
+  cnic          text,
+  cnic_key      text,
+  cnic_name     text,
+  cnic_at       timestamptz,
+  -- Separate from the CNIC, because one person may have either, both or neither.
+  passport      text,
+  passport_key  text,
+  passport_name text,
+  passport_at   timestamptz,
+  address       text,
+  phone         text,
+  -- Next of kin as two columns, not one. A number with no name beside it is the
+  -- thing you would least want to be guessing at on the day you need it.
+  kin_name      text,
+  kin_phone     text,
+  notes         text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  -- Soft delete, so an employee's holdings never point into nothing.
+  deleted_at    timestamptz
+);
+
+-- Among live rows only, which is a deliberate departure from every other number
+-- in the portal. A voucher number or an asset tag stays spent forever because it
+-- is printed on a thing; an employee number is typed by hand, so a deleted
+-- record's number has to be free to type again -- otherwise a typo is permanent.
+create unique index if not exists employees_company_no_key
+  on public.employees (company, employee_no) where deleted_at is null;
+
+create index if not exists employees_company_name_idx
+  on public.employees (company, name);
+
+-- Backs the register's only filtered query, and the dropdown's: this company's
+-- active employees.
+create index if not exists employees_company_status_idx
+  on public.employees (company, status);
+
+-- ---------------------------------------------------------------------------
+-- Asset photographs
+-- ---------------------------------------------------------------------------
+-- A dated log per asset rather than one picture, because the value is in the
+-- sequence: one photo says what a laptop looks like, four say it left in one
+-- piece in July and came back with a cracked lid in September -- which is the
+-- argument that actually has to be had.
+--
+-- No "primary photo" flag. The newest by `taken_on` is the thumbnail on the
+-- register, so there is no second piece of state to keep correct.
+create table if not exists public.asset_photos (
+  id         uuid primary key,
+  asset_id   uuid        not null references public.assets (id) on delete cascade,
+  company    text        not null,
+  key        text        not null,
+  name       text        not null default '',
+  -- The date the picture shows, which is not when it was uploaded: the log is
+  -- often caught up on days later. Same reasoning as a food entry's order date.
+  taken_on   date        not null,
+  -- What the picture is of. The reason a photo log beats a photo.
+  info       text        not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists asset_photos_asset_idx
+  on public.asset_photos (asset_id, taken_on desc);
+
+-- ---------------------------------------------------------------------------
+-- Assets and holdings: the link to a real employee
+-- ---------------------------------------------------------------------------
+-- Added rather than replacing anything. The existing free-text `holder_name` /
+-- `employee_name` columns stay and become the snapshot of who the asset was
+-- handed to at the time -- the same habit the tranche ledger uses for its source
+-- documents. That is what keeps a holding readable after a name is corrected in
+-- the register, and what lets every holding already recorded go on reading
+-- correctly with no link at all.
+--
+-- NULL therefore means one of two ordinary things: the asset is in stock, or the
+-- holding predates the employee register.
+--
+-- `on delete set null` rather than cascade: employees are soft-deleted in normal
+-- use, and if a row is ever hard-deleted from the dashboard the holding should
+-- lose its link, not disappear from history.
+alter table public.assets
+  add column if not exists holder_id uuid references public.employees (id) on delete set null;
+
+alter table public.asset_holdings
+  add column if not exists employee_id uuid references public.employees (id) on delete set null;
+
+create index if not exists holdings_employee_idx
+  on public.asset_holdings (employee_id) where employee_id is not null;
+
+-- ---------------------------------------------------------------------------
 -- Investor funding: tranches, and what each one paid for
 -- ---------------------------------------------------------------------------
 -- Money arrives from one outside investor in lumps rather than per purchase: a
@@ -568,6 +692,8 @@ alter table public.notifications          enable row level security;
 alter table public.funding_tranches       enable row level security;
 alter table public.tranche_allocations    enable row level security;
 alter table public.tranche_expenses       enable row level security;
+alter table public.employees              enable row level security;
+alter table public.asset_photos           enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 

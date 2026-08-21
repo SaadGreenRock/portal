@@ -12,7 +12,7 @@ import type { Company } from "./companies";
  * database import (it is used by client components).
  */
 
-export type ModuleKey = "vouchers" | "po" | "rfq" | "assets" | "notifications";
+export type ModuleKey = "vouchers" | "po" | "rfq" | "assets" | "employees" | "notifications";
 
 export interface ModuleTab {
   /** Appended to the module's base path. "" is the module's own index. */
@@ -103,6 +103,20 @@ export const MODULES: PortalModule[] = [
       { segment: "", label: "Register" },
       { segment: "new", label: "New asset" },
       { segment: "history", label: "History" },
+    ],
+  },
+  {
+    key: "employees",
+    segment: "employees",
+    label: "Employees",
+    blurb: "Who works here, their documents and contact details, and what they are holding.",
+    home: "",
+    // No badge: a company having employees is the normal state of a company, not
+    // a task waiting on the operator — the same reasoning the asset register
+    // gives for having none.
+    tabs: [
+      { segment: "", label: "Register" },
+      { segment: "new", label: "New employee" },
     ],
   },
   {

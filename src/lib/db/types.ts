@@ -33,6 +33,13 @@ import type {
   RfqQuery,
   RfqStatus,
 } from "../rfq/types";
+import type {
+  Employee,
+  EmployeeCounts,
+  EmployeeFields,
+  EmployeeQuery,
+  EmployeeStatus,
+} from "../employees/types";
 import type { CompanySettings } from "../settings";
 import type { SpendRow } from "../spend/types";
 import type {
@@ -264,6 +271,59 @@ export interface AssetStore {
    * themselves, so there is no employee list to keep up to date.
    */
   listEmployees(company: CompanySlug): Promise<EmployeeProfile[]>;
+}
+
+export interface NewEmployee {
+  company: CompanySlug;
+  fields: EmployeeFields;
+}
+
+/**
+ * The employee register, per company.
+ *
+ * The one store here that assigns no number. Every other module reserves the
+ * next sequence for you; an employee number is issued by the company and typed
+ * by the operator, so this interface takes it and guards it instead of
+ * generating it.
+ */
+export interface EmployeeStore {
+  /**
+   * Writes an employee.
+   *
+   * Throws `duplicateNumberMessage` when the number is already in use by a live
+   * employee in the same company, naming who has it — the number was typed by
+   * hand, so the likeliest cause is a typo or the person already being on the
+   * register, and which of the two it is is the whole of what the operator needs
+   * to know.
+   */
+  createEmployee(input: NewEmployee): Promise<Employee>;
+
+  getEmployee(id: string): Promise<Employee | null>;
+
+  /** Corrects the record. Same duplicate-number guard, ignoring this own row. */
+  updateEmployee(id: string, fields: EmployeeFields): Promise<Employee>;
+
+  /**
+   * Marks somebody as having left, or brings them back.
+   *
+   * Separate from `updateEmployee` because it is a button rather than a form
+   * save, and because going active again has to clear the leaving date — a
+   * returning employee with a date in that column reads as still gone.
+   */
+  setEmployeeStatus(id: string, status: EmployeeStatus, leftOn: string | null): Promise<void>;
+
+  /**
+   * Soft delete, so the holdings that point at them never point into nothing.
+   * Their number is freed for reuse, unlike a voucher's or an asset tag's — see
+   * the partial unique index in the migration.
+   */
+  softDeleteEmployee(id: string): Promise<void>;
+  restoreEmployee(id: string): Promise<void>;
+
+  /** Filtered register, newest first, plus a total count for paging. */
+  searchEmployees(query: EmployeeQuery): Promise<{ rows: Employee[]; total: number }>;
+
+  employeeCounts(company: CompanySlug): Promise<EmployeeCounts>;
 }
 
 export interface FoodStore {
@@ -562,6 +622,7 @@ export interface Store
     PoStore,
     RfqStore,
     AssetStore,
+    EmployeeStore,
     FoodStore,
     SpendStore,
     TrancheStore,
