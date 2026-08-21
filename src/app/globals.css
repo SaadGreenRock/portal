@@ -538,6 +538,10 @@ html:not([data-theme]) .theme-mark-system {
 @media (prefers-reduced-motion: no-preference) {
   .sheet {
     animation: sheet-drift var(--drift) linear var(--delay) infinite;
+    /* Nine of these drift for as long as the lock screen is up, and each is a
+       bordered card the size of a sheet of paper. Left unpromoted they are nine
+       large repaints a frame; promoted, they are nine layers the GPU slides. */
+    will-change: transform;
   }
 }
 
@@ -584,6 +588,7 @@ html:not([data-theme]) .theme-mark-system {
   .spinner {
     display: block;
     animation: spin 700ms linear infinite;
+    will-change: transform;
   }
 }
 
@@ -614,10 +619,10 @@ html:not([data-theme]) .theme-mark-system {
    figure that had stopped meaning something. */
 @keyframes nav-sweep {
   from {
-    transform: translateX(-100%);
+    transform: translate3d(-100%, 0, 0);
   }
   to {
-    transform: translateX(250%);
+    transform: translate3d(250%, 0, 0);
   }
 }
 .nav-pending {
@@ -633,7 +638,12 @@ html:not([data-theme]) .theme-mark-system {
 @media (prefers-reduced-motion: no-preference) {
   .nav-pending::after {
     width: 40%;
-    animation: nav-sweep 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    /* Linear, and not the portal's usual ease. An eased curve decelerates to
+       almost nothing at the end of each pass and then cuts back to the start,
+       which on a one-second loop is a hitch you can see once a second. The same
+       note sits over the skeleton sweep; this one was written in spite of it. */
+    animation: nav-sweep 1s linear infinite;
+    will-change: transform;
   }
 }
 
@@ -726,5 +736,15 @@ html.dark .skeleton {
        breath rather than the next one treading on it. */
     animation: skeleton-sweep 1.6s linear infinite;
     animation-delay: calc(var(--tile, 0) * 110ms);
+    /* Promoted to its own layer, which on these screens is the difference
+       between smooth and not. A transform animation is eligible for the
+       compositor but not guaranteed it, and each of these sits inside a
+       rounded `overflow: hidden` card — a clip that makes the browser build a
+       surface per tile and, unpromoted, re-rasterise this gradient every frame
+       on the main thread. Which is the one thread that has no time to spare
+       here: the whole reason a skeleton is on screen is that a route is
+       streaming in and hydrating behind it. Declared inside the
+       no-preference query, so nothing is promoted when nothing is moving. */
+    will-change: transform;
   }
 }
