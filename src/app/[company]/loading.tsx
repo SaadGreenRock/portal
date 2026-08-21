@@ -9,20 +9,19 @@
  * Deliberately a grey wash of the shape that is coming rather than a spinner:
  * it tells you what is arriving, which a turning ring cannot.
  *
- * A light crosses each card, left to right, one card a beat behind the last —
- * see `.skeleton-tile` in globals.css. This used to argue for stillness on the
- * grounds that a moving indicator can be mistaken for progress that has stalled,
- * and that is a real risk, but it belongs to indicators which claim to measure
- * something. A sweep measures nothing and never fills: it cannot be read as four
- * fifths done and stuck, only as a screen still working. Perfectly still, this
- * page had the opposite problem — on a long wait it read as a render that had
- * finished and come out blank.
+ * The whole block breathes, once and together — see `.skeleton` in globals.css.
+ * This used to argue for stillness on the grounds that a moving indicator can be
+ * mistaken for progress that has stalled, and that is a real risk, but it belongs
+ * to indicators which claim to measure something. A pulse measures nothing and
+ * never fills: it cannot be read as four fifths done and stuck, only as a screen
+ * still working. Perfectly still, this page had the opposite problem — on a long
+ * wait it read as a render that had finished and come out blank.
  *
- * Per card rather than one band over the whole screen, which is what this was
- * first built as. A single sweep is the tidier idea and the wrong one to look
- * at: it lights a slice of one card and a slice of the next, so nothing on
- * screen is ever lit as the thing it is. The card is the unit being waited on,
- * so the card is what the light crosses.
+ * One animation for the screen, rather than the light per card this was first
+ * built as. That version cost a promoted layer and a redrawn gradient per card
+ * at the exact moment the route behind it was hydrating, and the stagger that
+ * made it a wave was also what made every card flash a still stripe before its
+ * turn came. The note in globals.css has the whole of it.
  *
  * Three tones, and it is the order of them that does the work rather than the
  * values: strongest for a heading, middle for body, faintest for a list. Taken
@@ -35,7 +34,7 @@ export default function WorkspaceLoading() {
     <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
 
-      <div className="skeleton-tile mb-6">
+      <div className="mb-6">
         <div className="h-6 w-48 rounded bg-wash-strong" />
         <div className="mt-2 h-4 w-72 max-w-full rounded bg-wash" />
       </div>
@@ -44,8 +43,7 @@ export default function WorkspaceLoading() {
         {[0, 1, 2, 3, 4].map((i) => (
           <section
             key={i}
-            className="skeleton-tile card flex flex-col gap-3 p-5"
-            style={{ "--tile": i + 1 } as React.CSSProperties}
+            className="card flex flex-col gap-3 p-5"
           >
             <div className="flex items-baseline justify-between gap-3">
               <div className="h-4 w-32 rounded bg-wash-strong" />

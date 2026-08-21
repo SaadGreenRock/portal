@@ -110,11 +110,6 @@
      invisible against a dark page and has to be deepened to do the same job. */
   --lift: 0 8px 24px rgb(0 0 0 / 0.08);
   --lift-press: 0 2px 10px rgb(0 0 0 / 0.06);
-
-  /* The light that crosses a loading screen. A glaze rather than a colour: it
-     has to lift whatever it passes over and leave white alone, so that the
-     sweep shows on the grey shapes and not on the cards holding them. */
-  --shimmer: rgb(255 255 255 / 0.5);
 }
 
 html.dark {
@@ -162,12 +157,6 @@ html.dark {
 
   --lift: 0 10px 28px rgb(0 0 0 / 0.55);
   --lift-press: 0 3px 12px rgb(0 0 0 / 0.4);
-
-  /* Far weaker than its daytime twin, and not because dark themes want less of
-     everything: the glaze is white in both, and white has 220 levels of room
-     to climb from a near-black page and eleven from a card. At the light
-     theme's strength this would be a headlamp. */
-  --shimmer: rgb(255 255 255 / 0.07);
 }
 
 /* --------------------------------------------------------------------------
@@ -538,25 +527,28 @@ html:not([data-theme]) .theme-mark-system {
 @media (prefers-reduced-motion: no-preference) {
   .sheet {
     animation: sheet-drift var(--drift) linear var(--delay) infinite;
-    /* Nine of these drift for as long as the lock screen is up, and each is a
-       bordered card the size of a sheet of paper. Left unpromoted they are nine
-       large repaints a frame; promoted, they are nine layers the GPU slides. */
-    will-change: transform;
+    /* No `will-change` here, deliberately. An element with a running transform
+       animation is promoted by the compositor anyway, so on nine sheets the
+       hint buys nothing and only holds nine large layers open either side of
+       the animation as well as during it. */
   }
 }
 
 /* A calm, continuous breathing pulse for the lock glyph on the login screen —
    the one thing worth animating on an otherwise static form, so the screen
    doesn't sit completely still while the operator reaches for the password.
-   prefers-reduced-motion above already collapses this to a single still frame. */
+   prefers-reduced-motion above already collapses this to a single still frame.
+
+   Opacity alone. This used to scale to 1.08 as well, which on a circle with a
+   stroked glyph inside it is the expensive way to get a worse picture: the
+   plate and the mark are re-rasterised every frame and land between pixels on
+   most of them, so the edge crawls. Fading is composited, and a fade is what
+   reads as breathing anyway — the growing was never the part being seen. The
+   range is wider than the old one for that reason: 0.9 to 1 was only legible
+   because the size was moving with it. */
 @keyframes lock-breathe {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.9;
-  }
   50% {
-    transform: scale(1.08);
-    opacity: 1;
+    opacity: 0.6;
   }
 }
 .lock-breathe {
@@ -588,7 +580,6 @@ html:not([data-theme]) .theme-mark-system {
   .spinner {
     display: block;
     animation: spin 700ms linear infinite;
-    will-change: transform;
   }
 }
 
@@ -643,49 +634,68 @@ html:not([data-theme]) .theme-mark-system {
        which on a one-second loop is a hitch you can see once a second. The same
        note sits over the skeleton sweep; this one was written in spite of it. */
     animation: nav-sweep 1s linear infinite;
-    will-change: transform;
   }
 }
 
 /* --------------------------------------------------------------------------
-   The light crossing a loading screen.
+   Saying a screen is still coming.
 
-   One sweep per tile: each card, row and panel lights its own width, rather
-   than a single band crossing the page and giving any one card a slice of
-   itself at a time. A tile is the unit the eye actually reads on these screens,
-   so it is the unit the light travels.
+   The skeletons do nearly all of this on their own. Each one is shaped like the
+   page it stands in for, so a wait shows you what is arriving and not merely
+   that something is — which leaves motion a much narrower job than it looks:
+   say the screen is still working, so a long wait cannot be read as a render
+   that finished and came out blank. That is the one thing a still skeleton
+   genuinely cannot say, and the only reason there is an animation here at all.
 
-   They are not in lockstep. Each tile starts a beat after the one before it —
-   `--tile` is its position, and the delay follows from that — so the grid lights
-   as a wave rolling through it rather than as everything flashing at once, which
-   is the one way per-tile shimmer goes wrong. A tile that says nothing about its
-   position keeps the delay of zero, which is right for the ones that stand
-   alone.
+   One animation says it, for the whole screen: the block breathes. Opacity,
+   nothing else, on the single wrapper every skeleton already has — no stagger,
+   nothing per card, no `will-change`. Every engine composites an opacity
+   animation without being asked, so this is one layer for the screen and one
+   property on it.
 
-   Moved with a transform and nothing else, so it composites on the GPU and
-   costs no layout — the same reason the lock screen's sheets drift on
-   `translate3d`.
+   It replaces a light that swept each card in turn, which was the wrong trade
+   twice over.
 
-   The angle is what turns a wipe into a sweep. At 100deg the band leans, so a
-   card lights from its bottom-left to its top-right rather than all at once
-   down a vertical edge.
+   It was expensive in the one place there was nothing to spare. A gradient
+   redrawn inside a rounded, clipped card is a surface the browser has to build
+   per card, and each was pinned open with `will-change` for the whole wait —
+   eight of them on the food log, held on exactly the thread that is streaming
+   and hydrating the route behind the skeleton.
+
+   And the stagger that made it a wave is what broke it. Each card's sweep was
+   held back by a positive `animation-delay`, and an animation does not apply
+   its first frame until it starts: with the default fill mode there is nothing
+   holding the band off-tile during the delay, so until its turn came every card
+   wore the band parked across its middle — a still white diagonal stripe, at
+   half-opacity white on the light theme — and then snapped to the edge and set
+   off. Nine hundred milliseconds of that on the longest screen, and on any
+   route that resolved inside a second the stripe was the whole of what anyone
+   ever saw of it.
+
+   Opacity cannot fail that way. There is no first frame that differs from rest,
+   so there is nothing to snap from, and easing is right here where it was wrong
+   for the sweep: the loop returns to where it started, so it slows to nothing at
+   both ends instead of cutting back to the beginning.
+
+   Reduced motion is left to the blanket rule at the top of this file, and for
+   once that is also the honest answer rather than the convenient one. Collapsed
+   to a single frame this stops at full opacity, which is precisely the still
+   skeleton somebody who asked for less movement should get — nothing is frozen
+   mid-gesture and nothing is missing.
 
    The placeholder greys are deepened on `.skeleton` rather than in the files
-   that use them, which is what makes any of this visible. The portal's own
-   washes are a few levels off white — right for a disabled field on a card, and
-   far too pale to show a white glaze passing over. Redefining the three tokens
-   in one place deepens every `bg-wash` inside a skeleton at once, keeps the
-   three tones in the order they were chosen in, and leaves every other wash in
-   the portal alone.
-
-   Reduced motion gets no sweep and the still skeleton this was drawn as. That
-   is the promise the blanket rule at the top of this file makes, and here it is
-   also the honest answer: the sweep carries nothing the shapes do not.
+   that use them. The portal's own washes are a few levels off white — right for
+   a disabled field on a card, far too pale to read as a shape waiting to be
+   filled. Redefining the three tokens in one place deepens every `bg-wash`
+   inside a skeleton at once, keeps the three tones in the order they were
+   chosen in, and leaves every other wash in the portal alone.
    -------------------------------------------------------------------------- */
 .skeleton {
   --wash-soft: 240 240 238;
   --wash: 232 232 229;
   --wash-strong: 224 224 220;
+
+  animation: skeleton-breathe 1.6s ease-in-out infinite;
 }
 html.dark .skeleton {
   --wash-soft: 37 37 36;
@@ -693,58 +703,12 @@ html.dark .skeleton {
   --wash-strong: 53 53 50;
 }
 
-.skeleton-tile {
-  position: relative;
-  /* The band travels a full width past each edge, so it has to be cut off
-     there — and cut to the tile's own corner radius, which this inherits. */
-  overflow: hidden;
-}
-
-.skeleton-tile::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(
-    100deg,
-    transparent 32%,
-    var(--shimmer) 50%,
-    transparent 68%
-  );
-  /* Not drawn under reduced motion, rather than drawn and frozen. Left to the
-     blanket rule this would stop with the band parked mid-tile — a permanent
-     diagonal stripe across every card, which is worse than the stillness it
-     was asked for. */
-  display: none;
-}
-
-@keyframes skeleton-sweep {
-  from {
-    transform: translate3d(-100%, 0, 0);
-  }
-  to {
-    transform: translate3d(100%, 0, 0);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .skeleton-tile::after {
-    display: block;
-    /* Linear, because an eased sweep on a loop stutters where it wraps. The
-       pace comes from the travel instead: two tile widths per pass, of which
-       the band is visible for about two thirds, so each sweep is followed by a
-       breath rather than the next one treading on it. */
-    animation: skeleton-sweep 1.6s linear infinite;
-    animation-delay: calc(var(--tile, 0) * 110ms);
-    /* Promoted to its own layer, which on these screens is the difference
-       between smooth and not. A transform animation is eligible for the
-       compositor but not guaranteed it, and each of these sits inside a
-       rounded `overflow: hidden` card — a clip that makes the browser build a
-       surface per tile and, unpromoted, re-rasterise this gradient every frame
-       on the main thread. Which is the one thread that has no time to spare
-       here: the whole reason a skeleton is on screen is that a route is
-       streaming in and hydrating behind it. Declared inside the
-       no-preference query, so nothing is promoted when nothing is moving. */
-    will-change: transform;
+/* Down to 0.62 and back. Deep enough to be unmistakably alive at a glance,
+   shallow enough that it never reads as the page flashing at you. Written as
+   the one midpoint, so the resting end of the breath is the element's own
+   opacity and there is no value here to keep in step with anything. */
+@keyframes skeleton-breathe {
+  50% {
+    opacity: 0.62;
   }
 }

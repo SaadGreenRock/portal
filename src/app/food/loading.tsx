@@ -25,7 +25,7 @@ export default function FoodLoading() {
       <span className="sr-only">Loading…</span>
 
       {/* Spent to date, owed to vendors, owed to employees, orders pending. */}
-      <dl className="skeleton-tile card mb-5 grid grid-cols-2 divide-ink-line sm:grid-cols-4 sm:divide-x">
+      <dl className="card mb-5 grid grid-cols-2 divide-ink-line sm:grid-cols-4 sm:divide-x">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="px-5 py-3.5">
             <div className="h-2.5 w-24 rounded bg-wash" />
@@ -36,8 +36,7 @@ export default function FoodLoading() {
 
       {/* The filter row: a wide search, then the narrower fields beside it. */}
       <div
-        className="skeleton-tile card mb-5 p-4 sm:p-5"
-        style={{ "--tile": 1 } as React.CSSProperties}
+        className="card mb-5 p-4 sm:p-5"
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="sm:col-span-2">
@@ -60,8 +59,7 @@ export default function FoodLoading() {
         {[0, 1, 2, 3, 4, 5].map((i) => (
           <li
             key={i}
-            className="skeleton-tile card flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:px-5"
-            style={{ "--tile": i + 2 } as React.CSSProperties}
+            className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4 sm:px-5"
           >
             <div className="min-w-[7.5rem]">
               <div className="h-3.5 w-24 rounded bg-wash-strong" />

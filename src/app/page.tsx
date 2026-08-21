@@ -318,10 +318,8 @@ async function Picker() {
  *
  * The same three tones as the workspace skeleton and in the same order —
  * strongest for a name, middle for a line of body, faintest for a figure — so
- * the two screens read as one convention rather than two guesses — including the
- * light, which crosses one card at a time and takes its turn in the order from
- * `--tile`: the two companies first, then the three sections under them, so the
- * wave runs down the screen the way the eye already reads it.
+ * the two screens read as one convention rather than two guesses, down to the
+ * breath they share: one pulse over the whole block, from `.skeleton`.
  *
  * Sized off the cards it stands in for rather than by eye. `<main>` centres its
  * column vertically, so a skeleton of the wrong height would drop the title and
@@ -337,8 +335,7 @@ function PickerSkeleton() {
         {[0, 1].map((i) => (
           <div
             key={i}
-            className="skeleton-tile card flex flex-col gap-5 p-6"
-            style={{ "--tile": i } as React.CSSProperties}
+            className="card flex flex-col gap-5 p-6"
           >
             {/* The logo plate, which is a filled band on the real card in both
                 themes — so here it is the one part that takes the middle tone
@@ -367,10 +364,7 @@ function PickerSkeleton() {
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className={`skeleton-tile card flex items-center gap-4 p-5 ${
-            i === 0 ? "mt-4" : "mt-3"
-          }`}
-          style={{ "--tile": i + 2 } as React.CSSProperties}
+          className={`card flex items-center gap-4 p-5 ${i === 0 ? "mt-4" : "mt-3"}`}
         >
           <div className="h-11 w-11 shrink-0 rounded-lg bg-wash" />
           <div className="min-w-0 flex-1">

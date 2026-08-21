@@ -12,10 +12,10 @@
  * gives the eye the circle the arc is travelling round.
  *
  * Deliberately not offered for the waits that have a shape to them. A list, a
- * form, a page of figures all get a still wash of what is arriving instead, for
- * the reason set out at the top of the loading screens — a shape cannot be
- * mistaken for progress that has stalled. This is for the waits with no shape
- * to show: a button that has been pressed and is holding.
+ * form, a page of figures all get a wash of what is arriving instead, for the
+ * reason set out at the top of the loading screens — a shape cannot be mistaken
+ * for progress that has stalled. This is for the waits with no shape to show: a
+ * button that has been pressed and is holding.
  */
 export default function Spinner({ className = "h-4 w-4" }: { className?: string }) {
   return (
