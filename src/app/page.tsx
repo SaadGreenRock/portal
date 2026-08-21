@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
@@ -22,6 +23,63 @@ import { stand, summariseFunding } from "@/lib/tranches/types";
 export default async function Landing() {
   if (!(await isAuthenticated())) redirect("/login");
 
+  return (
+    <>
+      {/* This is the screen unlocking always lands on, so the header furniture
+          lives here too — the clock, the theme and Lock, in the same corner and
+          in the same order as on every other screen. */}
+      <div className="sticky top-0 z-10 flex justify-end border-b border-ink-line bg-card px-5 py-2">
+        <HeaderControls />
+      </div>
+
+      <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
+        <header className="mb-10">
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
+            Company Portal
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-soft">
+            Choose a company to open its workspace.
+          </p>
+        </header>
+
+        {/* The cards wait on a dozen queries; the title, the clock and Lock wait
+            on nothing. Streaming one behind the other means the screen unlocking
+            lands on paints its furniture at once and fills the figures in,
+            rather than holding all of it back for the slowest count.
+
+            Deliberately a boundary here rather than a loading.tsx beside this
+            file. One at this level is the fallback for everything below it that
+            has no boundary of its own — so on the way in it would put a wash of
+            company cards in front of the lock screen itself, and again in front
+            of Help. Scoped to the part that actually waits, it cannot. */}
+        <Suspense fallback={<PickerSkeleton />}>
+          <Picker />
+        </Suspense>
+
+        {/* Last, and quiet. Somebody who runs this every week never needs it;
+            somebody covering the desk for a fortnight needs it on the first
+            screen, with nobody to ask. */}
+        <Link
+          href="/help"
+          className="mt-5 block text-[13px] text-ink-soft underline underline-offset-2 hover:text-ink"
+        >
+          New to this? How the portal works →
+        </Link>
+      </main>
+    </>
+  );
+}
+
+/**
+ * The four ways in, and what is waiting behind each.
+ *
+ * Split out from the screen around it for one reason: everything in here awaits
+ * the database, and nothing in the shell above does. Held together in one
+ * component the whole landing screen would wait on the slowest of a dozen
+ * counts — which is what it did — and the operator would watch an empty page
+ * having just proved who they were.
+ */
+async function Picker() {
   const db = await store();
 
   // Outstanding work is the one thing worth surfacing before you pick: which
@@ -81,194 +139,230 @@ export default async function Landing() {
 
   return (
     <>
-      {/* This is the screen unlocking always lands on, so the header furniture
-          lives here too — the clock, the theme and Lock, in the same corner and
-          in the same order as on every other screen. */}
-      <div className="sticky top-0 z-10 flex justify-end border-b border-ink-line bg-card px-5 py-2">
-        <HeaderControls />
+      <div className="grid gap-4 sm:grid-cols-2">
+        {cards.map(({ company, vouchers, po }) => {
+          return (
+            <Link
+              key={company.slug}
+              // The workspace overview, not a blank voucher form. Choosing a
+              // company says which company, not which document — and whoever
+              // is covering the desk this week needs to see what is waiting
+              // before being handed something to type into.
+              href={`/${company.slug}`}
+              className="card card-link group flex flex-col gap-5 p-6"
+            >
+              {/* Neither logo is dark — Green Rock's is white, Sportech's is
+                  that acid yellow — so the panel behind them is what makes
+                  them legible at all. Green Rock states its own teal; Sportech
+                  has none to state and takes the theme's quiet fill, pale by
+                  day as it has always been and dark at night, where yellow is
+                  finally the right way round. */}
+              <div
+                className={`flex h-20 items-center justify-center rounded-lg px-5 ${
+                  company.theme.headerBar ? "" : "bg-wash"
+                }`}
+                style={
+                  company.theme.headerBar
+                    ? { background: company.theme.headerBar }
+                    : undefined
+                }
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={company.logo}
+                  alt={company.name}
+                  className="max-h-11 w-auto max-w-full object-contain"
+                />
+              </div>
+
+              <div>
+                <div className="text-[17px] font-semibold">{company.name}</div>
+                <div className="mono mt-1 text-[13px] text-ink-soft">
+                  Vouchers · Purchase orders
+                </div>
+              </div>
+
+              <div className="space-y-1 text-[13px]">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span
+                    className={
+                      vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
+                    }
+                  >
+                    {vouchers.pending} awaiting signature
+                  </span>
+                  <span className="mono text-ink-soft">{vouchers.total}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span
+                    className={
+                      po.ok && po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
+                    }
+                  >
+                    {po.ok
+                      ? `${po.value.open} open ${po.value.open === 1 ? "order" : "orders"}`
+                      : "purchase orders not set up"}
+                  </span>
+                  <span className="mono text-ink-soft">{po.ok ? po.value.total : "—"}</span>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
       </div>
 
-      <main className="mx-auto flex min-h-dvh max-w-3xl flex-col justify-center px-5 py-16">
-        <header className="mb-10">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[32px]">
-            Company Portal
-          </h1>
-          <p className="mt-2 text-[15px] text-ink-soft">
-            Choose a company to open its workspace.
-          </p>
-        </header>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          {cards.map(({ company, vouchers, po }) => {
-            return (
-              <Link
-                key={company.slug}
-                // The workspace overview, not a blank voucher form. Choosing a
-                // company says which company, not which document — and whoever
-                // is covering the desk this week needs to see what is waiting
-                // before being handed something to type into.
-                href={`/${company.slug}`}
-                className="card card-link group flex flex-col gap-5 p-6"
-              >
-                {/* Neither logo is dark — Green Rock's is white, Sportech's is
-                    that acid yellow — so the panel behind them is what makes
-                    them legible at all. Green Rock states its own teal; Sportech
-                    has none to state and takes the theme's quiet fill, pale by
-                    day as it has always been and dark at night, where yellow is
-                    finally the right way round. */}
-                <div
-                  className={`flex h-20 items-center justify-center rounded-lg px-5 ${
-                    company.theme.headerBar ? "" : "bg-wash"
-                  }`}
-                  style={
-                    company.theme.headerBar
-                      ? { background: company.theme.headerBar }
-                      : undefined
-                  }
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={company.logo}
-                    alt={company.name}
-                    className="max-h-11 w-auto max-w-full object-contain"
-                  />
-                </div>
-
-                <div>
-                  <div className="text-[17px] font-semibold">{company.name}</div>
-                  <div className="mono mt-1 text-[13px] text-ink-soft">
-                    Vouchers · Purchase orders
-                  </div>
-                </div>
-
-                <div className="space-y-1 text-[13px]">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span
-                      className={
-                        vouchers.pending > 0 ? "font-semibold text-amber-700" : "text-ink-soft"
-                      }
-                    >
-                      {vouchers.pending} awaiting signature
-                    </span>
-                    <span className="mono text-ink-soft">{vouchers.total}</span>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span
-                      className={
-                        po.ok && po.value.open > 0 ? "font-semibold text-ink" : "text-ink-soft"
-                      }
-                    >
-                      {po.ok
-                        ? `${po.value.open} open ${po.value.open === 1 ? "order" : "orders"}`
-                        : "purchase orders not set up"}
-                    </span>
-                    <span className="mono text-ink-soft">{po.ok ? po.value.total : "—"}</span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Below the fork in the road, because neither belongs to one company. */}
-        <Link href="/food" className="card card-link mt-4 flex items-center gap-4 p-5">
-          <Tile
-            day={{ wash: "#f7f1e8", ink: "#8a6534" }}
-            night={{ wash: "#2a2015", ink: "#d9a76a" }}
-          >
-            <FoodMark />
-          </Tile>
-          <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
-            <div className="mt-0.5 text-[13px] text-ink-soft">
-              Lunches, snacks and drinks. Both companies, one log.
-            </div>
-          </div>
-          {food.ok && food.value.pending > 0 ? (
-            <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
-              ₨ {formatMoney(food.value.totalOutstanding)}
-              <span className="block text-[11.5px] font-normal text-ink-soft">
-                {food.value.pending} owed
-              </span>
-            </span>
-          ) : (
-            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-          )}
-        </Link>
-
-        <Link href="/spend" className="card card-link mt-3 flex items-center gap-4 p-5">
-          <Tile
-            day={{ wash: "#eef4f4", ink: "#104751" }}
-            night={{ wash: "#152625", ink: "#4fb3a1" }}
-          >
-            <SpendMark />
-          </Tile>
-          <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold">Expenditure</div>
-            <div className="mt-0.5 text-[13px] text-ink-soft">
-              Both companies together, and each on its own.
-            </div>
-          </div>
-          {/* Every currency, never summed across them — the one rule the report
-              is built on, which a single figure here would break. */}
-          {spend.byCurrency.length > 0 ? (
-            <span className="shrink-0 text-right">
-              {spend.byCurrency.map((t) => (
-                <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
-                  {t.currency} {formatMoney(t.total, t.currency)}
-                </span>
-              ))}
-              <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
-                all time
-              </span>
-            </span>
-          ) : (
-            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-          )}
-        </Link>
-
-        <Link href="/funding" className="card card-link mt-3 flex items-center gap-4 p-5">
-          <Tile
-            day={{ wash: "#eef1f8", ink: "#2f4470" }}
-            night={{ wash: "#171d2b", ink: "#93aae0" }}
-          >
-            <FundingMark />
-          </Tile>
-          <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold">Funding &amp; tranches</div>
-            <div className="mt-0.5 text-[13px] text-ink-soft">
-              Dollars in, rupees out, and what each tranche paid for.
-            </div>
-          </div>
-          {/* What is left to spend, per currency — never summed across them,
-              the same rule the expenditure figure above follows. */}
-          {funding && funding.available.length > 0 ? (
-            <span className="shrink-0 text-right">
-              {funding.available.map((t) => (
-                <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
-                  {t.currency} {formatMoney(t.total, t.currency)}
-                </span>
-              ))}
-              <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
-                left to spend
-              </span>
-            </span>
-          ) : (
-            <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
-          )}
-        </Link>
-
-        {/* Last, and quiet. Somebody who runs this every week never needs it;
-            somebody covering the desk for a fortnight needs it on the first
-            screen, with nobody to ask. */}
-        <Link
-          href="/help"
-          className="mt-5 block text-[13px] text-ink-soft underline underline-offset-2 hover:text-ink"
+      {/* Below the fork in the road, because neither belongs to one company. */}
+      <Link href="/food" className="card card-link mt-4 flex items-center gap-4 p-5">
+        <Tile
+          day={{ wash: "#f7f1e8", ink: "#8a6534" }}
+          night={{ wash: "#2a2015", ink: "#d9a76a" }}
         >
-          New to this? How the portal works →
-        </Link>
-      </main>
+          <FoodMark />
+        </Tile>
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-semibold">Food &amp; refreshments</div>
+          <div className="mt-0.5 text-[13px] text-ink-soft">
+            Lunches, snacks and drinks. Both companies, one log.
+          </div>
+        </div>
+        {food.ok && food.value.pending > 0 ? (
+          <span className="mono shrink-0 text-right text-[13px] font-semibold text-amber-700">
+            ₨ {formatMoney(food.value.totalOutstanding)}
+            <span className="block text-[11.5px] font-normal text-ink-soft">
+              {food.value.pending} owed
+            </span>
+          </span>
+        ) : (
+          <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+        )}
+      </Link>
+
+      <Link href="/spend" className="card card-link mt-3 flex items-center gap-4 p-5">
+        <Tile
+          day={{ wash: "#eef4f4", ink: "#104751" }}
+          night={{ wash: "#152625", ink: "#4fb3a1" }}
+        >
+          <SpendMark />
+        </Tile>
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-semibold">Expenditure</div>
+          <div className="mt-0.5 text-[13px] text-ink-soft">
+            Both companies together, and each on its own.
+          </div>
+        </div>
+        {/* Every currency, never summed across them — the one rule the report
+            is built on, which a single figure here would break. */}
+        {spend.byCurrency.length > 0 ? (
+          <span className="shrink-0 text-right">
+            {spend.byCurrency.map((t) => (
+              <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
+                {t.currency} {formatMoney(t.total, t.currency)}
+              </span>
+            ))}
+            <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
+              all time
+            </span>
+          </span>
+        ) : (
+          <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+        )}
+      </Link>
+
+      <Link href="/funding" className="card card-link mt-3 flex items-center gap-4 p-5">
+        <Tile
+          day={{ wash: "#eef1f8", ink: "#2f4470" }}
+          night={{ wash: "#171d2b", ink: "#93aae0" }}
+        >
+          <FundingMark />
+        </Tile>
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-semibold">Funding &amp; tranches</div>
+          <div className="mt-0.5 text-[13px] text-ink-soft">
+            Dollars in, rupees out, and what each tranche paid for.
+          </div>
+        </div>
+        {/* What is left to spend, per currency — never summed across them,
+            the same rule the expenditure figure above follows. */}
+        {funding && funding.available.length > 0 ? (
+          <span className="shrink-0 text-right">
+            {funding.available.map((t) => (
+              <span key={t.currency} className="mono block text-[15px] font-bold leading-tight">
+                {t.currency} {formatMoney(t.total, t.currency)}
+              </span>
+            ))}
+            <span className="mt-0.5 block text-[11.5px] font-normal text-ink-soft">
+              left to spend
+            </span>
+          </span>
+        ) : (
+          <span className="shrink-0 text-[13px] text-ink-soft">Open →</span>
+        )}
+      </Link>
     </>
+  );
+}
+
+/**
+ * The wash of what is arriving: two company cards, then the three sections
+ * underneath them.
+ *
+ * The same three tones as the workspace skeleton and in the same order —
+ * strongest for a name, middle for a line of body, faintest for a figure — so
+ * the two screens read as one convention rather than two guesses. Still, not
+ * pulsing, for the reason given there: a shape cannot be mistaken for progress
+ * that has stalled.
+ *
+ * Sized off the cards it stands in for rather than by eye. `<main>` centres its
+ * column vertically, so a skeleton of the wrong height would drop the title and
+ * the cards a few pixels when the figures land — the one movement on this screen
+ * nobody would read as deliberate.
+ */
+function PickerSkeleton() {
+  return (
+    <div aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading…</span>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="card flex flex-col gap-5 p-6">
+            {/* The logo plate, which is a filled band on the real card in both
+                themes — so here it is the one part that takes the middle tone
+                rather than the faintest. */}
+            <div className="h-20 rounded-lg bg-wash" />
+            <div>
+              <div className="h-4 w-40 rounded bg-wash-strong" />
+              <div className="mt-2 h-3 w-32 rounded bg-wash" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="h-3 w-36 rounded bg-wash" />
+                <div className="h-3 w-6 rounded bg-wash-soft" />
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="h-3 w-28 rounded bg-wash" />
+                <div className="h-3 w-6 rounded bg-wash-soft" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Food, Expenditure and Funding: a tile, two lines, and a figure at the
+          right end that is a total on one and "Open →" on another. */}
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className={`card flex items-center gap-4 p-5 ${i === 0 ? "mt-4" : "mt-3"}`}
+        >
+          <div className="h-11 w-11 shrink-0 rounded-lg bg-wash" />
+          <div className="min-w-0 flex-1">
+            <div className="h-3.5 w-44 rounded bg-wash-strong" />
+            <div className="mt-2 h-3 w-64 max-w-full rounded bg-wash" />
+          </div>
+          <div className="h-3 w-16 shrink-0 rounded bg-wash-soft" />
+        </div>
+      ))}
+    </div>
   );
 }
 

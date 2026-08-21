@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import LockMark from "@/components/LockMark";
 import PasswordField from "@/components/PasswordField";
+import SubmitButton from "@/components/SubmitButton";
 import { ThemeToggleCorner } from "@/components/ThemeToggle";
 import {
   checkPassword,
@@ -82,9 +83,12 @@ export default async function Login({
             </p>
           ) : null}
 
-          <button type="submit" className="btn btn-primary w-full">
-            Unlock
-          </button>
+          {/* "Unlocking…" and a turning ring while the password is checked and
+              the session is started. Before this the press did nothing visible
+              at all: the action runs on the server, lands on the company
+              picker, and on a cold request that is a pause long enough to
+              invite a second press. */}
+          <SubmitButton label="Unlock" pendingLabel="Unlocking…" />
         </form>
 
         {usingDefaultPassword() ? (

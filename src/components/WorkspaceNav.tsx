@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import NavPending from "@/components/NavPending";
 import {
   MODULES,
   activeModule,
@@ -40,7 +41,7 @@ export default function WorkspaceNav({
         <Link
           href={overviewPath}
           aria-current={inOverview ? "page" : undefined}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+          className={`relative shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
             inOverview
               ? "text-[var(--accent-text)]"
               : "text-ink-soft hover:bg-wash-strong hover:text-ink"
@@ -48,6 +49,7 @@ export default function WorkspaceNav({
           style={inOverview ? { background: "var(--accent)" } : undefined}
         >
           Overview
+          <NavPending className="inset-x-3 bottom-1" />
         </Link>
 
         {MODULES.map((m) => {
@@ -58,7 +60,7 @@ export default function WorkspaceNav({
               key={m.key}
               href={moduleHome(slug, m)}
               aria-current={on ? "page" : undefined}
-              className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+              className={`relative flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
                 on
                   ? "text-[var(--accent-text)]"
                   : "text-ink-soft hover:bg-wash-strong hover:text-ink"
@@ -75,6 +77,7 @@ export default function WorkspaceNav({
                   {count}
                 </span>
               ) : null}
+              <NavPending className="inset-x-3 bottom-1" />
             </Link>
           );
         })}
@@ -86,30 +89,34 @@ export default function WorkspaceNav({
         <span aria-hidden className="ml-auto h-5 w-px shrink-0 bg-ink-line" />
         <Link
           href="/food"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
+          className="relative shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
         >
           Food
+          <NavPending className="inset-x-3 bottom-1" />
         </Link>
         <Link
           href="/spend"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
+          className="relative shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
         >
           Expenditure
+          <NavPending className="inset-x-3 bottom-1" />
         </Link>
         <Link
           href={settingsPath}
           aria-current={inSettings ? "page" : undefined}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium transition-colors ${
+          className={`relative shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium transition-colors ${
             inSettings ? "bg-wash-strong text-ink" : "text-ink-soft hover:bg-wash-strong hover:text-ink"
           }`}
         >
           Settings
+          <NavPending className="inset-x-3 bottom-1" />
         </Link>
         <Link
           href="/help"
-          className="shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
+          className="relative shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-soft transition-colors hover:bg-wash-strong hover:text-ink"
         >
           Help
+          <NavPending className="inset-x-3 bottom-1" />
         </Link>
       </div>
 
@@ -131,7 +138,7 @@ export default function WorkspaceNav({
                   <Link
                     href={href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                    className={`relative flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] font-medium transition-colors ${
                       active
                         ? "border-[var(--accent)] text-ink"
                         : "border-transparent text-ink-soft hover:text-ink"
@@ -143,6 +150,7 @@ export default function WorkspaceNav({
                         {count}
                       </span>
                     ) : null}
+                    <NavPending className="inset-x-0 -bottom-0.5" />
                   </Link>
                 </li>
               );

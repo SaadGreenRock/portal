@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
@@ -47,30 +48,6 @@ export default async function Expenditure({
     ? (rangeParam as SpendRange)
     : "all";
 
-  const db = await store();
-  const now = new Date();
-
-  // Tolerated per company: an unmigrated purchase order table must not stop the
-  // voucher half of the report from being readable.
-  const perCompany = await Promise.all(
-    COMPANY_LIST.map(async (company) => {
-      const result = await tryTable(() => db.spendRows(company.slug));
-      const rows = (result.ok ? result.value : []).filter((r) => withinRange(r, range, now));
-      return { company, rows, available: result.ok };
-    }),
-  );
-
-  // Food is fetched once, not per company: a lunch ordered for both belongs to
-  // neither, so it joins the combined figure and stays out of the two cards.
-  const foodResult = await tryTable(() => db.foodSpendRows());
-  const foodRows = (foodResult.ok ? foodResult.value : []).filter((r) =>
-    withinRange(r, range, now),
-  );
-
-  const everything: SpendRow[] = [...perCompany.flatMap((c) => c.rows), ...foodRows];
-  const combined = summarise(everything);
-  const anyMissing = perCompany.some((c) => !c.available);
-
   return (
     <>
       {/* sticky: Lock and the range filters stay reachable while scrolling
@@ -117,112 +94,255 @@ export default async function Expenditure({
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-        {anyMissing ? (
-          <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
-            Purchase orders are not switched on yet, so these figures cover vouchers and food
-            only. Ask whoever maintains the portal to enable them.
+        {/* Every figure on this page is a full sweep of both companies' rows
+            plus the food log, filtered in memory — so the report waits, and the
+            title, the range filters and the way back to the companies do not.
+            Streaming one behind the other keeps the header put and puts the
+            wait where the numbers are.
+
+            A boundary here rather than a loading.tsx beside this file, because
+            this screen carries its own header: there is no layout above it to
+            hold the chrome while a route-level fallback stood in for the page,
+            so a loading.tsx would take the range filters and the way out down
+            with the figures. */}
+        <Suspense fallback={<ReportSkeleton />}>
+          <Report range={range} />
+        </Suspense>
+      </main>
+    </>
+  );
+}
+
+/**
+ * The figures themselves.
+ *
+ * Split from the screen around it because this is the half that waits: every
+ * spend row for both companies and the whole food log, fetched and then filtered
+ * in memory. `range` comes down as a prop rather than being read again here —
+ * the header above has already settled which one is in force, and reading the
+ * search params twice is how the pills and the figures come to disagree.
+ */
+async function Report({ range }: { range: SpendRange }) {
+  const db = await store();
+  const now = new Date();
+
+  // Tolerated per company: an unmigrated purchase order table must not stop the
+  // voucher half of the report from being readable.
+  const perCompany = await Promise.all(
+    COMPANY_LIST.map(async (company) => {
+      const result = await tryTable(() => db.spendRows(company.slug));
+      const rows = (result.ok ? result.value : []).filter((r) => withinRange(r, range, now));
+      return { company, rows, available: result.ok };
+    }),
+  );
+
+  // Food is fetched once, not per company: a lunch ordered for both belongs to
+  // neither, so it joins the combined figure and stays out of the two cards.
+  const foodResult = await tryTable(() => db.foodSpendRows());
+  const foodRows = (foodResult.ok ? foodResult.value : []).filter((r) =>
+    withinRange(r, range, now),
+  );
+
+  const everything: SpendRow[] = [...perCompany.flatMap((c) => c.rows), ...foodRows];
+  const combined = summarise(everything);
+  const anyMissing = perCompany.some((c) => !c.available);
+
+  return (
+    <>
+      {anyMissing ? (
+        <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-[13.5px] leading-relaxed text-amber-900">
+          Purchase orders are not switched on yet, so these figures cover vouchers and food
+          only. Ask whoever maintains the portal to enable them.
+        </p>
+      ) : null}
+
+      {/* ---- both companies together ------------------------------------- */}
+      <section className="card mb-5 overflow-hidden">
+        <header className="border-b border-ink-line px-5 py-4">
+          <h2 className="text-[16px] font-semibold">Both companies</h2>
+          <p className="mt-0.5 text-[12.5px] text-ink-soft">
+            {RANGE_LABELS[range]}, across {COMPANY_LIST.map((c) => c.name).join(" and ")}.
           </p>
-        ) : null}
+        </header>
 
-        {/* ---- both companies together ------------------------------------- */}
-        <section className="card mb-5 overflow-hidden">
-          <header className="border-b border-ink-line px-5 py-4">
-            <h2 className="text-[16px] font-semibold">Both companies</h2>
-            <p className="mt-0.5 text-[12.5px] text-ink-soft">
-              {RANGE_LABELS[range]}, across {COMPANY_LIST.map((c) => c.name).join(" and ")}.
-            </p>
-          </header>
+        <Totals summary={combined} emphasis />
 
-          <Totals summary={combined} emphasis />
-
-          {/* The breakdown that makes the combined figure checkable. Food has its
-              own line rather than being left out: without it the two company
-              figures no longer add up to Combined, and a total that cannot be
-              checked against its parts is the one thing this page must not be. */}
-          <div className="border-t border-ink-line">
-            <p className="label px-5 pt-4">Split by company</p>
-            <dl className="divide-y divide-ink-line">
-              {perCompany.map(({ company, rows }) => {
-                const s = summarise(rows);
-                return (
-                  <div
-                    key={company.slug}
-                    className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
-                  >
-                    <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
-                      {/* The company's own brand, which is chosen to be the
-                          darkest thing on white and therefore has to be given
-                          its night value too — Sportech's near-black legend dot
-                          would otherwise be a legend dot nobody can see. */}
-                      <span
-                        aria-hidden
-                        className="swatch block h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={
-                          {
-                            "--swatch": company.theme.ui,
-                            "--swatch-dark": company.theme.uiDark,
-                          } as React.CSSProperties
-                        }
-                      />
-                      {company.name}
-                    </dt>
-                    <dd className="mono text-[13.5px] font-semibold">
-                      {s.byCurrency.length === 0 ? (
-                        <span className="font-normal text-ink-soft">nothing recorded</span>
-                      ) : (
-                        s.byCurrency
-                          .map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
-                          .join("  ·  ")
-                      )}
-                    </dd>
-                  </div>
-                );
-              })}
-
-              {/* Not attributed to either workspace — see the note above. */}
-              {foodRows.length > 0 ? (
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3">
+        {/* The breakdown that makes the combined figure checkable. Food has its
+            own line rather than being left out: without it the two company
+            figures no longer add up to Combined, and a total that cannot be
+            checked against its parts is the one thing this page must not be. */}
+        <div className="border-t border-ink-line">
+          <p className="label px-5 pt-4">Split by company</p>
+          <dl className="divide-y divide-ink-line">
+            {perCompany.map(({ company, rows }) => {
+              const s = summarise(rows);
+              return (
+                <div
+                  key={company.slug}
+                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
+                >
                   <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
-                    {/* The same warm brown the food tile on the landing page
-                        uses, and the same brown lifted for the dark theme. */}
+                    {/* The company's own brand, which is chosen to be the
+                        darkest thing on white and therefore has to be given
+                        its night value too — Sportech's near-black legend dot
+                        would otherwise be a legend dot nobody can see. */}
                     <span
                       aria-hidden
                       className="swatch block h-2.5 w-2.5 shrink-0 rounded-full"
                       style={
-                        { "--swatch": "#b8894a", "--swatch-dark": "#d9a76a" } as React.CSSProperties
+                        {
+                          "--swatch": company.theme.ui,
+                          "--swatch-dark": company.theme.uiDark,
+                        } as React.CSSProperties
                       }
                     />
-                    Food &amp; refreshments
-                    <span className="text-[12.5px] font-normal text-ink-soft">
-                      — both companies
-                    </span>
+                    {company.name}
                   </dt>
                   <dd className="mono text-[13.5px] font-semibold">
-                    {summarise(foodRows)
-                      .byCurrency.map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
-                      .join("  ·  ")}
+                    {s.byCurrency.length === 0 ? (
+                      <span className="font-normal text-ink-soft">nothing recorded</span>
+                    ) : (
+                      s.byCurrency
+                        .map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
+                        .join("  ·  ")
+                    )}
                   </dd>
                 </div>
-              ) : null}
-            </dl>
-          </div>
-        </section>
+              );
+            })}
 
-        {/* ---- each company on its own -------------------------------------- */}
-        <div className="grid gap-5 sm:grid-cols-2">
-          {perCompany.map(({ company, rows }) => (
-            <CompanyCard key={company.slug} company={company} summary={summarise(rows)} range={range} />
+            {/* Not attributed to either workspace — see the note above. */}
+            {foodRows.length > 0 ? (
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3">
+                <dt className="flex items-center gap-2.5 text-[13.5px] font-medium">
+                  {/* The same warm brown the food tile on the landing page
+                      uses, and the same brown lifted for the dark theme. */}
+                  <span
+                    aria-hidden
+                    className="swatch block h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={
+                      { "--swatch": "#b8894a", "--swatch-dark": "#d9a76a" } as React.CSSProperties
+                    }
+                  />
+                  Food &amp; refreshments
+                  <span className="text-[12.5px] font-normal text-ink-soft">
+                    — both companies
+                  </span>
+                </dt>
+                <dd className="mono text-[13.5px] font-semibold">
+                  {summarise(foodRows)
+                    .byCurrency.map((t) => `${t.currency} ${formatMoney(t.total, t.currency)}`)
+                    .join("  ·  ")}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      </section>
+
+      {/* ---- each company on its own -------------------------------------- */}
+      <div className="grid gap-5 sm:grid-cols-2">
+        {perCompany.map(({ company, rows }) => (
+          <CompanyCard key={company.slug} company={company} summary={summarise(rows)} range={range} />
+        ))}
+      </div>
+
+      <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
+        Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
+        nothing has been promised to a vendor yet. Food is counted whether it has been settled or
+        not, and belongs to neither company on its own, so it appears only in the combined figure.
+        Currencies are never added together.
+      </p>
+    </>
+  );
+}
+
+/**
+ * The wash of the report: the combined panel, the two company cards under it,
+ * and the note at the foot.
+ *
+ * The same three tones in the same order as the other skeletons in the portal —
+ * strongest for a heading, middle for body, faintest for a figure. Currency
+ * amounts are the one thing deliberately *not* stood in for at full width: a
+ * long pale bar where a total goes reads as a number that has arrived and is
+ * unreadable, rather than as one still coming.
+ */
+function ReportSkeleton() {
+  return (
+    <div aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading…</span>
+
+      {/* ---- both companies together ------------------------------------- */}
+      <section className="card mb-5 overflow-hidden">
+        <header className="border-b border-ink-line px-5 py-4">
+          <div className="h-4 w-36 rounded bg-wash-strong" />
+          <div className="mt-2 h-3 w-56 max-w-full rounded bg-wash" />
+        </header>
+
+        <div className="space-y-2.5 px-5 py-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-baseline justify-between gap-4">
+              <div className="h-3 w-28 rounded bg-wash" />
+              <div className="h-3 w-20 rounded bg-wash-soft" />
+            </div>
           ))}
+          {/* The combined line, which is the biggest type on the real panel. */}
+          <div className="flex items-baseline justify-between gap-4 border-t border-ink-line pt-3">
+            <div className="h-4 w-24 rounded bg-wash-strong" />
+            <div className="h-5 w-32 rounded bg-wash" />
+          </div>
         </div>
 
-        <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
-          Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
-          nothing has been promised to a vendor yet. Food is counted whether it has been settled or
-          not, and belongs to neither company on its own, so it appears only in the combined figure.
-          Currencies are never added together.
-        </p>
-      </main>
-    </>
+        <div className="border-t border-ink-line">
+          <div className="px-5 pt-4">
+            <div className="h-2.5 w-24 rounded bg-wash" />
+          </div>
+          <div className="divide-y divide-ink-line">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-baseline justify-between gap-4 px-5 py-3">
+                <div className="h-3 w-40 rounded bg-wash" />
+                <div className="h-3 w-24 rounded bg-wash-soft" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- each company on its own ------------------------------------- */}
+      <div className="grid gap-5 sm:grid-cols-2">
+        {[0, 1].map((i) => (
+          <section key={i} className="card overflow-hidden">
+            {/* Standing in for the brand stripe as well as the header: the real
+                card carries a 3px top border in the company's own colour, and
+                without it here the two cards lose the only thing that tells
+                them apart at a glance. */}
+            <div className="flex items-center gap-3 border-b border-t-[3px] border-ink-line px-5 py-4">
+              <div className="h-7 w-16 shrink-0 rounded bg-wash" />
+              <div className="h-3.5 w-28 rounded bg-wash-strong" />
+            </div>
+            <div className="space-y-2.5 px-5 py-4">
+              {[0, 1].map((j) => (
+                <div key={j} className="flex items-baseline justify-between gap-4">
+                  <div className="h-3 w-24 rounded bg-wash" />
+                  <div className="h-3 w-20 rounded bg-wash-soft" />
+                </div>
+              ))}
+              <div className="flex items-baseline justify-between gap-4 border-t border-ink-line pt-2.5">
+                <div className="h-3.5 w-20 rounded bg-wash-strong" />
+                <div className="h-4 w-24 rounded bg-wash" />
+              </div>
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {/* The note at the foot, which is three lines of small grey type. */}
+      <div className="mt-6 space-y-2">
+        <div className="h-2.5 w-full rounded bg-wash-soft" />
+        <div className="h-2.5 w-full rounded bg-wash-soft" />
+        <div className="h-2.5 w-2/3 rounded bg-wash-soft" />
+      </div>
+    </div>
   );
 }
 

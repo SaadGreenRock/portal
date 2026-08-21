@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { useFormStatus } from "react-dom";
 
 /**
  * A password input with a show/hide toggle.
@@ -8,6 +9,11 @@ import { useId, useState } from "react";
  * Stroke-only icons, no fill — the same convention as the Lock control: a
  * glyph at the interface's own line weight rather than an icon-font
  * character sitting at a different weight beside it.
+ *
+ * Goes quiet while the form it sits in is submitting, alongside the button.
+ * The submitted value has already been collected by then, so what is left to
+ * type into is a field that no longer feeds anything — and on the lock screen,
+ * a password half-rewritten under a request already in flight.
  */
 export default function PasswordField({
   id,
@@ -25,6 +31,7 @@ export default function PasswordField({
   placeholder?: string;
 }) {
   const [visible, setVisible] = useState(false);
+  const { pending } = useFormStatus();
   const autoId = useId();
   const inputId = id ?? autoId;
 
@@ -38,11 +45,13 @@ export default function PasswordField({
         autoFocus={autoFocus}
         required={required}
         placeholder={placeholder}
+        disabled={pending}
         className="input pr-11"
       />
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
+        disabled={pending}
         aria-label={visible ? "Hide password" : "Show password"}
         title={visible ? "Hide password" : "Show password"}
         className="absolute inset-y-0 right-0 flex items-center px-3 text-ink-soft transition-colors hover:text-ink"

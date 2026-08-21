@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import NavPending from "@/components/NavPending";
 
 /**
  * Tabs for the food section.
@@ -37,7 +38,7 @@ export default function FoodNav({ pending }: { pending: number }) {
               <Link
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                className={`relative flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] font-medium transition-colors ${
                   active
                     ? "border-[var(--accent)] text-ink"
                     : "border-transparent text-ink-soft hover:text-ink"
@@ -49,6 +50,7 @@ export default function FoodNav({ pending }: { pending: number }) {
                     {tab.badge}
                   </span>
                 ) : null}
+                <NavPending className="inset-x-0 -bottom-0.5" />
               </Link>
             </li>
           );

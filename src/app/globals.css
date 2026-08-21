@@ -547,3 +547,81 @@ html:not([data-theme]) .theme-mark-system {
 .lock-breathe {
   animation: lock-breathe 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
+
+/* The turning ring in a button that has been pressed — see Spinner.tsx for why
+   this is the one wait that gets a moving indicator rather than a still wash.
+
+   700ms and linear. Anything much under half a second reads as agitated, and
+   anything past a second reads as a thing that has stopped; an eased rotation
+   pulses at the corners of the arc, which is a second rhythm nobody asked for.
+
+   The rotation sits in its own no-preference query rather than being left to the
+   blanket reduce rule at the top of this file, for a reason particular to a
+   spinner: that rule would collapse this to a single frame and leave a ring
+   stopped mid-turn on screen, which says the opposite of what it is there to
+   say. Asked properly, the glyph is not drawn at all and the label — "Unlocking…"
+   — carries the message on its own, which is all it ever needed to do. */
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+.spinner {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spinner {
+    display: block;
+    animation: spin 700ms linear infinite;
+  }
+}
+
+/* The bar under a nav item whose route is on its way — see NavPending.tsx for
+   why the nav says this at all when the screen it is loading says it too.
+
+   A travelling sliver on a faint track, rather than the ring a pressed button
+   gets. The shapes are doing different jobs and should not be read as the same
+   one: a ring says "this control is working", and lives in the control. This is
+   a route arriving, so it takes the shape the nav already uses to say where you
+   are — the 2px rule under a tab — and moves it.
+
+   `--accent` for both, so the bar is the company's own colour inside a
+   workspace and the portal's teal in Food and Funding, and inverts with the
+   theme without either being stated here.
+
+   The sliver is 40% of the track and travels from fully clear of one end to
+   fully clear of the other: -100% of its own width, to 250% of it. Sized in its
+   own width rather than the track's, so the two numbers stay right whatever the
+   item is as wide as — a tab of one word or the module pill of three.
+
+   Reduced motion gets the track filled solid instead of swept. That keeps the
+   one thing this is for — which item did I press — and drops the part that is
+   only there to say it is still going. The width override lives inside the
+   no-preference query for exactly that reason: left outside it, the blanket
+   reduce rule at the top of this file would freeze the sliver wherever its
+   first frame put it and leave 40% of a bar sitting there like a progress
+   figure that had stopped meaning something. */
+@keyframes nav-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.nav-pending {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.nav-pending::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nav-pending::after {
+    width: 40%;
+    animation: nav-sweep 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+}
