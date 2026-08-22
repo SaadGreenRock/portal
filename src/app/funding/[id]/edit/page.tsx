@@ -21,12 +21,15 @@ export default async function EditTranche({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const db = await store();
 
-  const result = await tryTable(() => db.getTranche(id));
+  // Together: both are keyed on the id in the URL, so neither waits on the other.
+  const [result, allocations] = await Promise.all([
+    tryTable(() => db.getTranche(id)),
+    db.listAllocations(id),
+  ]);
   if (!result.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
   const tranche = result.value;
   if (!tranche) notFound();
 
-  const allocations = await db.listAllocations(id);
   const standing = stand(tranche, allocations);
   const save = updateTranche.bind(null, id);
 

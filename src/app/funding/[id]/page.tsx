@@ -37,12 +37,16 @@ export default async function TrancheRecord({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const db = await store();
 
-  const result = await tryTable(() => db.getTranche(id));
+  // Together: both are keyed on the id in the URL, so neither waits on the
+  // other's answer. Sequentially this was two round trips to show one bucket.
+  const [result, allocations] = await Promise.all([
+    tryTable(() => db.getTranche(id)),
+    db.listAllocations(id),
+  ]);
   if (!result.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
   const tranche = result.value;
   if (!tranche) notFound();
 
-  const allocations = await db.listAllocations(id);
   const standing = stand(tranche, allocations);
 
   const drop = deleteTranche.bind(null, id);

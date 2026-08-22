@@ -38,10 +38,25 @@ export function logoUri(company: Company, mode: AssetMode): string {
 /**
  * Which faces a document needs.
  *
- * Urdu is the expensive one — Noto Nastaliq is 690 KB, four times any Poppins
- * weight — and inlining it costs ~920 KB of base64 on every page of every
+ * Urdu is the expensive one — Noto Nastaliq is 261 KB, five times any Poppins
+ * weight — and inlining it costs ~348 KB of base64 on every page of every
  * render. The voucher needs it; a purchase order is Latin-only, so it asks for
  * "latin" and its pages come out a third of the size.
+ *
+ * WOFF2 rather than TrueType, which is what those figures are already in. The
+ * faces are embedded as base64 in every page of every render, and base64 is a
+ * third larger again than what it carries, so the format is worth more here
+ * than anywhere else in the portal: a voucher's Latin and Urdu faces together
+ * were 1102 KB of base64 a page and are 414 KB now.
+ *
+ * Verified rather than assumed, because the failure would be silent and would
+ * ruin a document rather than a screen. These faces are read by an <img>
+ * loading an SVG, which is an isolated document that may fetch nothing at all —
+ * so the question was whether a browser will decompress a WOFF2 data URI in
+ * that context, and a font that failed to load would fall back and print a
+ * voucher in the wrong face with nothing to say so. Rasterising the same page
+ * both ways gives byte-identical pixels, and both differ from the same page
+ * with no faces at all, which is what makes the match mean something.
  */
 export type FontSet = "latin" | "latin+urdu";
 
@@ -57,28 +72,28 @@ export function fontFaceCss(mode: AssetMode, set: FontSet = "latin+urdu"): strin
   // may not fetch anything, so a /fonts URL would silently fall back. Referenced
   // by URL for on-screen previews, where the browser caches the files once.
   const src = (file: string) =>
-    mode === "inline" ? dataUri(`fonts/${file}`, "font/ttf") : `/fonts/${file}`;
+    mode === "inline" ? dataUri(`fonts/${file}`, "font/woff2") : `/fonts/${file}`;
 
   const face = (family: string, file: string, weight: string, style = "normal") =>
     `@font-face{font-family:'${family}';src:url('${src(
       file,
-    )}') format('truetype');font-weight:${weight};font-style:${style};font-display:block}`;
+    )}') format('woff2');font-weight:${weight};font-style:${style};font-display:block}`;
 
   const faces = [
     // Poppins stands in for Century Gothic: both are geometric sans faces with a
     // single-storey 'a'. A machine that has the real Century Gothic installed
     // will use it, since it is first in the stack.
-    face("PortalSans", "Poppins-Regular.ttf", "400"),
-    face("PortalSans", "Poppins-Medium.ttf", "500"),
-    face("PortalSans", "Poppins-SemiBold.ttf", "600"),
-    face("PortalSans", "Poppins-Bold.ttf", "700"),
-    face("PortalSans", "Poppins-Italic.ttf", "400", "italic"),
+    face("PortalSans", "Poppins-Regular.woff2", "400"),
+    face("PortalSans", "Poppins-Medium.woff2", "500"),
+    face("PortalSans", "Poppins-SemiBold.woff2", "600"),
+    face("PortalSans", "Poppins-Bold.woff2", "700"),
+    face("PortalSans", "Poppins-Italic.woff2", "400", "italic"),
   ];
 
   if (set === "latin+urdu") {
     // Variable Nastaliq — Chrome shapes this correctly, which is the whole
     // reason the PDF is rendered by a browser rather than drawn by a JS library.
-    faces.push(face("PortalUrdu", "NotoNastaliqUrdu.ttf", "400 700"));
+    faces.push(face("PortalUrdu", "NotoNastaliqUrdu.woff2", "400 700"));
   }
 
   const css = faces.join("");

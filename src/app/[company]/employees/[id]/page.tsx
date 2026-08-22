@@ -46,7 +46,17 @@ export default async function EmployeeRecord({
   if (!company) notFound();
 
   const db = await store();
-  const result = await tryTable(() => db.getEmployee(id));
+
+  // Together. Both are keyed on the id in the URL — the holdings are matched on
+  // the link, not the name, so this is what was genuinely allotted to this
+  // register entry — and neither needs the other's answer, so the record no
+  // longer has to arrive before its holdings are asked for. Tolerated
+  // separately: an unmigrated asset register must not stop an employee's record
+  // from opening, and an unmigrated employee register says so properly.
+  const [result, held] = await Promise.all([
+    tryTable(() => db.getEmployee(id)),
+    tryTable(() => db.searchHoldings({ company: company.slug, employeeId: id, limit: 200 })),
+  ]);
   if (!result.ok) return <ModuleUnavailable module="Employees" />;
   const employee = result.value;
   if (!employee) notFound();
@@ -55,13 +65,6 @@ export default async function EmployeeRecord({
   // pasted under the other must not open, or the separation the whole module is
   // built on would be one hand-typed URL deep.
   if (employee.company !== company.slug) notFound();
-
-  // Matched on the link, not the name, so this is what was genuinely allotted to
-  // this register entry. Tolerated on its own: an unmigrated asset register must
-  // not stop an employee's record from opening.
-  const held = await tryTable(() =>
-    db.searchHoldings({ company: company.slug, employeeId: employee.id, limit: 200 }),
-  );
   const holdings = held.ok ? held.value.rows : [];
   const out = holdings.filter((h) => !h.returnedOn);
   const past = holdings.filter((h) => h.returnedOn);

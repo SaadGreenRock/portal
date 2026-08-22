@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { getCompany } from "@/lib/companies";
-import { store } from "@/lib/db";
+import { poCounts, rfqCounts, voucherCounts } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import HeaderControls from "@/components/HeaderControls";
 import WorkspaceNav from "@/components/WorkspaceNav";
@@ -30,17 +30,19 @@ export default async function CompanyLayout({
 
   if (!(await isAuthenticated())) redirect("/login");
 
-  const db = await store();
-  // Both counts in one pass: the nav badges need them on every screen, and two
-  // sequential round trips on a serverless request is a visible pause.
+  // All three counts in one pass: the nav badges need them on every screen, and
+  // sequential round trips on a serverless request are a visible pause.
   //
   // The purchase order count is tolerated rather than awaited outright. It is
   // decoration on a tab; if that module isn't migrated on this database, the
   // badge disappears and vouchers carry on working.
-  const [counts, poCounts, rfqCounts] = await Promise.all([
-    db.counts(company.slug),
-    tryTable(() => db.poCounts(company.slug)),
-    tryTable(() => db.rfqCounts(company.slug)),
+  //
+  // Read through per-request, so the overview and Settings — which report these
+  // same three figures in full — join these queries rather than repeating them.
+  const [counts, orders, requests] = await Promise.all([
+    voucherCounts(company.slug),
+    tryTable(() => poCounts(company.slug)),
+    tryTable(() => rfqCounts(company.slug)),
   ]);
 
   const t = company.theme;
@@ -106,8 +108,8 @@ export default async function CompanyLayout({
           slug={company.slug}
           badges={{
             vouchers: counts.pending,
-            po: poCounts.ok ? poCounts.value.open : 0,
-            rfq: rfqCounts.ok ? rfqCounts.value.open : 0,
+            po: orders.ok ? orders.value.open : 0,
+            rfq: requests.ok ? requests.value.open : 0,
           }}
         />
       </header>

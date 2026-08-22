@@ -2,7 +2,7 @@ import Link from "next/link";
 import AllocatePicker, { type PickerBucket } from "@/components/AllocatePicker";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { COMPANY_LIST } from "@/lib/companies";
-import { store } from "@/lib/db";
+import { allocatableItems, fundingLedger } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { formatMoney } from "@/lib/money";
 import { allocate } from "@/lib/tranches/actions";
@@ -44,12 +44,13 @@ export default async function Allocate({
   searchParams: Promise<{ tranche?: string; company?: string; kind?: string; state?: string }>;
 }) {
   const { tranche, company, kind, state } = await searchParams;
-  const db = await store();
-
-  const ledgerResult = await tryTable(() => db.fundingLedger());
+  // Together: the buckets and the things that could fill them are independent
+  // reads, and this screen cannot render without both.
+  const [ledgerResult, itemsResult] = await Promise.all([
+    tryTable(() => fundingLedger()),
+    tryTable(() => allocatableItems()),
+  ]);
   if (!ledgerResult.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
-
-  const itemsResult = await tryTable(() => db.allocatable());
   if (!itemsResult.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
 
   // Open buckets only, oldest received first — the order a split fills them in,

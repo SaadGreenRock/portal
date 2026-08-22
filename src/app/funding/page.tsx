@@ -2,7 +2,7 @@ import Link from "next/link";
 import DrawdownBar from "@/components/DrawdownBar";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import TrancheChip from "@/components/TrancheChip";
-import { store } from "@/lib/db";
+import { allocatableItems, fundingLedger } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
@@ -28,18 +28,20 @@ import {
  * only thing on this screen that is a task rather than a fact.
  */
 export default async function Funding() {
-  const db = await store();
-
-  const ledgerResult = await tryTable(() => db.fundingLedger());
+  // Together, because neither read depends on the other. The queue is still
+  // tolerated separately: the buckets are readable even if an expense module it
+  // reads from has not been migrated, and a work queue is not the place to break
+  // that news. Both are per-request reads, so the work queue in the shell above
+  // and this screen's copy of it are one query, not two.
+  const [ledgerResult, itemsResult] = await Promise.all([
+    tryTable(() => fundingLedger()),
+    tryTable(() => allocatableItems()),
+  ]);
   if (!ledgerResult.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
 
   const standings: TrancheStanding[] = ledgerResult.value.map((l) => stand(l.tranche, l.debits));
   const summary = summariseFunding(standings);
 
-  // Tolerated separately: the buckets are readable even if an expense module
-  // this reads from has not been migrated, and a work queue is not the place to
-  // break that news.
-  const itemsResult = await tryTable(() => db.allocatable());
   const queued = itemsResult.ok ? queue(itemsResult.value) : [];
   const queuedTotals = queueTotals(queued);
 

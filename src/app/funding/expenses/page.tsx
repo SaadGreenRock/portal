@@ -2,6 +2,7 @@ import Link from "next/link";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { COMPANIES } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { allocatableItems } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
@@ -21,15 +22,15 @@ import { allocationState, type AllocatableItem } from "@/lib/tranches/types";
  * letting the word "confidential" imply more than it delivers.
  */
 export default async function DirectEntries() {
-  const db = await store();
-
-  const listResult = await tryTable(() => db.listDirect());
+  // Together: the list and the placements behind it are independent reads.
+  const [listResult, itemsResult] = await Promise.all([
+    tryTable(async () => (await store()).listDirect()),
+    // Where each one sits, so a row can say which tranche paid for it without a
+    // second query per entry. Per-request, so this is the shell's read.
+    tryTable(() => allocatableItems()),
+  ]);
   if (!listResult.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
   const entries = listResult.value;
-
-  // Where each one sits, so a row can say which tranche paid for it without a
-  // second query per entry.
-  const itemsResult = await tryTable(() => db.allocatable());
   const placement = new Map<string, AllocatableItem>(
     (itemsResult.ok ? itemsResult.value : [])
       .filter((i) => i.kind === "direct")

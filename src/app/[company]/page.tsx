@@ -2,6 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCompany } from "@/lib/companies";
 import { store } from "@/lib/db";
+import {
+  poCounts as poCountsFor,
+  rfqCounts as rfqCountsFor,
+  voucherCounts,
+} from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { ageInDays, dueIn, formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
@@ -46,11 +51,14 @@ export default async function WorkspaceOverview({
   const db = await store();
   const [counts, pending, poCounts, openPos, rfqCounts, openRfqs, assetCounts, notificationCounts] =
     await Promise.all([
-      db.counts(company.slug),
+      // The first three are per-request reads: the workspace shell above needs
+      // the same figures for its nav badges, so this screen joins those queries
+      // instead of opening a second set of them.
+      voucherCounts(company.slug),
       db.listPending(company.slug),
-      tryTable(() => db.poCounts(company.slug)),
+      tryTable(() => poCountsFor(company.slug)),
       tryTable(() => db.searchPos({ company: company.slug, status: "open", limit: 200 })),
-      tryTable(() => db.rfqCounts(company.slug)),
+      tryTable(() => rfqCountsFor(company.slug)),
       tryTable(() => db.searchRfqs({ company: company.slug, status: "open", limit: 200 })),
       tryTable(() => db.assetCounts(company.slug)),
       tryTable(() => db.notificationCounts(company.slug)),

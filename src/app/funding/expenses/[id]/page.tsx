@@ -4,6 +4,7 @@ import ConfirmDelete from "@/components/ConfirmDelete";
 import DirectForm from "@/components/DirectForm";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { store } from "@/lib/db";
+import { allocatableItems } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { formatMoney } from "@/lib/money";
 import { deleteDirect, restoreDirect, updateDirect } from "@/lib/tranches/actions";
@@ -20,13 +21,18 @@ export default async function DirectRecord({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const db = await store();
 
-  const result = await tryTable(() => db.getDirect(id));
+  // All three together: the record, the payee list behind its form, and where
+  // this entry sits. None of them needs another's answer, and `items` is the
+  // shell's own per-request read rather than a second copy of it.
+  const [result, payees, items] = await Promise.all([
+    tryTable(() => db.getDirect(id)),
+    db.directPayees(),
+    allocatableItems(),
+  ]);
   if (!result.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
   const entry = result.value;
   if (!entry) notFound();
 
-  const payees = await db.directPayees();
-  const items = await db.allocatable();
   const item = items.find((i) => i.kind === "direct" && i.id === id);
   const state = item ? allocationState(item) : "none";
 

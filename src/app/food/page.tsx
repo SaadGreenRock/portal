@@ -2,6 +2,7 @@ import Link from "next/link";
 import FoodEntryRow from "@/components/FoodEntryRow";
 import ModuleUnavailable from "@/components/ModuleUnavailable";
 import { store } from "@/lib/db";
+import { foodCounts } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { periodOf } from "@/lib/db/shared";
 import type { FoodQuery } from "@/lib/food/types";
@@ -50,7 +51,9 @@ export default async function FoodLog({ searchParams }: { searchParams: Promise<
   const db = await store();
   const [listed, counted] = await Promise.all([
     tryTable(() => db.searchFood(query)),
-    tryTable(() => db.foodCounts()),
+    // Per-request: the section shell above badges what is unsettled from the
+    // same figures, so this joins that query rather than repeating it.
+    tryTable(() => foodCounts()),
   ]);
   if (!listed.ok || !counted.ok) return <ModuleUnavailable module="Food" />;
 

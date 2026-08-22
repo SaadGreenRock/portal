@@ -2,6 +2,11 @@ import { notFound } from "next/navigation";
 import { addSignatory, removeSignatory } from "@/lib/actions";
 import { getCompany } from "@/lib/companies";
 import { backend, store } from "@/lib/db";
+import {
+  poCounts as poCountsFor,
+  rfqCounts as rfqCountsFor,
+  voucherCounts,
+} from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { periodOf } from "@/lib/db/shared";
 import { CURRENCY_LIST } from "@/lib/money";
@@ -26,9 +31,11 @@ export default async function Settings({
   const [signatories, counts, poCountsResult, rfqCountsResult, settingsResult] =
     await Promise.all([
       db.listSignatories(company.slug),
-      db.counts(company.slug),
-      tryTable(() => db.poCounts(company.slug)),
-      tryTable(() => db.rfqCounts(company.slug)),
+      // Per-request: the workspace shell above has already asked for these three
+      // to badge the nav, so these join those queries rather than repeating them.
+      voucherCounts(company.slug),
+      tryTable(() => poCountsFor(company.slug)),
+      tryTable(() => rfqCountsFor(company.slug)),
       tryTable(() => db.getSettings(company.slug)),
     ]);
   const poCounts = poCountsResult.ok ? poCountsResult.value : null;

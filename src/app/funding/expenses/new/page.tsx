@@ -23,10 +23,13 @@ export default async function NewDirect({
   const { tranche: trancheId } = await searchParams;
   const db = await store();
 
-  const payeesResult = await tryTable(() => db.directPayees());
+  // Together: the payee list and the tranche named in the query string are
+  // independent reads, and the tranche is only asked for when one is named.
+  const [payeesResult, tranche] = await Promise.all([
+    tryTable(() => db.directPayees()),
+    trancheId ? db.getTranche(trancheId) : null,
+  ]);
   if (!payeesResult.ok) return <ModuleUnavailable module="Funding &amp; tranches" />;
-
-  const tranche = trancheId ? await db.getTranche(trancheId) : null;
   const target =
     tranche && !tranche.deletedAt
       ? {

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import FoodNav from "@/components/FoodNav";
 import HeaderControls from "@/components/HeaderControls";
 import { isAuthenticated } from "@/lib/auth";
-import { store } from "@/lib/db";
+import { foodCounts } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 
 /**
@@ -34,8 +34,9 @@ export default async function FoodLayout({ children }: { children: React.ReactNo
   // Tolerated: an unmigrated food table must not stop the section from
   // rendering — the pages below say so properly, and a badge is not the place
   // to break the news.
-  const db = await store();
-  const counts = await tryTable(() => db.foodCounts());
+  // Read through per-request: the log below reports these same figures in full,
+  // so it joins this query rather than repeating it.
+  const counts = await tryTable(() => foodCounts());
   const pending = counts.ok ? counts.value.pending : 0;
 
   return (

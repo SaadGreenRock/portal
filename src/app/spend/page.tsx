@@ -125,17 +125,22 @@ async function Report({ range }: { range: SpendRange }) {
 
   // Tolerated per company: an unmigrated purchase order table must not stop the
   // voucher half of the report from being readable.
-  const perCompany = await Promise.all(
-    COMPANY_LIST.map(async (company) => {
-      const result = await tryTable(() => db.spendRows(company.slug));
-      const rows = (result.ok ? result.value : []).filter((r) => withinRange(r, range, now));
-      return { company, rows, available: result.ok };
-    }),
-  );
+  // Both companies and the food log in one pass. Food used to wait on the two
+  // companies having answered, which is a round trip spent for nothing: it is a
+  // separate table and a separate question. Fetched once, not per company — a
+  // lunch ordered for both belongs to neither, so it joins the combined figure
+  // and stays out of the two cards.
+  const [perCompany, foodResult] = await Promise.all([
+    Promise.all(
+      COMPANY_LIST.map(async (company) => {
+        const result = await tryTable(() => db.spendRows(company.slug));
+        const rows = (result.ok ? result.value : []).filter((r) => withinRange(r, range, now));
+        return { company, rows, available: result.ok };
+      }),
+    ),
+    tryTable(() => db.foodSpendRows()),
+  ]);
 
-  // Food is fetched once, not per company: a lunch ordered for both belongs to
-  // neither, so it joins the combined figure and stays out of the two cards.
-  const foodResult = await tryTable(() => db.foodSpendRows());
   const foodRows = (foodResult.ok ? foodResult.value : []).filter((r) =>
     withinRange(r, range, now),
   );

@@ -47,6 +47,34 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           separate chance to be late.
         */}
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+
+        {/*
+          The two faces that carry nearly all of the portal's text: 400 is the
+          body, 600 is every heading, label, button and figure.
+
+          An @font-face is not discovered until the stylesheet naming it has been
+          fetched and parsed, so without these the text that matters most waits a
+          full hop behind globals.css — and `font-display: swap` means that hop
+          is visible, as a flash of the fallback face reflowing into Poppins.
+
+          Only these two. Medium and Bold are in real use as well, but preloading
+          a face is a promise that the first screen needs it; four promises where
+          two are true is bandwidth taken from the two that matter.
+        */}
+        <link
+          rel="preload"
+          href="/fonts/Poppins-Regular.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/Poppins-SemiBold.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
       </head>
       <body>{children}</body>
     </html>

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import FundingNav from "@/components/FundingNav";
 import HeaderControls from "@/components/HeaderControls";
 import { isAuthenticated } from "@/lib/auth";
-import { store } from "@/lib/db";
+import { allocatableItems } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { queue } from "@/lib/tranches/types";
 
@@ -34,8 +34,10 @@ export default async function FundingLayout({ children }: { children: React.Reac
   // Tolerated: an unmigrated funding table must not stop the section from
   // rendering. The pages below say so properly through ModuleUnavailable, and a
   // badge is not the place to break that news.
-  const db = await store();
-  const items = await tryTable(() => db.allocatable());
+  // Read through per-request. This is the heaviest query in the portal, and
+  // four of the five screens under this shell read it again — so they join this
+  // one rather than opening a second.
+  const items = await tryTable(() => allocatableItems());
   const queued = items.ok ? queue(items.value).length : 0;
 
   return (

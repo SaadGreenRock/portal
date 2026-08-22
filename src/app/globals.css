@@ -2,28 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Bundled locally so the portal works offline and never waits on a font CDN. */
+/* Bundled locally so the portal works offline and never waits on a font CDN.
+
+   WOFF2, not TrueType. All four weights are genuinely in use — 400 is the body,
+   and 500, 600 and 700 are each on hundreds of elements — so all four are
+   fetched on the first screen, and as .ttf that was 617 KB of font before the
+   portal had drawn a word. The same four faces are 200 KB here, for identical
+   glyphs: WOFF2 is the same outlines under Brotli, so nothing about the
+   rendering changes.
+
+   It is also 200 KB whatever the CDN in front of it does. A .ttf is only
+   tolerable on the wire if something compresses it in transit, and whether that
+   happens is a property of the host rather than of this repository — the format
+   that carries its own compression cannot be got wrong by a deployment.
+
+   Regular and SemiBold are preloaded in the root layout: an @font-face is only
+   discovered once this file has been fetched and parsed, so without that the
+   two faces that carry nearly all of the portal's text are a second hop behind
+   the stylesheet. */
 @font-face {
   font-family: "Poppins";
-  src: url("/fonts/Poppins-Regular.ttf") format("truetype");
+  src: url("/fonts/Poppins-Regular.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: "Poppins";
-  src: url("/fonts/Poppins-Medium.ttf") format("truetype");
+  src: url("/fonts/Poppins-Medium.woff2") format("woff2");
   font-weight: 500;
   font-display: swap;
 }
 @font-face {
   font-family: "Poppins";
-  src: url("/fonts/Poppins-SemiBold.ttf") format("truetype");
+  src: url("/fonts/Poppins-SemiBold.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
 @font-face {
   font-family: "Poppins";
-  src: url("/fonts/Poppins-Bold.ttf") format("truetype");
+  src: url("/fonts/Poppins-Bold.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }

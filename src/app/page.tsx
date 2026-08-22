@@ -6,6 +6,7 @@ import HeaderControls from "@/components/HeaderControls";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { store } from "@/lib/db";
+import { foodCounts, fundingLedger, poCounts, voucherCounts } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import { formatMoney } from "@/lib/money";
 import { summarise } from "@/lib/spend/types";
@@ -83,57 +84,74 @@ export default async function Landing() {
 async function Picker() {
   const db = await store();
 
-  // Outstanding work is the one thing worth surfacing before you pick: which
-  // workspace has vouchers waiting on a signed scan, and which has orders still
-  // out with a vendor.
-  const cards = await Promise.all(
-    COMPANY_LIST.map(async (company) => ({
-      company,
-      vouchers: await db.counts(company.slug),
-      // Tolerated: an unmigrated purchase order module must not stop the landing
-      // page from listing the companies.
-      po: await tryTable(() => db.poCounts(company.slug)),
-    })),
-  );
-
-  // Not per company: food belongs to neither. Tolerated for the same reason as
-  // the orders above — a missing table must not blank the landing page.
-  const food = await tryTable(() => db.foodCounts());
-
-  /**
-   * The combined figure, on the card rather than behind it.
+  /*
+   * Everything this screen needs, in one pass.
    *
-   * The same rows and the same `summarise` the report itself uses — not a
-   * shortcut sum — so the number here and the number one click away can never
-   * disagree. All time, matching what /spend opens on.
+   * Nothing below depends on anything else below — the company cards, the food
+   * count, the combined spend figure and what is unallocated are four
+   * independent questions — so they are asked at once. Read one after another,
+   * as this was, each answer waited on the last: five round trips deep on a
+   * request that had already paid to wake a serverless function up, on the one
+   * screen every session starts at.
    *
-   * Every part is tolerated separately: a module that is not set up contributes
-   * nothing and the rest of the figure still shows, which is the same bargain
-   * the report makes.
+   * Every part stays tolerated exactly as it was. A module that is not set up
+   * contributes nothing and the rest of the page still renders; asking in
+   * parallel does not change which failures are survivable, only when they are
+   * found out.
    */
-  const spend = summarise(
-    (
-      await Promise.all([
-        ...COMPANY_LIST.map((c) => tryTable(() => db.spendRows(c.slug))),
-        tryTable(() => db.foodSpendRows()),
-      ])
-    ).flatMap((p) => (p.ok ? p.value : [])),
-  );
+  const [cards, food, spendParts, fundingResult] = await Promise.all([
+    // Outstanding work is the one thing worth surfacing before you pick: which
+    // workspace has vouchers waiting on a signed scan, and which has orders
+    // still out with a vendor. Both counts per company at once, rather than the
+    // orders waiting on the vouchers. Tolerated: an unmigrated purchase order
+    // module must not stop the landing page from listing the companies.
+    Promise.all(
+      COMPANY_LIST.map(async (company) => {
+        const [vouchers, po] = await Promise.all([
+          voucherCounts(company.slug),
+          tryTable(() => poCounts(company.slug)),
+        ]);
+        return { company, vouchers, po };
+      }),
+    ),
 
-  /**
-   * Money received from the investor and not yet spoken for.
-   *
-   * Deliberately this figure and not the work queue, which would be the more
-   * tempting one. The queue moves whenever a voucher is raised in either
-   * company, so keeping it fresh here would mean the two workspaces revalidating
-   * a page they otherwise know nothing about. What is unallocated in open
-   * tranches only ever changes when the funding section itself writes, so it can
-   * never go stale from activity elsewhere.
-   *
-   * Tolerated like the rest: an unmigrated funding table contributes nothing and
-   * the card still offers the way in.
-   */
-  const fundingResult = await tryTable(() => db.fundingLedger());
+    // Not per company: food belongs to neither. Tolerated for the same reason as
+    // the orders above — a missing table must not blank the landing page.
+    tryTable(() => foodCounts()),
+
+    /**
+     * The combined figure, on the card rather than behind it.
+     *
+     * The same rows and the same `summarise` the report itself uses — not a
+     * shortcut sum — so the number here and the number one click away can never
+     * disagree. All time, matching what /spend opens on.
+     *
+     * Every part is tolerated separately: a module that is not set up
+     * contributes nothing and the rest of the figure still shows, which is the
+     * same bargain the report makes.
+     */
+    Promise.all([
+      ...COMPANY_LIST.map((c) => tryTable(() => db.spendRows(c.slug))),
+      tryTable(() => db.foodSpendRows()),
+    ]),
+
+    /**
+     * Money received from the investor and not yet spoken for.
+     *
+     * Deliberately this figure and not the work queue, which would be the more
+     * tempting one. The queue moves whenever a voucher is raised in either
+     * company, so keeping it fresh here would mean the two workspaces
+     * revalidating a page they otherwise know nothing about. What is unallocated
+     * in open tranches only ever changes when the funding section itself writes,
+     * so it can never go stale from activity elsewhere.
+     *
+     * Tolerated like the rest: an unmigrated funding table contributes nothing
+     * and the card still offers the way in.
+     */
+    tryTable(() => fundingLedger()),
+  ]);
+
+  const spend = summarise(spendParts.flatMap((p) => (p.ok ? p.value : [])));
   const funding = fundingResult.ok
     ? summariseFunding(fundingResult.value.map((l) => stand(l.tranche, l.debits)))
     : null;
