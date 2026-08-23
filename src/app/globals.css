@@ -729,3 +729,82 @@ html.dark .skeleton {
     opacity: 0.62;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Print.
+
+   One screen is meant to leave the building on paper: /spend/report. It is
+   built as ordinary HTML and handed to the browser's own print engine rather
+   than rasterised the way a voucher is, and the reason is the report's shape
+   rather than a preference. A voucher is one page that has to match an approved
+   DOCX exactly and carry shaped Urdu, which is what `client-pdf.ts` exists for.
+   An expense report is an unbounded table: printed through the browser it comes
+   out as real text a boss can search, at a few hundred KB, with the page breaks
+   and the repeated table headers decided by the engine instead of by measured
+   constants that have to be kept in step with the CSS.
+
+   Everything the report itself does — hiding the controls, laying out the rows —
+   lives in the markup as `print:` variants, where it can be read next to the
+   thing it applies to. Only what has no Tailwind equivalent is here.
+   -------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: letter;
+    /* Wider at the head than the foot: the head carries the running title on a
+       continuation page, and the foot is where the browser puts its own page
+       numbering. */
+    margin: 0.55in 0.5in 0.45in;
+  }
+
+  /* The app paints a near-white page and, at night, a near-black one. Neither
+     belongs on paper, and the dark one would burn a cartridge to print a report.
+     The report itself is wrapped in `.on-paper`, which pins its whole token
+     scale to the light values; this is the sheet underneath it. */
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  /* Backgrounds print only when the operator ticks "Background graphics", and
+     nobody remembers to. The company stripe over each section and the wash
+     behind a table header are how the report is read at a glance, so they are
+     asked for explicitly rather than left to a checkbox. */
+  .report {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* A table that runs past the foot of a page repeats its column headings on the
+     next one. This is the whole reason the detail is marked up as real <table>
+     elements rather than as a grid of divs: `table-header-group` is the one way
+     to get a repeating header out of a print engine, and a grid cannot have it. */
+  .report thead {
+    display: table-header-group;
+  }
+
+  /* A row split down the middle by a page break is unreadable, and a section
+     heading stranded alone at the foot of a page is worse — it labels the wrong
+     rows. Headings hold on to what follows them; rows stay whole. */
+  .report tr {
+    break-inside: avoid;
+  }
+  .report h2,
+  .report h3,
+  .report caption {
+    break-after: avoid;
+  }
+
+  /* Each document type starts its own page, so a boss can pull out the food
+     pages and hand the rest back. The first section does not, or the report
+     would open on a blank sheet after the summary. */
+  .report .section-break {
+    break-before: page;
+  }
+
+  /* A group's closing total belongs with the rows it adds up, so it never
+     becomes the only thing on a sheet. It sits after the table rather than in a
+     <tfoot> — see the note in the report page for why. */
+  .report .totals-after-table {
+    break-before: avoid;
+  }
+}

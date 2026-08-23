@@ -63,6 +63,12 @@ export default async function Expenditure({
               </p>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              {/* The detail behind these figures, laid out for printing. A link
+                  rather than a button: the report is a page, and one worth being
+                  able to bookmark with its period already in the URL. */}
+              <Link href="/spend/report" className="btn btn-ghost">
+                Create report
+              </Link>
               <HeaderControls />
             </div>
           </div>
