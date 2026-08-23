@@ -51,10 +51,14 @@ const CSS = `
 
 export default function GlobalError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  /**
+   * Next hands one down, and this is the one boundary that deliberately does not
+   * use it — see the note on the button below. Kept in the type so the contract
+   * with the framework stays visible rather than looking like an omission.
+   */
+  reset?: () => void;
 }) {
   return (
     <html lang="en">
@@ -86,17 +90,24 @@ export default function GlobalError({
           <h1 style={{ fontSize: "1.15rem", fontWeight: 600, margin: "0 0 0.75rem" }}>
             The portal could not start
           </h1>
-          <p style={{ margin: "0 0 0.6rem", fontSize: "0.87rem", color: "var(--ink-soft)" }}>
-            Something failed before any page could load. Nothing has been lost — this is a
-            problem starting the portal, not with the records inside it.
-          </p>
           <p style={{ margin: "0 0 1.5rem", fontSize: "0.87rem", color: "var(--ink-soft)" }}>
-            Try again, and if it keeps happening send the reference below to whoever maintains
-            the portal.
+            Something failed before any page could load. Nothing has been lost. If it keeps
+            happening, send the reference below to whoever maintains the portal.
           </p>
           <button
             type="button"
-            onClick={reset}
+            /**
+             * A full reload rather than `reset()`.
+             *
+             * `reset()` re-renders the tree that just failed, and what failed
+             * here is the root layout — so there is nothing above it left to
+             * re-fetch a working version from, and the retry lands on the same
+             * broken render. This boundary also replaces the root layout
+             * outright, so there is no router mounted to refresh through the way
+             * `Trouble` does. A reload is the only thing here that genuinely
+             * starts over.
+             */
+            onClick={() => window.location.reload()}
             style={{
               font: "inherit",
               fontWeight: 600,

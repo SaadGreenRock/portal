@@ -24,12 +24,8 @@ export default function AppError({
       retry={reset}
     >
       <p>
-        The portal could not finish loading this page. It is almost always temporary — the
-        database being briefly unreachable is the usual cause.
-      </p>
-      <p>
-        <strong className="font-semibold text-ink">Nothing has been lost.</strong> Every voucher,
-        order and scan is exactly as it was; this is a problem displaying them, not storing them.
+        Usually temporary — the database being briefly unreachable is the common cause.{" "}
+        <strong className="font-semibold text-ink">Nothing has been lost.</strong>
       </p>
     </Trouble>
   );

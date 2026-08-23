@@ -72,8 +72,7 @@ export default async function ExpenditureReport({
               </p>
               <h1 className="text-[22px] font-bold tracking-tight">Expense report</h1>
               <p className="mt-1 text-[14px] text-ink-soft">
-                Every expense in detail, for printing. Pick a period, or leave both dates empty
-                for everything to date.
+                Every expense in detail. Leave the dates empty for everything to date.
               </p>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -261,9 +260,7 @@ function Section({
       <p className="mt-1 text-[11.5px] text-ink-soft">{section.blurb}</p>
 
       {!section.available ? (
-        <p className="mt-3 text-[12.5px] text-amber-800">
-          This module is not set up on this deployment, so nothing is included here.
-        </p>
+        <p className="mt-3 text-[12.5px] text-amber-800">Not set up here — nothing included.</p>
       ) : groups.length === 0 ? (
         <p className="mt-3 text-[12.5px] text-ink-soft">Nothing in this period.</p>
       ) : (
@@ -309,11 +306,6 @@ function Group({
         style={group.company ? { borderTopColor: group.company.theme.ui } : undefined}
       >
         {group.company ? group.company.name : "Both companies"}
-        {group.company ? null : (
-          <span className="ml-2 text-[11px] font-normal text-ink-soft">
-            — ordered for either or both, never split between them
-          </span>
-        )}
       </h4>
 
       <table className="mt-1.5 w-full border-collapse text-[10.5px]">

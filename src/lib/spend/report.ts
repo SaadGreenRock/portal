@@ -1,11 +1,11 @@
 import { COMPANY_LIST, type Company } from "../companies";
 import { tryTable } from "../db/resilience";
-import { denormalize } from "../db/shared";
 import type { Store } from "../db/types";
 import type { FoodExpense } from "../food/types";
 import type { PurchaseOrder } from "../po/types";
 import { formatDate } from "../format";
-import type { Voucher } from "../types";
+import { toNumber } from "../money";
+import type { ToggleKey, Voucher, VoucherFields } from "../types";
 
 /**
  * The detail behind the expenditure figures, assembled for printing.
@@ -209,10 +209,40 @@ function combine(sets: ReportTotal[][]): ReportTotal[] {
  * rather than implying a debt. The note at the end of the report says so too,
  * because "awaiting signature" in a money column invites exactly that misread.
  */
+/**
+ * What a voucher actually printed, read defensively.
+ *
+ * Deliberately not `denormalize()` from db/shared, which this used to call.
+ * That function reads `fields.on.amount` directly, and it gets away with it
+ * because it only ever runs on a document being written — where the toggle block
+ * has just come off the form. This report is the first thing in the portal to
+ * run over *every stored voucher*, including ones written before that block
+ * existed, and on those `fields.on` is undefined and the read throws. History
+ * never hit it because History reads the denormalised columns instead.
+ *
+ * A missing toggle counts as ON rather than OFF. A legacy row stored the values
+ * it printed, so treating them as absent would quietly drop real money out of
+ * the total — and understating spend is the one direction this report must not
+ * fail in.
+ */
+function voucherValues(fields: VoucherFields | null | undefined) {
+  const f = fields ?? ({} as VoucherFields);
+  const on = (f.on ?? {}) as Partial<Record<ToggleKey, boolean>>;
+  const shown = (key: ToggleKey) => on[key] ?? true;
+
+  const amount = shown("amount") ? toNumber(f.amount) : null;
+  return {
+    recipientName: shown("recipientName") ? (f.recipientName ?? "").trim() : "",
+    description: shown("description") ? (f.description ?? "").trim() : "",
+    amount: amount != null && Number.isFinite(amount) ? amount : null,
+    voucherDate: shown("voucherDate") ? f.voucherDate || null : null,
+  };
+}
+
 function voucherRows(vouchers: Voucher[], range: ReportRange): ReportRow[] {
   return vouchers
     .map((v) => {
-      const flat = denormalize(v.fields);
+      const flat = voucherValues(v.fields);
       return {
         ref: v.voucherNo,
         date: docDay(flat.voucherDate, v.createdAt),
@@ -242,16 +272,24 @@ function voucherRows(vouchers: Voucher[], range: ReportRange): ReportRow[] {
 function orderRows(orders: PurchaseOrder[], range: ReportRange): ReportRow[] {
   return orders
     .filter((po) => po.status === "closed" && po.invoiceKey != null)
-    .map((po) => ({
-      ref: po.poNo,
-      date: docDay(po.doc.poDate, po.createdAt),
-      party: po.doc.vendor.name || "—",
-      details: po.doc.subject || "—",
-      currency: po.doc.currency || "PKR",
-      amount: po.total,
-      status: "Invoiced",
-      owed: false,
-    }))
+    .map((po) => {
+      // Read through optionals for the same reason `voucherValues` exists: this
+      // runs over every stored order, and an old one's document need not have
+      // every block a current one has. `vendor_name` and `subject` are also
+      // columns on the row, so the fallbacks are only for a document that has
+      // drifted from both.
+      const doc = po.doc ?? ({} as PurchaseOrder["doc"]);
+      return {
+        ref: po.poNo,
+        date: docDay(doc.poDate, po.createdAt),
+        party: doc.vendor?.name || "—",
+        details: doc.subject || "—",
+        currency: doc.currency || "PKR",
+        amount: po.total ?? null,
+        status: "Invoiced",
+        owed: false,
+      };
+    })
     .filter((row) => within(row.date, range))
     .sort((a, b) => a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref));
 }
@@ -319,7 +357,7 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
   const checkCap = (label: string, got: number, total: number) => {
     if (total > got) {
       notes.push(
-        `Only the first ${got} of ${total} ${label} could be included — this report is capped at ${MAX_ROWS} records per company. Narrow the dates to see the rest.`,
+        `Only the first ${got} of ${total} ${label} are included — capped at ${MAX_ROWS} per company. Narrow the dates to see the rest.`,
       );
     }
   };
@@ -364,7 +402,7 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
     {
       key: "vouchers",
       title: "Vouchers",
-      blurb: "Money handed over and acknowledged by the recipient.",
+      blurb: "Money paid out.",
       groups: voucherGroups,
       totals: combine(voucherGroups.map((g) => g.totals)),
       available: vouchersAvailable,
@@ -372,7 +410,7 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
     {
       key: "orders",
       title: "Purchase orders",
-      blurb: "Closed orders with the vendor's invoice on file. Open orders are not included.",
+      blurb: "Closed orders with the vendor's invoice on file. Open orders are excluded.",
       groups: orderGroups,
       totals: combine(orderGroups.map((g) => g.totals)),
       available: ordersAvailable,
@@ -380,7 +418,7 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
     {
       key: "food",
       title: "Food and refreshments",
-      blurb: "Ordered for either company or both, counted whether settled or not.",
+      blurb: "For either company or both. Counted whether settled or not.",
       groups: foodGroups,
       totals: combine(foodGroups.map((g) => g.totals)),
       available: food.ok,
@@ -392,41 +430,34 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
   /* ---- the notes ---------------------------------------------------------- */
 
   if (!ordersAvailable) {
-    notes.push(
-      "Purchase orders are not set up on this deployment, so the figures here cover vouchers and food only.",
-    );
+    notes.push("Purchase orders are not set up here, so these figures cover vouchers and food only.");
   }
   if (!food.ok) {
-    notes.push(
-      "The food log is not set up on this deployment, so no food expenditure is included.",
-    );
+    notes.push("The food log is not set up here, so no food expenditure is included.");
   }
 
   const blank = totals.reduce((n, t) => n + t.blank, 0);
   if (blank > 0) {
     notes.push(
-      `${blank} ${blank === 1 ? "voucher had its amount" : "vouchers had their amounts"} left blank to be written in by hand, so no figure was recorded and ${blank === 1 ? "it is" : "they are"} not in the totals above.`,
+      `${blank} voucher ${blank === 1 ? "amount was" : "amounts were"} left blank to be written in by hand, so ${blank === 1 ? "it is" : "they are"} not in the totals.`,
     );
   }
 
   const owed = totals.filter((t) => t.owed > 0);
   if (owed.length > 0) {
     notes.push(
-      "Food is counted in full from the day it was ordered, because the expense was incurred when it was eaten. Rows marked “yet to pay” are included in the totals but have not been settled.",
+      "Food counts from the day it was ordered. Rows marked “yet to pay” are in the totals but not yet settled.",
     );
   }
 
   if (voucherGroups.some((g) => g.rows.some((r) => r.status === "Awaiting signature"))) {
     notes.push(
-      "“Awaiting signature” means the signed copy has not been scanned back in. The money has already been paid out; only the paperwork is outstanding.",
+      "“Awaiting signature” means the money was paid and only the signed copy is missing.",
     );
   }
 
   notes.push(
-    "Each expense is dated by its own document — the voucher date, the order date, the day the food was ordered — rather than by when it was entered.",
-  );
-  notes.push(
-    "Currencies are never added together. Deleted records, cancelled orders, draft orders and orders still awaiting an invoice are all excluded.",
+    "Dated by each document's own date, not when it was entered. Currencies are never added together. Deleted records, cancelled and draft orders, and orders without an invoice are excluded.",
   );
 
   return { range, periodLabel: periodLabel(range), sections, totals, notes };

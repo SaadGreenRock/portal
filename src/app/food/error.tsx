@@ -18,12 +18,8 @@ export default function FoodError({
       home={{ href: "/food", label: "Back to the log" }}
     >
       <p>
-        Something went wrong fetching this page. The rest of the food log is unaffected — the
-        tabs above still work.
-      </p>
-      <p>
-        <strong className="font-semibold text-ink">Nothing has been lost.</strong> No entry was
-        changed, and nothing has been marked paid or unpaid by this.
+        The rest of the log still works.{" "}
+        <strong className="font-semibold text-ink">No entry was changed.</strong>
       </p>
     </Trouble>
   );

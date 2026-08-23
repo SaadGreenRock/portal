@@ -18,12 +18,10 @@ export default function FundingError({
       home={{ href: "/funding", label: "Back to the tranches" }}
     >
       <p>
-        Something went wrong fetching this page. The rest of the portal is unaffected — the tabs
-        above still work.
-      </p>
-      <p>
-        <strong className="font-semibold text-ink">Nothing has been lost.</strong> No tranche was
-        changed and no expense was allocated or unallocated by this.
+        The rest of the portal still works.{" "}
+        <strong className="font-semibold text-ink">
+          No tranche or allocation was changed.
+        </strong>
       </p>
     </Trouble>
   );

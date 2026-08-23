@@ -32,12 +32,8 @@ export default function WorkspaceError({
       }
     >
       <p>
-        Something went wrong fetching this page. The other screens in this workspace are
-        unaffected — the tabs above still work.
-      </p>
-      <p>
-        <strong className="font-semibold text-ink">Nothing has been lost.</strong> No document was
-        changed by this, and every number already issued is still issued.
+        The other screens in this workspace still work.{" "}
+        <strong className="font-semibold text-ink">No document was changed.</strong>
       </p>
     </Trouble>
   );
