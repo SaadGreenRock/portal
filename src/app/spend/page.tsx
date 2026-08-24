@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
+import HomeButton from "@/components/HomeButton";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST, type Company } from "@/lib/companies";
 import { store } from "@/lib/db";
@@ -56,12 +57,19 @@ export default async function Expenditure({
       <header className="sticky top-0 z-10 border-b border-ink-line bg-card">
         <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
-              <p className="mt-1 text-[14px] text-ink-soft">
-                Both companies together, and each on its own. From vouchers, purchase orders,
-                miscellaneous payments and the food log.
-              </p>
+            {/* The way back, at the start of the header rather than the end of
+                it — see HomeButton. The negative margin pulls the glyph out to
+                the container's own left edge, so it lines up with the content
+                below rather than sitting a padding-width inside it. */}
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <HomeButton className="btn btn-quiet -ml-2.5 p-2.5" />
+              <div className="min-w-0">
+                <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
+                <p className="mt-1 text-[14px] text-ink-soft">
+                  Both companies together, and each on its own. From vouchers, purchase orders,
+                  miscellaneous payments and the food log.
+                </p>
+              </div>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
               {/* The detail behind these figures, laid out for printing. A link

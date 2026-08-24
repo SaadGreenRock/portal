@@ -16,17 +16,24 @@ import NavPending from "@/components/NavPending";
  * a company at all.
  *
  * A house rather than the word, and quiet rather than ghost, for the reason the
- * padlock beside it gives: a glyph the interface draws itself, at the interface's
- * own weight. Where the old button was a bordered control competing with "New
- * entry" next to it, this is a mark in the corner where the furniture lives.
- * Sitting in `HeaderControls` it arrives on every header at once, in the same
- * place, rather than on the four that remembered.
+ * padlock gives: a glyph the interface draws itself, at the interface's own
+ * weight. Where the old button was a bordered control competing with "New entry"
+ * next to it, this is a mark in the corner where the furniture lives.
  *
- * Deliberately at the far left of that group and not beside Lock, which is the
- * arrangement's one real decision. Both are doors, and grouping them would be
- * the tidier-looking answer — but one goes to a screen and the other ends the
- * session, and two icon buttons four pixels apart is how a press meant for the
- * first lands on the second. The clock and the theme keep them apart.
+ * It sits at the **far left of the header**, before the title, and that is the
+ * arrangement's one real decision. It lived in `HeaderControls` at the right-hand
+ * end for a while, which put the way back at the end of the line you read — every
+ * other back-and-up control anybody uses all day, in a browser or a phone, is at
+ * the top left, and a house in the top right reads as a stray. On the left it is
+ * also as far as a header can get from Lock: both are doors, one goes to a screen
+ * and the other ends the session, and two icon buttons four pixels apart is how a
+ * press meant for the first lands on the second.
+ *
+ * Each header places it rather than inheriting it, because where "the far left"
+ * is depends on what is there — a title on most screens, and nothing at all on
+ * the company workspace, whose logo is already a link home sitting in exactly
+ * this spot. That header therefore does not draw one: two controls a few pixels
+ * apart going to the same place is worse than the consistency it would buy.
  */
 export default function HomeButton({
   className = "btn btn-quiet p-2.5",

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
+import HomeButton from "@/components/HomeButton";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
 import { periodOf } from "@/lib/db/shared";
@@ -38,11 +39,18 @@ export default async function Help() {
     <div>
       <header className="sticky top-0 z-10 border-b border-ink-line bg-card">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <div>
-            <h1 className="text-[17px] font-bold tracking-tight">How the portal works</h1>
-            <p className="text-[12.5px] text-ink-soft">
-              Everything you need to run it for someone else
-            </p>
+          {/* The way back, at the start of the header rather than the end of
+              it — see HomeButton. The negative margin pulls the glyph out to the
+              container's own left edge, so it lines up with the prose below
+              rather than sitting a padding-width inside it. */}
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <HomeButton className="btn btn-quiet -ml-2.5 p-2.5" />
+            <div className="min-w-0">
+              <h1 className="text-[17px] font-bold tracking-tight">How the portal works</h1>
+              <p className="text-[12.5px] text-ink-soft">
+                Everything you need to run it for someone else
+              </p>
+            </div>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <HeaderControls />

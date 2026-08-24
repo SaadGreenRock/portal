@@ -5,6 +5,7 @@ import { getCompany } from "@/lib/companies";
 import { poCounts, rfqCounts, voucherCounts } from "@/lib/db/per-request";
 import { tryTable } from "@/lib/db/resilience";
 import HeaderControls from "@/components/HeaderControls";
+import HomeButton from "@/components/HomeButton";
 import WorkspaceNav from "@/components/WorkspaceNav";
 
 /**
@@ -68,6 +69,23 @@ export default async function CompanyLayout({
             the portal — a logo, the company, the clock and two buttons — and the
             eight pixels bought back here are eight the company's name keeps. */}
         <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
+          {/* The house leads here as it does on every other header, even though
+              the logo beside it is also a link home. Two controls to one place
+              is a wart, and the alternative was worse: this is the screen the
+              operator is on all day, and it would have been the one place the
+              way back was a company logo rather than the mark they have learned
+              everywhere else. The redundancy costs a mis-click nothing — both
+              doors open on the same room.
+
+              Hidden below `sm`, which is the price of that and worth stating.
+              This row carries more than any other header in the portal — a logo,
+              the company, the clock and two buttons — and measured at a phone
+              width the house takes the minimum this row needs from 373px to
+              415px, which truncates "Green Rock" on anything narrower than a Pro
+              Max. So on a phone the logo goes back to being the only door, which
+              it already was and which sits in exactly this corner anyway. */}
+          <HomeButton className="btn btn-quiet -ml-1.5 hidden shrink-0 p-2 sm:inline-flex" />
+
           <Link
             href="/"
             title="Switch company"

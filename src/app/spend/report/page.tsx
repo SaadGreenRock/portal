@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
+import HomeButton from "@/components/HomeButton";
 import PrintReportButton from "@/components/PrintReportButton";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST } from "@/lib/companies";
@@ -73,16 +74,23 @@ export default async function ExpenditureReport({
       <header className="border-b border-ink-line bg-card print:hidden">
         <div className="mx-auto max-w-5xl px-4 pt-5 sm:px-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="label mb-1">
-                <Link href="/spend" className="hover:text-ink">
-                  ← Expenditure
-                </Link>
-              </p>
-              <h1 className="text-[22px] font-bold tracking-tight">Expense report</h1>
-              <p className="mt-1 text-[14px] text-ink-soft">
-                Every expense in detail. Leave the dates empty for everything to date.
-              </p>
+            {/* Home at the far left, and the way back up to Expenditure kept
+                where it was, above the title. The two are not the same journey:
+                one leaves the section, the other steps up one level inside it,
+                and collapsing them would lose the shorter of the two. */}
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <HomeButton className="btn btn-quiet -ml-2.5 p-2.5" />
+              <div className="min-w-0">
+                <p className="label mb-1">
+                  <Link href="/spend" className="hover:text-ink">
+                    ← Expenditure
+                  </Link>
+                </p>
+                <h1 className="text-[22px] font-bold tracking-tight">Expense report</h1>
+                <p className="mt-1 text-[14px] text-ink-soft">
+                  Every expense in detail. Leave the dates empty for everything to date.
+                </p>
+              </div>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
               <HeaderControls />
