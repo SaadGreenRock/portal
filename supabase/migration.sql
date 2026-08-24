@@ -602,7 +602,7 @@ create table if not exists public.tranche_allocations (
   tranche_id      uuid        not null
                               references public.funding_tranches (id) on delete cascade,
   source_kind     text        not null
-                              check (source_kind in ('voucher', 'po', 'food', 'direct')),
+                              check (source_kind in ('voucher', 'po', 'food', 'misc', 'direct')),
   source_id       uuid        not null,
   amount          numeric(14, 2) not null,
   source_amount   numeric(14, 2) not null,
@@ -620,6 +620,29 @@ create table if not exists public.tranche_allocations (
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
+
+-- Miscellaneous payments became allocatable after this table shipped, and
+-- `create table if not exists` above will not touch a table that already exists
+-- -- so a database created before them still carries the four-value constraint
+-- above and would reject every misc allocation with a check violation. The
+-- symptom is nasty: the SQLite backend has no such constraint, so this fails
+-- only on the hosted deployment and only once somebody tries to allocate one.
+--
+-- Dropped and recreated rather than altered, because Postgres has no ALTER for
+-- a check expression. The pair is safe to re-run, which is this file's standing
+-- promise: the drop tolerates the constraint already being gone, and the add
+-- then always puts back exactly the five-value version. Nothing is rewritten --
+-- every existing row holds one of the four values the new constraint still
+-- allows, so the revalidating scan cannot fail.
+--
+-- `tranche_allocations_source_kind_check` is the name Postgres generates for an
+-- inline column check: <table>_<column>_check.
+alter table public.tranche_allocations
+  drop constraint if exists tranche_allocations_source_kind_check;
+
+alter table public.tranche_allocations
+  add constraint tranche_allocations_source_kind_check
+  check (source_kind in ('voucher', 'po', 'food', 'misc', 'direct'));
 
 create index if not exists tranche_alloc_tranche_idx
   on public.tranche_allocations (tranche_id);

@@ -1071,6 +1071,15 @@ export interface AllocatableSources {
     details: string | null;
     date: string;
   }>;
+  misc: Array<{
+    id: string;
+    ref: string;
+    company: string;
+    currency: string | null;
+    amount: number | string | null;
+    notes: string | null;
+    date: string;
+  }>;
   direct: Array<{
     id: string;
     ref: string;
@@ -1181,6 +1190,27 @@ export function assembleAllocatable(input: AllocatableSources): AllocatableItem[
       amount: num(f.amount),
       status: f.status,
       ...attach("food", f.id),
+    })),
+    ...input.misc.map((m) => ({
+      kind: "misc" as const,
+      id: m.id,
+      ref: m.ref,
+      company: m.company as CompanySlug,
+      date: String(m.date).slice(0, 10),
+      // Empty, and it is the only source here with no payee to give. A
+      // miscellaneous payment records a note and an amount by design — see
+      // src/lib/misc/types.ts — so the picker draws its usual dash rather than
+      // this module inventing a party out of the first few words of the note.
+      // What the ledger line ends up showing is the note, because `sourceLabel`
+      // is taken as `description || party`.
+      party: "",
+      description: (m.notes ?? "").trim(),
+      currency: m.currency || "PKR",
+      amount: num(m.amount),
+      // No lifecycle, as with a direct entry: the money went out before the row
+      // was typed. Stated so the picker's status column has something to draw.
+      status: "paid",
+      ...attach("misc", m.id),
     })),
     ...input.direct.map((d) => ({
       kind: "direct" as const,

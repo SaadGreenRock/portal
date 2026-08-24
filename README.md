@@ -935,12 +935,31 @@ register — is:
    are one JSON document per company, so that costs no schema change.
 
 Nothing existing has to be touched — *unless the module records money*, which is
-the one case that reaches outside itself. Miscellaneous payments was the first,
-and it is the worked example: a spend-bearing module also needs its rows in
-`spendRows` (both backends), a `kind` and a line in `src/lib/spend/types.ts`, a
-section in `src/lib/spend/report.ts`, and its line on `/spend` and in the printed
-report. Skip any one of those and the module works perfectly while quietly not
-counting, which is the failure it was built to fix.
+the one case that reaches outside itself, in **two** directions. Miscellaneous
+payments is the worked example, and it is worth following because the first
+attempt did only half of this and shipped a module that silently under-reported.
+
+**Expenditure**, so the money counts:
+
+- rows in `spendRows`, in both backends
+- a `kind` and a line in `src/lib/spend/types.ts`
+- a section in `src/lib/spend/report.ts`
+- its line on `/spend` and in the printed report
+
+**Funding**, so the money can be attributed to a tranche:
+
+- a value in `SourceKind` and its two label maps (`src/lib/tranches/types.ts`),
+  plus the `byKind` seed in `stand()`
+- a branch in `allocatable()` in both backends, and in `assembleAllocatable`
+- a colour in `KIND_SWATCH` (`src/components/DrawdownBar.tsx`)
+- a case in `sourceHref` on the tranche page
+- **the `source_kind` check constraint in `supabase/migration.sql`** — SQLite has
+  no such constraint, so forgetting this one works locally and fails only on the
+  live site, only when somebody first tries to allocate
+
+Skip any of the first group and the module works perfectly while quietly not
+counting. Skip any of the second and the money is counted but can never be
+traced to the pot it came out of.
 
 ### …that belongs to no company
 

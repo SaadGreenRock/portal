@@ -340,13 +340,30 @@ function Figure({ label, value, hint }: { label: string; value: string; hint?: s
   );
 }
 
-/** Where a source document lives, or null for one that has none. */
+/**
+ * Where a source document lives, or null for one that has none.
+ *
+ * Every kind is named and the switch is exhaustive on purpose. This used to end
+ * in a bare `return .../po/...`, which meant any kind the function had not been
+ * taught about was quietly handed a purchase-order URL — a dead link that looks
+ * like a working one until somebody clicks it. Adding miscellaneous payments
+ * walked straight into that. Written this way the compiler now names this
+ * function the moment a sixth `SourceKind` is added, which is the whole point.
+ */
 function sourceHref(a: Allocation): string | null {
-  if (a.sourceKind === "direct") return `/funding/expenses/${a.sourceId}`;
-  if (a.sourceKind === "food") return `/food/${a.sourceId}`;
-  if (!a.sourceCompany) return null;
-  if (a.sourceKind === "voucher") return `/${a.sourceCompany}/vouchers/${a.sourceId}`;
-  return `/${a.sourceCompany}/po/${a.sourceId}`;
+  switch (a.sourceKind) {
+    case "direct":
+      return `/funding/expenses/${a.sourceId}`;
+    // No company segment: a lunch belongs to neither workspace.
+    case "food":
+      return `/food/${a.sourceId}`;
+    case "voucher":
+      return a.sourceCompany ? `/${a.sourceCompany}/vouchers/${a.sourceId}` : null;
+    case "po":
+      return a.sourceCompany ? `/${a.sourceCompany}/po/${a.sourceId}` : null;
+    case "misc":
+      return a.sourceCompany ? `/${a.sourceCompany}/misc/${a.sourceId}` : null;
+  }
 }
 
 /**

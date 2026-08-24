@@ -3156,6 +3156,25 @@ export const sqliteStore: Store = {
       date: string;
     }>;
 
+    // Every live payment. There is no status to filter on and nothing to
+    // exclude: unlike a cancelled order, a miscellaneous payment only exists
+    // because the money already went out.
+    const misc = handle
+      .prepare(
+        `SELECT id, payment_no AS ref, company, currency, amount, notes, date
+           FROM misc_payments
+          WHERE deleted_at IS NULL`,
+      )
+      .all() as Array<{
+      id: string;
+      ref: string;
+      company: string;
+      currency: string;
+      amount: number | null;
+      notes: string | null;
+      date: string;
+    }>;
+
     const direct = handle
       .prepare(
         `SELECT id, entry_no AS ref, company, currency, amount, payee, details, date
@@ -3190,7 +3209,7 @@ export const sqliteStore: Store = {
       tranche_no: string;
     }>;
 
-    return assembleAllocatable({ vouchers, orders, food, direct, placed });
+    return assembleAllocatable({ vouchers, orders, food, misc, direct, placed });
   },
 
   async createDirect(fields: DirectFields, allocateTo: string | null): Promise<DirectExpense> {

@@ -2468,7 +2468,7 @@ export const supabaseStore: Store = {
   async allocatable(): Promise<AllocatableItem[]> {
     const db = supabase();
 
-    const [vouchers, orders, food, direct, placed, liveTranches] = await Promise.all([
+    const [vouchers, orders, food, misc, direct, placed, liveTranches] = await Promise.all([
       db
         .from(TABLE)
         .select("id, voucher_no, company, status, recipient_name, description, amount, voucher_date, created_at")
@@ -2489,6 +2489,13 @@ export const supabaseStore: Store = {
         .select("id, entry_no, status, currency, amount, vendor, details, date")
         .is("deleted_at", null)
         .limit(5000),
+      // Every live payment. Nothing to exclude by status: unlike a cancelled
+      // order, a miscellaneous payment only exists because the money went out.
+      db
+        .from(MISC)
+        .select("id, payment_no, company, currency, amount, notes, date")
+        .is("deleted_at", null)
+        .limit(5000),
       db
         .from(DIRECT)
         .select("id, entry_no, company, currency, amount, payee, details, date")
@@ -2507,6 +2514,7 @@ export const supabaseStore: Store = {
     if (vouchers.error) throw vouchers.error;
     if (orders.error) throw orders.error;
     if (food.error) throw food.error;
+    if (misc.error) throw misc.error;
     if (direct.error) throw direct.error;
     if (placed.error) throw placed.error;
     if (liveTranches.error) throw liveTranches.error;
@@ -2552,6 +2560,15 @@ export const supabaseStore: Store = {
         vendor: (f.vendor as string | null) ?? null,
         details: (f.details as string | null) ?? null,
         date: day(f.date, null),
+      })),
+      misc: (misc.data ?? []).map((m) => ({
+        id: String(m.id),
+        ref: String(m.payment_no),
+        company: String(m.company),
+        currency: (m.currency as string | null) ?? null,
+        amount: m.amount as number | string | null,
+        notes: (m.notes as string | null) ?? null,
+        date: day(m.date, null),
       })),
       direct: (direct.data ?? []).map((d) => ({
         id: String(d.id),

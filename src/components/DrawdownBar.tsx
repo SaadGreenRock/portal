@@ -4,20 +4,25 @@ import { SOURCE_KINDS, SOURCE_LABELS_PLURAL, type TrancheStanding } from "@/lib/
 /**
  * How much of a tranche has gone, and on what.
  *
- * A single bar rather than four figures, because the question it answers is
- * "how much is left" and a proportion answers that faster than arithmetic on
- * four numbers does. The segments are the four kinds of expense in their own
+ * A single bar rather than a column of figures, because the question it answers
+ * is "how much is left" and a proportion answers that faster than arithmetic on
+ * five numbers does. The segments are the five kinds of expense in their own
  * colours, so the shape of a bucket's spending — mostly vouchers, or mostly one
  * big order — reads without a legend being studied.
  *
- * The remainder is hatched rather than filled. A fifth solid colour would read
- * as a fifth kind of spending, which is exactly what it is not.
+ * The remainder is hatched rather than filled. A sixth solid colour would read
+ * as a sixth kind of spending, which is exactly what it is not.
  *
  * Each kind states both a day and a night colour. Inverting a hue by formula
  * gets the arithmetic right and the colour wrong, which is the reasoning the
- * company themes already set out — so each is named, and two of the four borrow
- * a colour the portal already uses for that idea: the teal vouchers share with
- * the accent, and the warm brown food already wears on the expenditure report.
+ * company themes already set out — so each is named, and two of them borrow a
+ * colour the portal already uses for that idea: the teal vouchers share with the
+ * accent, and the warm brown food already wears on the expenditure report.
+ *
+ * The five hues are kept far apart on purpose — teal, blue, brown, green,
+ * purple — because they are read as adjacent slices of one bar, where two
+ * neighbouring shades of the same hue are indistinguishable at a glance. Green
+ * was what the set had left when miscellaneous payments arrived.
  */
 export const KIND_SWATCH: Record<
   (typeof SOURCE_KINDS)[number],
@@ -26,6 +31,7 @@ export const KIND_SWATCH: Record<
   voucher: { day: "#104751", night: "#4fb3a1" },
   po: { day: "#3f5d7a", night: "#89b2d6" },
   food: { day: "#b8894a", night: "#d9a76a" },
+  misc: { day: "#4f6b45", night: "#96c188" },
   direct: { day: "#6b4a6e", night: "#bd93c1" },
 };
 

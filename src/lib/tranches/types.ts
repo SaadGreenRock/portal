@@ -136,15 +136,21 @@ export function effectiveRate(t: Pick<Tranche, "sentAmount" | "recvAmount">): nu
  * kind, with no voucher, order or food entry behind it. It is a source like any
  * other so that every rupee leaving a bucket is the same shape of row and the
  * total is checkable by adding one column.
+ *
+ * `misc` is the opposite case and worth not confusing with it: a miscellaneous
+ * payment is perfectly public — it sits in a company workspace and counts in the
+ * expenditure report — it simply has no document behind it. Both lack paperwork;
+ * only one of them is deliberately kept out of the rest of the portal.
  */
-export type SourceKind = "voucher" | "po" | "food" | "direct";
+export type SourceKind = "voucher" | "po" | "food" | "misc" | "direct";
 
-export const SOURCE_KINDS: SourceKind[] = ["voucher", "po", "food", "direct"];
+export const SOURCE_KINDS: SourceKind[] = ["voucher", "po", "food", "misc", "direct"];
 
 export const SOURCE_LABELS: Record<SourceKind, string> = {
   voucher: "Voucher",
   po: "Purchase order",
   food: "Food",
+  misc: "Miscellaneous",
   direct: "Direct entry",
 };
 
@@ -153,6 +159,7 @@ export const SOURCE_LABELS_PLURAL: Record<SourceKind, string> = {
   voucher: "Vouchers",
   po: "Purchase orders",
   food: "Food",
+  misc: "Miscellaneous",
   direct: "Direct entries",
 };
 
@@ -350,7 +357,7 @@ export type Debit = Pick<Allocation, "amount" | "sourceKind">;
  * apart. It is the same bargain `summarise` makes in the expenditure module.
  */
 export function stand(tranche: Tranche, debits: Debit[]): TrancheStanding {
-  const byKind: Record<SourceKind, number> = { voucher: 0, po: 0, food: 0, direct: 0 };
+  const byKind: Record<SourceKind, number> = { voucher: 0, po: 0, food: 0, misc: 0, direct: 0 };
   let allocatedPaisa = 0;
 
   for (const d of debits) {
