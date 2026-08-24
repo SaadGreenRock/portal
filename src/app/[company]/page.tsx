@@ -49,7 +49,17 @@ export default async function WorkspaceOverview({
   if (!company) notFound();
 
   const db = await store();
-  const [counts, pending, poCounts, openPos, rfqCounts, openRfqs, assetCounts, notificationCounts] =
+  const [
+    counts,
+    pending,
+    poCounts,
+    openPos,
+    rfqCounts,
+    openRfqs,
+    assetCounts,
+    notificationCounts,
+    miscCounts,
+  ] =
     await Promise.all([
       // The first three are per-request reads: the workspace shell above needs
       // the same figures for its nav badges, so this screen joins those queries
@@ -62,6 +72,7 @@ export default async function WorkspaceOverview({
       tryTable(() => db.searchRfqs({ company: company.slug, status: "open", limit: 200 })),
       tryTable(() => db.assetCounts(company.slug)),
       tryTable(() => db.notificationCounts(company.slug)),
+      tryTable(() => db.miscCounts(company.slug)),
     ]);
 
   /* ---- vouchers ---------------------------------------------------------- */
@@ -185,6 +196,35 @@ export default async function WorkspaceOverview({
     };
   }
 
+  /* ---- miscellaneous payments --------------------------------------------- */
+  // Nothing here is late or waiting: the money left before the row was typed.
+  // The receipt count is reported plainly rather than as an urgent figure —
+  // most of these will never have one, and a card that shouts at the ordinary
+  // case is a card that shouts every day.
+  let miscSummary: ModuleSummary | null = null;
+  if (miscCounts.ok) {
+    const c = miscCounts.value;
+    miscSummary = {
+      stats: [
+        // One entry per currency, never a sum across them.
+        ...c.byCurrency.map((t) => ({
+          label: `paid out, ${t.currency}`,
+          value: formatMoney(t.amount, t.currency),
+        })),
+        { label: "logged in total", value: String(c.total) },
+        ...(c.withoutProof > 0
+          ? [{ label: "without a receipt", value: String(c.withoutProof) }]
+          : []),
+      ],
+      allClear:
+        c.total === 0
+          ? "Nothing logged yet."
+          : c.withoutProof === 0
+            ? "Every payment has a receipt on file."
+            : undefined,
+    };
+  }
+
   /* ---- notifications ------------------------------------------------------ */
   // Nothing here is late or waiting — a notification is composed once and
   // never left pending — so the only thing worth saying is how many exist.
@@ -201,6 +241,7 @@ export default async function WorkspaceOverview({
     vouchers: voucherSummary,
     po: poSummary,
     rfq: rfqSummary,
+    misc: miscSummary,
     assets: assetSummary,
     notifications: notificationSummary,
   };

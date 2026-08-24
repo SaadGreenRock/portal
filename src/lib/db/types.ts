@@ -14,6 +14,7 @@ import type {
 } from "../assets/types";
 import type { CompanySlug } from "../companies";
 import type { FoodCounts, FoodExpense, FoodFields, FoodQuery } from "../food/types";
+import type { MiscCounts, MiscFields, MiscPayment, MiscQuery } from "../misc/types";
 import type {
   Notification,
   NotificationCounts,
@@ -484,10 +485,64 @@ export interface FoodStore {
   foodSpendRows(): Promise<SpendRow[]>;
 }
 
+export interface NewMiscPayment {
+  company: CompanySlug;
+  fields: MiscFields;
+}
+
+/**
+ * Miscellaneous payments — money out with no document behind it.
+ *
+ * The smallest store here. There is no status to move through, nothing to
+ * render and no vendor list to assemble from past rows: a payment is written,
+ * corrected if it was typed wrong, and evidenced if a receipt ever turns up.
+ */
+export interface MiscStore {
+  /**
+   * Reserves the next payment number for a company in the current month and
+   * writes the record. Safe against concurrent calls, like every other number
+   * in the portal.
+   */
+  createMisc(input: NewMiscPayment): Promise<MiscPayment>;
+
+  getMisc(id: string): Promise<MiscPayment | null>;
+
+  /**
+   * Corrects the payment. The number, the proof and the audit stamps are not
+   * touched — see `miscColumns` for why the proof is deliberately out of reach
+   * of an ordinary save.
+   */
+  updateMisc(id: string, fields: MiscFields): Promise<MiscPayment>;
+
+  /**
+   * Files the receipt against a payment, replacing whatever was there and
+   * returning the previous key so the caller can delete the old file.
+   *
+   * Unlike a food receipt this is never shared — one payment, one document —
+   * so there is no reference count for the caller to check first.
+   */
+  attachMiscProof(
+    id: string,
+    proof: { key: string; name: string },
+  ): Promise<{ previousKey: string | null }>;
+
+  /** Takes the proof off a payment, returning its key so the file can go too. */
+  detachMiscProof(id: string): Promise<{ key: string | null }>;
+
+  /** The row stays, so the number stays spent — the same reasoning as everywhere. */
+  softDeleteMisc(id: string): Promise<void>;
+  restoreMisc(id: string): Promise<void>;
+
+  /** Filtered log, newest payment first, plus a total count for paging. */
+  searchMisc(query: MiscQuery): Promise<{ rows: MiscPayment[]; total: number }>;
+
+  miscCounts(company: CompanySlug): Promise<MiscCounts>;
+}
+
 export interface SpendStore {
   /**
-   * Every non-deleted voucher and purchase order for a company, reduced to what
-   * a total needs.
+   * Every non-deleted voucher, purchase order and miscellaneous payment for a
+   * company, reduced to what a total needs.
    *
    * Deliberately not aggregated in the database. PostgREST cannot GROUP BY
    * without a stored function, and adding one would mean another migration the
@@ -681,6 +736,7 @@ export interface Store
     AssetStore,
     EmployeeStore,
     FoodStore,
+    MiscStore,
     SpendStore,
     TrancheStore,
     SettingsStore,

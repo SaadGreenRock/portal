@@ -2,6 +2,7 @@ import { COMPANY_LIST, type Company } from "../companies";
 import { tryTable } from "../db/resilience";
 import type { Store } from "../db/types";
 import type { FoodExpense } from "../food/types";
+import type { MiscPayment } from "../misc/types";
 import type { PurchaseOrder } from "../po/types";
 import { formatDate } from "../format";
 import { toNumber } from "../money";
@@ -25,6 +26,12 @@ import type { ToggleKey, Voucher, VoucherFields } from "../types";
  *   Food carries what is still owed on the row itself. The expense was incurred
  *   when the food was eaten; settling it is a later, separate event, and the row
  *   says which of the two has happened.
+ *
+ *   Miscellaneous payments are included whether or not a receipt was kept, and
+ *   the row says which. Withholding the ones with no document would understate
+ *   spend — the money left either way — and this is the section most likely to
+ *   be queried by somebody holding a bank statement, so the status column
+ *   answers "can you show me this one" before it is asked.
  *
  *   Direct entries from the funding section are absent, exactly as they are from
  *   the expenditure report — see the note above `DirectFields` in
@@ -91,7 +98,7 @@ export interface ReportGroup {
 }
 
 export interface ReportSection {
-  key: "vouchers" | "orders" | "food";
+  key: "vouchers" | "orders" | "misc" | "food";
   title: string;
   /** What this section counts, in one line, printed under the heading. */
   blurb: string;
@@ -295,6 +302,33 @@ function orderRows(orders: PurchaseOrder[], range: ReportRange): ReportRow[] {
 }
 
 /**
+ * Every live payment, evidenced or not.
+ *
+ * `owed` is false throughout: the money had already gone before the row was
+ * typed, so there is nobody waiting to be paid. The status column carries the
+ * one thing left worth reporting — whether a receipt is on file — which is a
+ * statement about the paperwork and not about the money, exactly as
+ * "awaiting signature" is on a voucher.
+ */
+function miscRows(payments: MiscPayment[], range: ReportRange): ReportRow[] {
+  return payments
+    .map((m) => ({
+      ref: m.paymentNo,
+      date: m.date,
+      // No party column on this section — a miscellaneous payment has no payee
+      // field, by design. See `COLUMNS` in the report page.
+      party: "",
+      details: m.notes || "—",
+      currency: m.currency || "PKR",
+      amount: m.amount,
+      status: m.proofKey ? "Receipt on file" : "No receipt",
+      owed: false,
+    }))
+    .filter((row) => within(row.date, range))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref));
+}
+
+/**
  * Every live entry, settled or not.
  *
  * The food was eaten, so the expense was incurred — which is why a pending entry
@@ -339,15 +373,18 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
   const [perCompany, food] = await Promise.all([
     Promise.all(
       COMPANY_LIST.map(async (company) => {
-        const [vouchers, orders] = await Promise.all([
+        const [vouchers, orders, misc] = await Promise.all([
           tryTable(() =>
             db.search({ company: company.slug, status: "all", limit: MAX_ROWS }),
           ),
           tryTable(() =>
             db.searchPos({ company: company.slug, status: "closed", limit: MAX_ROWS }),
           ),
+          tryTable(() =>
+            db.searchMisc({ company: company.slug, view: "all", limit: MAX_ROWS }),
+          ),
         ]);
-        return { company, vouchers, orders };
+        return { company, vouchers, orders, misc };
       }),
     ),
     tryTable(() => db.foodInRange(range.from, range.to)),
@@ -388,6 +425,19 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
     orderGroups.push({ company, rows, totals: totalsOf(rows) });
   }
 
+  /* ---- miscellaneous payments --------------------------------------------- */
+
+  const miscGroups: ReportGroup[] = [];
+  let miscAvailable = false;
+
+  for (const { company, misc } of perCompany) {
+    if (!misc.ok) continue;
+    miscAvailable = true;
+    checkCap(`${company.name} miscellaneous payments`, misc.value.rows.length, misc.value.total);
+    const rows = miscRows(misc.value.rows, range);
+    miscGroups.push({ company, rows, totals: totalsOf(rows) });
+  }
+
   /* ---- food --------------------------------------------------------------- */
 
   // Already bounded by the query, but filtered again so one rule decides the
@@ -416,6 +466,14 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
       available: ordersAvailable,
     },
     {
+      key: "misc",
+      title: "Miscellaneous payments",
+      blurb: "Money out with no document behind it. Counted whether a receipt was kept or not.",
+      groups: miscGroups,
+      totals: combine(miscGroups.map((g) => g.totals)),
+      available: miscAvailable,
+    },
+    {
       key: "food",
       title: "Food and refreshments",
       blurb: "For either company or both. Counted whether settled or not.",
@@ -432,6 +490,11 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
   if (!ordersAvailable) {
     notes.push("Purchase orders are not set up here, so these figures cover vouchers and food only.");
   }
+  if (!miscAvailable) {
+    notes.push(
+      "Miscellaneous payments are not set up here, so none are included in these figures.",
+    );
+  }
   if (!food.ok) {
     notes.push("The food log is not set up here, so no food expenditure is included.");
   }
@@ -447,6 +510,17 @@ export async function buildReport(db: Store, range: ReportRange): Promise<Expens
   if (owed.length > 0) {
     notes.push(
       "Food counts from the day it was ordered. Rows marked “yet to pay” are in the totals but not yet settled.",
+    );
+  }
+
+  const unevidenced = miscGroups.reduce(
+    (n, g) => n + g.rows.filter((r) => r.status === "No receipt").length,
+    0,
+  );
+  if (unevidenced > 0) {
+    notes.push(
+      `${unevidenced} miscellaneous ${unevidenced === 1 ? "payment has" : "payments have"} no receipt on file. ` +
+        `${unevidenced === 1 ? "It is" : "They are"} included in the totals — the money left whether or not a document came back with it.`,
     );
   }
 

@@ -12,7 +12,14 @@ import type { Company } from "./companies";
  * database import (it is used by client components).
  */
 
-export type ModuleKey = "vouchers" | "po" | "rfq" | "assets" | "employees" | "notifications";
+export type ModuleKey =
+  | "vouchers"
+  | "po"
+  | "rfq"
+  | "misc"
+  | "assets"
+  | "employees"
+  | "notifications";
 
 export interface ModuleTab {
   /** Appended to the module's base path. "" is the module's own index. */
@@ -88,6 +95,29 @@ export const MODULES: PortalModule[] = [
       { segment: "", label: "Open", badge: "rfq" },
       { segment: "new", label: "New quotation request" },
       { segment: "history", label: "History" },
+    ],
+  },
+  {
+    key: "misc",
+    segment: "misc",
+    label: "Miscellaneous",
+    blurb:
+      "Payments with no document behind them \u2014 a date, an amount, a note, and the receipt if there is one.",
+    home: "",
+    // No badge, for the reason the asset register gives about being out with
+    // somebody: a payment without a receipt is an ordinary state of a payment,
+    // not a task waiting on the operator. Half of these will never have one —
+    // that is the point of the module — and a count that is permanently lit
+    // teaches you to stop reading it.
+    //
+    // Two tabs rather than three. Every other module splits its working list
+    // from its history because the two answer different questions; here they are
+    // the same question, since a payment is logged once and never moves through
+    // a lifecycle. The log's own filters cover the period and the recycle bin,
+    // so a History tab would be the same screen reached by a second name.
+    tabs: [
+      { segment: "", label: "Payments" },
+      { segment: "new", label: "New payment" },
     ],
   },
   {

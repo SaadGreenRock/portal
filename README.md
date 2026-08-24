@@ -330,6 +330,72 @@ Defaults live in **Settings → Quotation request defaults**: which currency to 
 vendors to quote in, how many days they get to reply, where to send the answer,
 and the conditions of quoting printed at the foot.
 
+## Miscellaneous payments
+
+`/<company>/misc`, under **Miscellaneous** in the workspace switcher. Money that
+left the company with no document behind it: the parking fee, the courier, the
+tip to the man who carried the water bottles up.
+
+Every other spend module here is built around a piece of paper. A voucher exists
+to be printed and signed; a purchase order exists to be issued to a vendor. This
+one deliberately has none — no template, no PDF, no signature block, nothing to
+render. **The record is the record.**
+
+That is why it exists. Until now those payments had two possible homes, and both
+were wrong: raise a voucher nobody would ever sign, which puts a permanent gap in
+the voucher sequence and a fiction in the file; or leave them out of the totals
+altogether, which is what was happening and is why the figures never quite
+matched the bank.
+
+A payment is three facts and an optional fourth:
+
+| | |
+|---|---|
+| **Date paid** | when the money went out — not when you typed it in |
+| **Amount** | and its currency, PKR unless you say otherwise |
+| **What it was for** | required: it is the only description the record has |
+| **Receipt** | if there is one. Often there is not. |
+
+**A missing receipt is an ordinary state, not a task.** Roughly the point of the
+module is that these payments frequently have no paperwork, so nothing badges
+them, nothing colours them amber, and the record screen says *"Nothing on file.
+That is fine — the payment counts either way."* The one place the question gets
+asked is the log's **Without a receipt** filter, used by somebody who came
+looking for it.
+
+The receipt can be attached while logging the payment, or months later from the
+record — a bill that turns up in June for a payment made in March is normal. It
+can be replaced when the first photograph came out unreadable, and removed when
+it was the wrong document. **Removing it never removes the payment**: the receipt
+was evidence, not the reason to believe the money moved.
+
+Unlike a food receipt, this one is never shared between records — one payment,
+one document — so removing it deletes the file outright, with no reference count
+to check first.
+
+### Not a way around vouchers
+
+The shortest form in the portal is a standing temptation to use for something
+that should have been signed for, so the New payment screen says so before the
+form rather than after it: if somebody *can* be made to sign, raise a voucher. It
+prints, it is acknowledged, and the signed copy comes back to the file.
+
+### Company-scoped, unlike food
+
+A lunch is genuinely ordered for both companies at once, which is why the food
+log belongs to neither. A payment comes out of **one** company's account, so it
+has an owner: it lives in that workspace, takes that workspace's number prefix,
+and appears on that company's card under Expenditure. Reaching one company's
+payment through the other's URL is a 404 rather than a redirect.
+
+### Two tabs, not three
+
+Every other module splits its working list from its history, because the two
+answer different questions. Here they are the same question — a payment is logged
+once and never moves through a lifecycle — so the log's own filters cover the
+period and the recycle bin, and a History tab would be the same screen reached by
+a second name.
+
 ## Food & refreshments
 
 `/food`, reachable from the company picker and from **Food** in any workspace's
@@ -475,11 +541,12 @@ The report refuses to give you one blended number, and that is the whole point o
 it:
 
 ```
-Vouchers                       PKR   246,000     money that has left
+Vouchers                       PKR   246,000     money that has left, signed for
 Purchase orders                PKR 1,910,420     promised to a vendor
+Miscellaneous                  PKR    14,310     money that has left, unsigned
 Food & refreshments            PKR   119,038     eaten, settled or not
 ─────────────────────────────────────────────
-Combined                       PKR 2,275,458
+Combined                       PKR 2,289,768
 Draft orders, not counted      PKR    69,384     promised to nobody yet
 ```
 
@@ -488,10 +555,15 @@ the right-hand column above, which belongs in this README rather than printed
 beside every figure on the screen.
 
 A voucher is money someone has signed for. A purchase order is money committed
-that may not have been paid. Food is a third claim and neither of those: the
-money may not have moved, but the food was eaten, so the expense was incurred.
-Adding them without saying so would produce a confident figure meaning three
-different things, so they get their own lines and are combined only after.
+that may not have been paid. A miscellaneous payment is money that has left with
+nobody signing for it. Food is a fourth claim and none of those: the money may
+not have moved, but the food was eaten, so the expense was incurred. Adding them
+without saying so would produce a confident figure meaning four different things,
+so they get their own lines and are combined only after.
+
+Miscellaneous stays off the voucher line for a reason worth stating: the voucher
+figure is worth reading precisely because a signature sits behind every rupee of
+it, and folding the unsigned payments in would quietly cost it that meaning.
 
 **Food appears only in the combined figure**, never on the two company cards — it
 belongs to neither. It does get its own row under *Split by company*, so the
@@ -508,10 +580,16 @@ What is left out, and why:
   reported side by side, because a single number spanning both would look
   authoritative and mean nothing.
 
-And the gap worth knowing about: a voucher whose amount was **left blank to be
+And the gaps worth knowing about. A voucher whose amount was **left blank to be
 written by hand** has no figure to count. The report says so — *"1 of 6 vouchers
 had the amount left blank"* — because a total that quietly omits some of your
 spending is worse than one that admits what it is missing.
+
+The other is stated the same way and means something different: *"4 of 5
+miscellaneous payments have no receipt on file"*. Those **are** counted, in full.
+It is a gap in the evidence, not in the total — the money left whether or not a
+document came back with it, and holding those rows back would understate spend,
+which is the one direction these figures must not fail in.
 
 Figures are added up in the application rather than the database. PostgREST
 cannot `GROUP BY` without a stored function, and adding one would mean another
@@ -526,6 +604,7 @@ GR-202607-014        a voucher
 GR-PO-202608-001     a purchase order
 GR-RFQ-202608-001    a request for quotation
 GR-A-001             an asset
+GR-MP-202608-001     a miscellaneous payment
 F-202608-001         a food entry
 ```
 
@@ -598,8 +677,10 @@ The row itself is kept behind the scenes, for two reasons:
   already have been printed, signed, or sent to a vendor. Deleting leaves a gap
   in the sequence instead — the same way a paper book does.
 - **It's reversible.** Files are retained, so a delete pressed by mistake can be
-  undone in full from **History → Deleted → Restore**. There are no backups
-  behind this tool, so an irreversible delete would be a poor trade.
+  undone in full from **History → Deleted → Restore** — or, on the modules whose
+  list carries its own filters rather than a separate History tab (Food,
+  Miscellaneous), from **Show: Deleted → Restore**. There are no backups behind
+  this tool, so an irreversible delete would be a poor trade.
 
 If you ever do need to purge a record and its files outright, that isn't in the
 UI by design — say the word and I'll add it as an explicit second step on the
@@ -853,7 +934,13 @@ register — is:
 4. Optionally a section in `CompanySettings` (`src/lib/settings.ts`) — settings
    are one JSON document per company, so that costs no schema change.
 
-Nothing existing has to be touched.
+Nothing existing has to be touched — *unless the module records money*, which is
+the one case that reaches outside itself. Miscellaneous payments was the first,
+and it is the worked example: a spend-bearing module also needs its rows in
+`spendRows` (both backends), a `kind` and a line in `src/lib/spend/types.ts`, a
+section in `src/lib/spend/report.ts`, and its line on `/spend` and in the printed
+report. Skip any one of those and the module works perfectly while quietly not
+counting, which is the failure it was built to fix.
 
 ### …that belongs to no company
 
@@ -911,6 +998,9 @@ src/
     food/
       types.ts       the food domain model, and the SUMIFS the sheet used to do
       actions.ts     server actions, including the batch settle
+    misc/
+      types.ts       miscellaneous payments — the module with no document
+      actions.ts     server actions: log, correct, attach or remove the receipt
     spend/
       types.ts       expenditure roll-up — the only place totals are decided
     client-pdf.ts    browser-side SVG → canvas → JPEG → PDF

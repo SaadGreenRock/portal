@@ -26,8 +26,9 @@ import {
  * Each kind of document gets its own line before they are combined, because they
  * are different claims: a voucher is money that has left and been signed for, a
  * purchase order is money promised to a vendor that may not have been paid yet,
- * and food is money already eaten whether settled or not. A single blended
- * number would read as authoritative and mean three things at once.
+ * a miscellaneous payment is money that has left with nobody signing for it, and
+ * food is money already eaten whether settled or not. A single blended number
+ * would read as authoritative and mean four things at once.
  *
  * The lines are labelled with the document names alone — "Vouchers", not "Paid
  * out — vouchers". The reader knows what a voucher is; the gloss was the page
@@ -58,8 +59,8 @@ export default async function Expenditure({
             <div>
               <h1 className="text-[22px] font-bold tracking-tight">Expenditure</h1>
               <p className="mt-1 text-[14px] text-ink-soft">
-                Both companies together, and each on its own. From vouchers, purchase orders and
-                the food log.
+                Both companies together, and each on its own. From vouchers, purchase orders,
+                miscellaneous payments and the food log.
               </p>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -257,9 +258,10 @@ async function Report({ range }: { range: SpendRange }) {
 
       <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
         Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
-        nothing has been promised to a vendor yet. Food is counted whether it has been settled or
-        not, and belongs to neither company on its own, so it appears only in the combined figure.
-        Currencies are never added together.
+        nothing has been promised to a vendor yet. Miscellaneous payments are counted whether or
+        not a receipt was kept. Food is counted whether it has been settled or not, and belongs to
+        neither company on its own, so it appears only in the combined figure. Currencies are
+        never added together.
       </p>
     </>
   );
@@ -428,6 +430,12 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
           <dl className="space-y-1.5">
             <Line label="Vouchers" value={t.paid} currency={t.currency} />
             <Line label="Purchase orders" value={t.committed} currency={t.currency} />
+            {/* Its own line, not folded into Vouchers. Both are money that has
+                left, but only one of them has a signature behind it, and that
+                is the whole of what the voucher line is worth reading for. */}
+            {t.misc > 0 ? (
+              <Line label="Miscellaneous" value={t.misc} currency={t.currency} />
+            ) : null}
             {/* Only when there is any. The per-company cards never receive food
                 rows, so this line simply does not appear on them — which is
                 right: food is not attributed to a company. */}
@@ -459,7 +467,8 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
       {/* The gap in the figure, stated rather than hidden. */}
       {counts.vouchersWithoutAmount > 0 ||
       counts.ordersCancelled > 0 ||
-      counts.foodPending > 0 ? (
+      counts.foodPending > 0 ||
+      counts.miscWithoutProof > 0 ? (
         <div className="border-t border-ink-line bg-wash-soft px-5 py-3">
           {counts.vouchersWithoutAmount > 0 ? (
             <p className="text-[12.5px] leading-snug text-amber-800">
@@ -474,6 +483,18 @@ function Totals({ summary, emphasis }: { summary: SpendSummary; emphasis?: boole
             <p className="mt-1 text-[12.5px] text-ink-soft">
               {counts.ordersCancelled} cancelled {counts.ordersCancelled === 1 ? "order" : "orders"}{" "}
               excluded.
+            </p>
+          ) : null}
+          {/* Counted in the figure above, like the food line below and unlike
+              the two caveats before it. This is a gap in the *evidence*, not in
+              the total: the money left whether or not a receipt came back with
+              it, and grey rather than amber because most of these never have
+              one. */}
+          {counts.miscWithoutProof > 0 ? (
+            <p className="mt-1 text-[12.5px] text-ink-soft">
+              {counts.miscWithoutProof} of {counts.miscPayments} miscellaneous{" "}
+              {counts.miscPayments === 1 ? "payment has" : "payments have"} no receipt on file.
+              Counted in full above.
             </p>
           ) : null}
           {/* Counted in the figure above, unlike the two caveats before it —

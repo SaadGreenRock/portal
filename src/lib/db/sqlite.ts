@@ -32,6 +32,13 @@ import {
   type FoodFields,
   type FoodQuery,
 } from "../food/types";
+import {
+  summariseMisc,
+  type MiscCounts,
+  type MiscFields,
+  type MiscPayment,
+  type MiscQuery,
+} from "../misc/types";
 import type { Notification, NotificationCounts, NotificationQuery } from "../notifications/types";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
@@ -63,6 +70,7 @@ import type { HistoryQuery, Signatory, Voucher } from "../types";
 import type {
   NewAsset,
   NewEmployee,
+  NewMiscPayment,
   NewNotification,
   NewPurchaseOrder,
   NewRfq,
@@ -81,10 +89,12 @@ import {
   employeeKey,
   employeeNoKey,
   foodColumns,
+  miscColumns,
   foodNamesFrom,
   formatAssetNo,
   formatDirectNo,
   formatFoodNo,
+  formatMiscNo,
   formatNotifNo,
   formatPoNo,
   formatRfqNo,
@@ -105,6 +115,7 @@ import {
   rowToEmployee,
   rowToFood,
   rowToHolding,
+  rowToMisc,
   rowToHoldingWithAsset,
   rowToNotification,
   newestPerAsset,
@@ -123,6 +134,7 @@ import {
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
+  type MiscRow,
   type NotificationRow,
   type PhotoRow,
   type PoRow,
@@ -407,6 +419,41 @@ function connect(): Database.Database {
     -- The index on receipt_key is created in migrate(), not here: this block
     -- runs first, and on a database that predates the column an index over it
     -- would fail with "no such column" before the migration could add it.
+
+    -- Money out with no document behind it: a parking fee, a courier, a tip.
+    -- Company-scoped, unlike food_expenses -- a payment comes out of one
+    -- company's account, so it has an owner. No status column: the money has
+    -- already gone by the time this is typed, and the only thing that can turn
+    -- up later is the receipt. See src/lib/misc/types.ts.
+    CREATE TABLE IF NOT EXISTS misc_payments (
+      id            TEXT PRIMARY KEY,
+      payment_no    TEXT NOT NULL UNIQUE,
+      company       TEXT NOT NULL,
+      seq           INTEGER NOT NULL,
+      period        TEXT NOT NULL,
+      -- When the money went out, which is not when the row was created: these
+      -- are typically caught up on at the end of a week.
+      date          TEXT NOT NULL,
+      amount        REAL NOT NULL DEFAULT 0,
+      currency      TEXT NOT NULL DEFAULT 'PKR',
+      -- What it was for. The only description the record has, which is why the
+      -- action refuses an empty one.
+      notes         TEXT NOT NULL DEFAULT '',
+      -- The receipt, if there ever was one. Never shared between payments,
+      -- unlike a food receipt, so removing it can delete the file outright.
+      proof_key     TEXT,
+      proof_name    TEXT,
+      proof_at      TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      deleted_at    TEXT,
+      -- Guarantees a number is never handed out twice for the same company and
+      -- month, even if two requests race.
+      UNIQUE (company, period, seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS misc_company_date
+      ON misc_payments (company, date DESC);
 
     -- Branded announcement cards. Every field is a column, like assets and
     -- food_expenses: nothing here is printed except what is also searched or
@@ -2426,6 +2473,188 @@ export const sqliteStore: Store = {
     }));
   },
 
+  /* ---- miscellaneous payments -------------------------------------------- */
+
+  async createMisc({ company, fields }: NewMiscPayment): Promise<MiscPayment> {
+    const handle = connect();
+    const now = new Date().toISOString();
+    const period = periodOf();
+
+    const insert = handle.prepare(`
+      INSERT INTO misc_payments (
+        id, payment_no, company, seq, period, date, amount, currency, notes,
+        created_at, updated_at
+      ) VALUES (
+        @id, @payment_no, @company, @seq, @period, @date, @amount, @currency,
+        @notes, @created_at, @created_at
+      )
+    `);
+
+    // Deleted rows are counted, as everywhere else: a number written on a
+    // receipt is spent even if the row was later binned.
+    const nextSeq = handle.prepare(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM misc_payments WHERE company = ? AND period = ?`,
+    );
+
+    // UNIQUE (company, period, seq) is the real guard; the retry loop just picks
+    // up the next free number if we lost a race.
+    const claim = handle.transaction((): MiscRow => {
+      const { seq } = nextSeq.get(company, period) as { seq: number };
+      const id = newId();
+      insert.run({
+        id,
+        payment_no: formatMiscNo(company, period, seq),
+        company,
+        seq,
+        period,
+        created_at: now,
+        ...miscColumns(fields),
+      });
+      return handle.prepare(`SELECT * FROM misc_payments WHERE id = ?`).get(id) as MiscRow;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return rowToMisc(claim());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("UNIQUE") || attempt === 4) throw err;
+      }
+    }
+    throw new Error("Could not assign a payment number after several attempts");
+  },
+
+  async getMisc(id) {
+    const row = connect().prepare(`SELECT * FROM misc_payments WHERE id = ?`).get(id) as
+      | MiscRow
+      | undefined;
+    return row ? rowToMisc(row) : null;
+  },
+
+  async updateMisc(id, fields: MiscFields): Promise<MiscPayment> {
+    const handle = connect();
+    handle
+      .prepare(
+        `UPDATE misc_payments SET
+            date = @date, amount = @amount, currency = @currency, notes = @notes,
+            updated_at = @updated_at
+          WHERE id = @id`,
+      )
+      .run({ id, updated_at: new Date().toISOString(), ...miscColumns(fields) });
+
+    const row = handle.prepare(`SELECT * FROM misc_payments WHERE id = ?`).get(id) as
+      | MiscRow
+      | undefined;
+    if (!row) throw new Error("Payment not found");
+    return rowToMisc(row);
+  },
+
+  async attachMiscProof(id: string, proof: { key: string; name: string }) {
+    const handle = connect();
+    // Read before the write, so the caller is handed the file it is now
+    // responsible for deleting. Nothing else can be pointing at it.
+    const current = handle.prepare(`SELECT proof_key FROM misc_payments WHERE id = ?`).get(id) as
+      | { proof_key: string | null }
+      | undefined;
+    if (!current) throw new Error("Payment not found");
+
+    const now = new Date().toISOString();
+    handle
+      .prepare(
+        `UPDATE misc_payments SET
+            proof_key = ?, proof_name = ?, proof_at = ?, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(proof.key, proof.name, now, now, id);
+
+    return { previousKey: current.proof_key ?? null };
+  },
+
+  async detachMiscProof(id: string) {
+    const handle = connect();
+    const current = handle.prepare(`SELECT proof_key FROM misc_payments WHERE id = ?`).get(id) as
+      | { proof_key: string | null }
+      | undefined;
+    const key = current?.proof_key ?? null;
+    if (!key) return { key: null };
+
+    handle
+      .prepare(
+        `UPDATE misc_payments SET
+            proof_key = NULL, proof_name = NULL, proof_at = NULL, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(new Date().toISOString(), id);
+
+    return { key };
+  },
+
+  async softDeleteMisc(id) {
+    connect()
+      .prepare(`UPDATE misc_payments SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`)
+      .run(new Date().toISOString(), id);
+  },
+
+  async restoreMisc(id) {
+    connect().prepare(`UPDATE misc_payments SET deleted_at = NULL WHERE id = ?`).run(id);
+  },
+
+  async searchMisc(query: MiscQuery) {
+    const handle = connect();
+    const where: string[] = ["company = @company"];
+    const params: Record<string, unknown> = { company: query.company };
+
+    if (query.view === "deleted") {
+      where.push("deleted_at IS NOT NULL");
+    } else {
+      where.push("deleted_at IS NULL");
+      if (query.view === "with-proof") where.push("proof_key IS NOT NULL");
+      else if (query.view === "no-proof") where.push("proof_key IS NULL");
+    }
+
+    if (query.q?.trim()) {
+      where.push(`(
+        payment_no LIKE @q COLLATE NOCASE OR
+        notes      LIKE @q COLLATE NOCASE
+      )`);
+      params.q = `%${query.q.trim()}%`;
+    }
+    if (query.from) {
+      where.push("date >= @from");
+      params.from = query.from;
+    }
+    if (query.to) {
+      where.push("date <= @to");
+      params.to = query.to;
+    }
+
+    const clause = where.join(" AND ");
+    const { total } = handle
+      .prepare(`SELECT COUNT(*) AS total FROM misc_payments WHERE ${clause}`)
+      .get(params) as { total: number };
+
+    // By the payment date, then by number within a day — the same ordering the
+    // food log uses, and for the same reason: this is read as a diary and is
+    // often caught up on late, so sorting by creation would bury Friday's
+    // parking fee under Monday's catch-up.
+    const rows = handle
+      .prepare(
+        `SELECT * FROM misc_payments WHERE ${clause}
+          ORDER BY date DESC, seq DESC
+          LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit: query.limit ?? 50, offset: query.offset ?? 0 }) as MiscRow[];
+
+    return { rows: rows.map(rowToMisc), total };
+  },
+
+  async miscCounts(company: CompanySlug): Promise<MiscCounts> {
+    const rows = connect()
+      .prepare(`SELECT * FROM misc_payments WHERE company = ? AND deleted_at IS NULL`)
+      .all(company) as MiscRow[];
+    return summariseMisc(rows.map(rowToMisc));
+  },
+
   /* ---- expenditure ------------------------------------------------------ */
 
   async spendRows(company: CompanySlug): Promise<SpendRow[]> {
@@ -2455,6 +2684,21 @@ export const sqliteStore: Store = {
       date: string;
     }>;
 
+    // A misc payment has no lifecycle, so `status` carries the one thing left
+    // worth reporting about it: whether there is a receipt behind it. It changes
+    // no total — see `CurrencyTotal.misc` — it is the caveat beside them.
+    const misc = handle
+      .prepare(
+        `SELECT currency, amount, date, proof_key FROM misc_payments
+          WHERE company = ? AND deleted_at IS NULL`,
+      )
+      .all(company) as Array<{
+      currency: string;
+      amount: number;
+      date: string;
+      proof_key: string | null;
+    }>;
+
     return [
       ...vouchers.map((v) => ({
         kind: "voucher" as const,
@@ -2471,6 +2715,14 @@ export const sqliteStore: Store = {
         currency: o.currency || "PKR",
         amount: o.total,
         date: o.date,
+      })),
+      ...misc.map((m) => ({
+        kind: "misc" as const,
+        company,
+        status: m.proof_key ? "proof" : "no-proof",
+        currency: m.currency || "PKR",
+        amount: m.amount,
+        date: m.date,
       })),
     ];
   },

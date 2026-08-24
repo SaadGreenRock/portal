@@ -33,10 +33,19 @@ import {
  * missing its last section looks exactly like a complete one.
  */
 
-/** Column headings differ by document type; the shape of the table does not. */
-const COLUMNS: Record<ReportSection["key"], { party: string; details: string }> = {
+/**
+ * Column headings differ by document type; the shape of the table barely does.
+ *
+ * `party` may be null, and exactly one section uses that: a miscellaneous
+ * payment has no payee field at all — it is a note and an amount, deliberately
+ * — so the column is dropped rather than filled with a row of dashes, and the
+ * note takes the width back. Everything else about the table is identical, so a
+ * reader moving between sections is not re-learning it each time.
+ */
+const COLUMNS: Record<ReportSection["key"], { party: string | null; details: string }> = {
   vouchers: { party: "Paid to", details: "Description" },
   orders: { party: "Vendor", details: "Subject" },
+  misc: { party: null, details: "What it was for" },
   food: { party: "Vendor", details: "What was ordered" },
 };
 
@@ -291,7 +300,7 @@ function Group({
   columns,
 }: {
   group: ReportGroup;
-  columns: { party: string; details: string };
+  columns: { party: string | null; details: string };
 }) {
   return (
     <div className="mt-4">
@@ -312,7 +321,7 @@ function Group({
         <colgroup>
           <col className="w-[16%]" />
           <col className="w-[11%]" />
-          <col className="w-[19%]" />
+          {columns.party ? <col className="w-[19%]" /> : null}
           <col />
           <col className="w-[14%]" />
           <col className="w-[13%]" />
@@ -321,7 +330,9 @@ function Group({
           <tr className="border-y border-ink-rule bg-wash text-left">
             <th className="px-1.5 py-1.5 font-semibold">No.</th>
             <th className="px-1.5 py-1.5 font-semibold">Date</th>
-            <th className="px-1.5 py-1.5 font-semibold">{columns.party}</th>
+            {columns.party ? (
+              <th className="px-1.5 py-1.5 font-semibold">{columns.party}</th>
+            ) : null}
             <th className="px-1.5 py-1.5 font-semibold">{columns.details}</th>
             <th className="px-1.5 py-1.5 text-right font-semibold">Amount</th>
             <th className="px-1.5 py-1.5 font-semibold">Status</th>
@@ -332,7 +343,7 @@ function Group({
             <tr key={row.ref} className="border-b border-ink-line align-top">
               <td className="mono px-1.5 py-1">{row.ref}</td>
               <td className="mono px-1.5 py-1 whitespace-nowrap">{formatDate(row.date)}</td>
-              <td className="px-1.5 py-1">{row.party}</td>
+              {columns.party ? <td className="px-1.5 py-1">{row.party}</td> : null}
               <td className="px-1.5 py-1">{row.details}</td>
               <td className="mono px-1.5 py-1 text-right">
                 {row.amount == null ? (

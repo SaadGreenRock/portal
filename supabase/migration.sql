@@ -670,6 +670,60 @@ create index if not exists tranche_expenses_date_idx
   on public.tranche_expenses (date desc);
 
 -- ---------------------------------------------------------------------------
+-- Miscellaneous payments
+-- ---------------------------------------------------------------------------
+-- Money out with no document behind it: a parking fee, a courier, a tip. Every
+-- other spend module here is built around a piece of paper -- a voucher exists
+-- to be signed, an order to be issued -- and this one deliberately has none.
+-- The row is the record.
+--
+-- Company-scoped, unlike food_expenses. A lunch is genuinely ordered for both
+-- companies at once; a payment comes out of one company's account, so it has an
+-- owner and belongs in that workspace's totals.
+--
+-- No status column. The money has already gone by the time this is typed, so
+-- there is nothing to move through -- the only thing that can turn up later is
+-- the receipt, which is why proof is its own three columns rather than a field
+-- of the form. See src/lib/misc/types.ts.
+create table if not exists public.misc_payments (
+  id            uuid primary key,
+  payment_no    text        not null unique,
+  company       text        not null,
+  seq           integer     not null,
+  period        text        not null,           -- yyyymm, e.g. 202608
+  -- When the money went out, which is not when the row was created: these are
+  -- typically caught up on at the end of a week.
+  date          date        not null,
+  amount        numeric(14, 2) not null default 0,
+  currency      text        not null default 'PKR',
+  -- What it was for. The only description the record has, which is why the
+  -- action refuses an empty one.
+  notes         text        not null default '',
+  -- The receipt, if there ever was one. Never shared between payments, unlike a
+  -- food receipt, so removing it can delete the file outright with no reference
+  -- count to check first.
+  proof_key     text,
+  proof_name    text,
+  proof_at      timestamptz,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  -- Same reasoning as the others: the row stays, so the number stays spent and a
+  -- deleted payment's figures remain reconstructable.
+  deleted_at    timestamptz,
+  -- A sequence number is never handed out twice for the same company and month.
+  -- This constraint, not application logic, is what guarantees it.
+  constraint misc_company_period_seq_key unique (company, period, seq)
+);
+
+create index if not exists misc_company_date_idx
+  on public.misc_payments (company, date desc);
+
+-- Backs the "which of these can I actually evidence" view on the log.
+create index if not exists misc_proof_idx
+  on public.misc_payments (company, proof_key)
+  where deleted_at is null;
+
+-- ---------------------------------------------------------------------------
 -- Per-company settings
 -- ---------------------------------------------------------------------------
 -- One JSON document per company. A new module adds a section to the document
@@ -694,6 +748,7 @@ alter table public.tranche_allocations    enable row level security;
 alter table public.tranche_expenses       enable row level security;
 alter table public.employees              enable row level security;
 alter table public.asset_photos           enable row level security;
+alter table public.misc_payments          enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 

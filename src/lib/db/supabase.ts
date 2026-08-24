@@ -31,6 +31,13 @@ import {
   type FoodQuery,
 } from "../food/types";
 import { todayIso } from "../format";
+import {
+  summariseMisc,
+  type MiscCounts,
+  type MiscFields,
+  type MiscPayment,
+  type MiscQuery,
+} from "../misc/types";
 import type { Notification, NotificationCounts, NotificationQuery } from "../notifications/types";
 import { OPEN_STATUSES, type PoCounts, type PoDoc, type PoQuery, type PoStatus, type PurchaseOrder } from "../po/types";
 import {
@@ -61,6 +68,7 @@ import type { HistoryQuery, Signatory, Voucher } from "../types";
 import type {
   NewAsset,
   NewEmployee,
+  NewMiscPayment,
   NewNotification,
   NewPurchaseOrder,
   NewRfq,
@@ -79,10 +87,12 @@ import {
   employeeKey,
   employeeNoKey,
   foodColumns,
+  miscColumns,
   foodNamesFrom,
   formatAssetNo,
   formatDirectNo,
   formatFoodNo,
+  formatMiscNo,
   formatNotifNo,
   formatPoNo,
   formatRfqNo,
@@ -103,6 +113,7 @@ import {
   rowToEmployee,
   rowToFood,
   rowToHolding,
+  rowToMisc,
   rowToHoldingWithAsset,
   rowToNotification,
   newestPerAsset,
@@ -121,6 +132,7 @@ import {
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
+  type MiscRow,
   type NotificationRow,
   type PhotoRow,
   type PoRow,
@@ -199,6 +211,7 @@ const ALLOCATIONS = "tranche_allocations";
 const DIRECT = "tranche_expenses";
 const EMPLOYEES = "employees";
 const PHOTOS = "asset_photos";
+const MISC = "misc_payments";
 
 /**
  * The one holding on an asset that has not been returned, if any.
@@ -1873,13 +1886,186 @@ export const supabaseStore: Store = {
     }));
   },
 
+  /* ---- miscellaneous payments -------------------------------------------- */
+
+  async createMisc({ company, fields }: NewMiscPayment): Promise<MiscPayment> {
+    const db = supabase();
+    const period = periodOf();
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      // Deleted rows count, as elsewhere: a number already written on a receipt
+      // is spent even if the row was binned.
+      const { data: highest, error: maxErr } = await db
+        .from(MISC)
+        .select("seq")
+        .eq("company", company)
+        .eq("period", period)
+        .order("seq", { ascending: false })
+        .limit(1);
+      if (maxErr) throw maxErr;
+
+      const seq = (highest?.[0]?.seq ?? 0) + 1;
+      const now = new Date().toISOString();
+
+      const { data, error } = await db
+        .from(MISC)
+        .insert({
+          id: newId(),
+          payment_no: formatMiscNo(company, period, seq),
+          company,
+          seq,
+          period,
+          created_at: now,
+          updated_at: now,
+          ...miscColumns(fields),
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // 23505 = unique_violation -> someone took this number; recompute.
+        if (error.code !== "23505" || attempt === 5) throw error;
+        continue;
+      }
+
+      return rowToMisc(data as MiscRow);
+    }
+    throw new Error("Could not assign a payment number after several attempts");
+  },
+
+  async getMisc(id) {
+    const { data, error } = await supabase().from(MISC).select().eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? rowToMisc(data as MiscRow) : null;
+  },
+
+  async updateMisc(id, fields: MiscFields): Promise<MiscPayment> {
+    const { data, error } = await supabase()
+      .from(MISC)
+      .update({ updated_at: new Date().toISOString(), ...miscColumns(fields) })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToMisc(data as MiscRow);
+  },
+
+  async attachMiscProof(id: string, proof: { key: string; name: string }) {
+    const db = supabase();
+    // Read before the write, so the caller is handed the file it is now
+    // responsible for deleting. Nothing else can be pointing at it.
+    const { data: current, error: readErr } = await db
+      .from(MISC)
+      .select("proof_key")
+      .eq("id", id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!current) throw new Error("Payment not found");
+
+    const now = new Date().toISOString();
+    const { error } = await db
+      .from(MISC)
+      .update({ proof_key: proof.key, proof_name: proof.name, proof_at: now, updated_at: now })
+      .eq("id", id);
+    if (error) throw error;
+
+    return { previousKey: (current.proof_key as string | null) ?? null };
+  },
+
+  async detachMiscProof(id: string) {
+    const db = supabase();
+    const { data: current, error: readErr } = await db
+      .from(MISC)
+      .select("proof_key")
+      .eq("id", id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+
+    const key = (current?.proof_key as string | null) ?? null;
+    if (!key) return { key: null };
+
+    const { error } = await db
+      .from(MISC)
+      .update({
+        proof_key: null,
+        proof_name: null,
+        proof_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) throw error;
+
+    return { key };
+  },
+
+  async softDeleteMisc(id) {
+    const { error } = await supabase()
+      .from(MISC)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (error) throw error;
+  },
+
+  async restoreMisc(id) {
+    const { error } = await supabase().from(MISC).update({ deleted_at: null }).eq("id", id);
+    if (error) throw error;
+  },
+
+  async searchMisc(query: MiscQuery) {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    let q = supabase().from(MISC).select("*", { count: "exact" }).eq("company", query.company);
+
+    if (query.view === "deleted") {
+      q = q.not("deleted_at", "is", null);
+    } else {
+      q = q.is("deleted_at", null);
+      if (query.view === "with-proof") q = q.not("proof_key", "is", null);
+      else if (query.view === "no-proof") q = q.is("proof_key", null);
+    }
+
+    if (query.q?.trim()) {
+      // Commas and parentheses would be read as .or() syntax, not as text.
+      const term = query.q.trim().replace(/[%,()]/g, " ");
+      q = q.or([`payment_no.ilike.%${term}%`, `notes.ilike.%${term}%`].join(","));
+    }
+
+    if (query.from) q = q.gte("date", query.from);
+    if (query.to) q = q.lte("date", query.to);
+
+    // Matches the SQLite ordering: by payment date, then by number within a day.
+    const { data, error, count } = await q
+      .order("date", { ascending: false })
+      .order("seq", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    return { rows: (data as MiscRow[]).map(rowToMisc), total: count ?? 0 };
+  },
+
+  async miscCounts(company: CompanySlug): Promise<MiscCounts> {
+    // Reduced in the app rather than with SUM-in-SQL, for the reason spendRows
+    // gives: PostgREST cannot aggregate without a stored function, and that is
+    // another migration the operator has to remember to run.
+    const { data, error } = await supabase()
+      .from(MISC)
+      .select()
+      .eq("company", company)
+      .is("deleted_at", null)
+      .limit(5000);
+    if (error) throw error;
+    return summariseMisc((data as MiscRow[]).map(rowToMisc));
+  },
+
   /* ---- expenditure ------------------------------------------------------ */
 
   async spendRows(company: CompanySlug): Promise<SpendRow[]> {
     const db = supabase();
 
     // Vouchers are PKR by construction; see the note in the SQLite backend.
-    const [vouchers, orders] = await Promise.all([
+    const [vouchers, orders, misc] = await Promise.all([
       db
         .from(TABLE)
         .select("status, amount, voucher_date, created_at")
@@ -1890,9 +2076,15 @@ export const supabaseStore: Store = {
         .select("status, currency, total, po_date, created_at")
         .eq("company", company)
         .is("deleted_at", null),
+      db
+        .from(MISC)
+        .select("currency, amount, date, proof_key")
+        .eq("company", company)
+        .is("deleted_at", null),
     ]);
     if (vouchers.error) throw vouchers.error;
     if (orders.error) throw orders.error;
+    if (misc.error) throw misc.error;
 
     const day = (value: string | null, fallback: string) =>
       (value ?? fallback).slice(0, 10);
@@ -1913,6 +2105,17 @@ export const supabaseStore: Store = {
         currency: String(o.currency || "PKR"),
         amount: o.total == null ? null : Number(o.total),
         date: day(o.po_date as string | null, String(o.created_at)),
+      })),
+      // `status` carries whether there is a receipt behind the payment, which
+      // is the one thing left worth reporting about a row with no lifecycle. See
+      // the note in the SQLite backend.
+      ...(misc.data ?? []).map((m) => ({
+        kind: "misc" as const,
+        company,
+        status: m.proof_key ? "proof" : "no-proof",
+        currency: String(m.currency || "PKR"),
+        amount: m.amount == null ? null : Number(m.amount),
+        date: String(m.date).slice(0, 10),
       })),
     ];
   },

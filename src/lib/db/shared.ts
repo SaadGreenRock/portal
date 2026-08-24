@@ -17,6 +17,7 @@ import {
   type EmployeeFields,
 } from "../employees/types";
 import { isFoodStatus, isPaymentType, type FoodExpense, type FoodFields } from "../food/types";
+import type { MiscFields, MiscPayment } from "../misc/types";
 import { isNotificationTag, type Notification } from "../notifications/types";
 import { poTotals } from "../po/totals";
 import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
@@ -83,6 +84,9 @@ export const formatRfqNo = (company: CompanySlug, period: string, seq: number) =
 
 export const formatNotifNo = (company: CompanySlug, period: string, seq: number) =>
   formatDocNo(company, period, seq, "NOTE");
+
+export const formatMiscNo = (company: CompanySlug, period: string, seq: number) =>
+  formatDocNo(company, period, seq, "MP");
 
 /**
  * `GR-A-001` — prefix, the asset marker, and a running sequence.
@@ -680,6 +684,75 @@ export function foodNamesFrom(rows: FoodRow[]): {
     vendors: pick((r) => r.vendor),
     payers: pick((r) => r.paid_by),
     orderedFor: pick((r) => r.ordered_for),
+  };
+}
+
+/* -------------------------------------------------------------------------
+ * Miscellaneous payments
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * Shape of a miscellaneous payment as stored, in either backend.
+ *
+ * The narrowest row in the portal, and intentionally so — a date, a figure and
+ * a note, plus the proof if any turned up. There is no document to denormalise
+ * out of because there is no document at all; see src/lib/misc/types.ts.
+ */
+export interface MiscRow {
+  id: string;
+  payment_no: string;
+  company: string;
+  seq: number;
+  period: string;
+  date: string;
+  amount: number;
+  currency: string;
+  notes: string;
+  proof_key: string | null;
+  proof_name: string | null;
+  proof_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function rowToMisc(r: MiscRow): MiscPayment {
+  return {
+    id: r.id,
+    company: r.company as CompanySlug,
+    paymentNo: r.payment_no,
+    seq: r.seq,
+    period: r.period,
+    date: r.date,
+    // Postgres `numeric` arrives through PostgREST as a string. Coerced here
+    // rather than at every call site, for the reason rowToFood gives: left to
+    // the callers a total is addition on one backend and string concatenation
+    // on the other.
+    amount: Number(r.amount) || 0,
+    currency: r.currency || "PKR",
+    notes: r.notes ?? "",
+    proofKey: r.proof_key ?? null,
+    proofName: r.proof_name ?? null,
+    proofAt: r.proof_at ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at ?? null,
+  };
+}
+
+/**
+ * A payment's editable fields as columns, for an insert or an update.
+ *
+ * The proof is absent on purpose. It is attached and removed by its own
+ * actions, so listing it here would let an ordinary Save — which knows nothing
+ * about files — quietly blank the receipt filed against the row last week.
+ */
+export function miscColumns(f: MiscFields) {
+  return {
+    date: f.date,
+    amount: f.amount,
+    currency: f.currency || "PKR",
+    notes: f.notes.trim(),
   };
 }
 

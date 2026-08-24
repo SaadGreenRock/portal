@@ -4,7 +4,8 @@ import { backend } from "./db";
 
 /**
  * File storage for everything a record can carry: a voucher's generated PDF and
- * signed scan, a purchase order's PDF and vendor invoice. Local mode writes to
+ * signed scan, a purchase order's PDF and vendor invoice, the receipt behind a
+ * miscellaneous payment. Local mode writes to
  * ./.data/files; Supabase mode uses a Storage bucket. Callers only deal in
  * opaque keys like "green-rock/GR-202607-014/voucher.pdf".
  *
@@ -121,6 +122,21 @@ export const storageKeys = {
    */
   foodReceipt: (settlementId: string, ext: string) =>
     `food/settlements/${settlementId}/receipt${ext.startsWith(".") ? ext : `.${ext}`}`,
+  /**
+   * Proof of one miscellaneous payment.
+   *
+   * Keyed on the payment number, and deliberately not shared — the opposite
+   * choice from `foodReceipt`. One cheque clears a whole cafe tab, so a food
+   * receipt belongs to a dozen entries at once; a parking fee has exactly one
+   * receipt and exactly one row, so the file can be named after the row and
+   * deleted with it, with no reference count to check first.
+   *
+   * Overwritten in place when a badly-photographed receipt is replaced, so the
+   * key stays the current document. `proofAt` is what makes that safe to serve
+   * as immutable — see `fileUrl` below.
+   */
+  miscProof: (company: string, paymentNo: string, ext: string) =>
+    `${company}/${paymentNo}/proof${ext.startsWith(".") ? ext : `.${ext}`}`,
   /**
    * One photograph of one asset.
    *

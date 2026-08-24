@@ -11,13 +11,19 @@ import type { CompanySlug } from "../companies";
  * lines and only then combined, and drafts and cancellations are shown rather
  * than quietly dropped.
  *
+ * A miscellaneous payment is money that has left with nobody signing for it —
+ * the parking fee, the courier — and it gets a line of its own for exactly that
+ * reason. Folded in with vouchers it would inflate the figure that is supposed
+ * to mean "we hold a signature for this", which is the one thing the voucher
+ * line is worth reading for.
+ *
  * Nothing is ever summed across currencies. Adding SAR to PKR produces a figure
  * that looks authoritative and is meaningless.
  */
 
 /** One document, reduced to what a total needs. */
 export interface SpendRow {
-  kind: "voucher" | "po" | "food";
+  kind: "voucher" | "po" | "food" | "misc";
   /**
    * null on food, which belongs to neither workspace — roughly a quarter of the
    * entries are one lunch ordered for both companies. Rather than split those on
@@ -25,7 +31,15 @@ export interface SpendRow {
    * left out of the per-company cards entirely.
    */
   company: CompanySlug | null;
-  /** Voucher: pending | completed. Order: draft | issued | closed | cancelled. Food: pending | paid. */
+  /**
+   * Voucher: pending | completed. Order: draft | issued | closed | cancelled.
+   * Food: pending | paid.
+   *
+   * Misc: proof | no-proof. A miscellaneous payment has no lifecycle — the money
+   * had already gone before the row was typed — so the one thing left worth
+   * reporting is whether it can be evidenced. It changes no total; it is the
+   * caveat printed beside them.
+   */
   status: string;
   currency: string;
   /**
@@ -63,7 +77,18 @@ export interface CurrencyTotal {
    * incurred. What is still owed is reported separately, under `foodPending`.
    */
   food: number;
-  /** paid + committed + food. Drafts and cancellations are excluded. */
+  /**
+   * Miscellaneous payments — money out with no document behind it.
+   *
+   * Counted in full, and never conditional on proof. A missing receipt is a
+   * gap in the evidence, not a doubt about whether the money left: the entry
+   * exists because somebody watched it go. Holding those back until a document
+   * turned up would understate spend, which is the one direction these figures
+   * must not fail in — and how many lack proof is reported separately, under
+   * `counts.miscWithoutProof`.
+   */
+  misc: number;
+  /** paid + committed + food + misc. Drafts and cancellations are excluded. */
   total: number;
 }
 
@@ -82,6 +107,13 @@ export interface SpendSummary {
     /** Food entries still owed to a vendor or an employee, and how much. */
     foodPending: number;
     foodPendingAmount: number;
+    miscPayments: number;
+    /**
+     * Miscellaneous payments with no receipt on file. Counted in the figure
+     * above — this says how much of it cannot be evidenced, not how much of it
+     * is in doubt.
+     */
+    miscWithoutProof: number;
   };
 }
 
@@ -115,7 +147,7 @@ export function summarise(rows: SpendRow[]): SpendSummary {
   const bucket = (currency: string): CurrencyTotal => {
     let t = byCurrency.get(currency);
     if (!t) {
-      t = { currency, paid: 0, committed: 0, draft: 0, food: 0, total: 0 };
+      t = { currency, paid: 0, committed: 0, draft: 0, food: 0, misc: 0, total: 0 };
       byCurrency.set(currency, t);
     }
     return t;
@@ -130,6 +162,8 @@ export function summarise(rows: SpendRow[]): SpendSummary {
     foodEntries: 0,
     foodPending: 0,
     foodPendingAmount: 0,
+    miscPayments: 0,
+    miscWithoutProof: 0,
   };
 
   for (const row of rows) {
@@ -142,6 +176,15 @@ export function summarise(rows: SpendRow[]): SpendSummary {
         counts.foodPending += 1;
         counts.foodPendingAmount += row.amount ?? 0;
       }
+      continue;
+    }
+
+    // Counted in full whether or not a receipt exists, and the missing ones are
+    // reported rather than withheld — see `CurrencyTotal.misc`.
+    if (row.kind === "misc") {
+      counts.miscPayments += 1;
+      if (row.status === "no-proof") counts.miscWithoutProof += 1;
+      bucket(row.currency).misc += row.amount ?? 0;
       continue;
     }
 
@@ -176,7 +219,8 @@ export function summarise(rows: SpendRow[]): SpendSummary {
       committed: money(t.committed),
       draft: money(t.draft),
       food: money(t.food),
-      total: money(t.paid + t.committed + t.food),
+      misc: money(t.misc),
+      total: money(t.paid + t.committed + t.food + t.misc),
     }))
     // Largest first, so the currency that matters leads.
     .sort((a, b) => b.total - a.total);
