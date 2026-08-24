@@ -123,6 +123,86 @@ something that does not exist.
 
 ---
 
+## Search
+
+**⌘K** (Ctrl-K on Windows), or **/**, or the box in any header. One panel over
+whatever you were doing, searching **every module of both companies at once** —
+vouchers, orders, quotations, miscellaneous payments, food, assets, employees,
+notifications, tranches and direct entries — plus the screens themselves.
+
+Arrows move, Enter opens, Escape closes. The first result is selected on arrival,
+because the first result is usually right.
+
+### What you can type
+
+| | |
+|---|---|
+| `GR-202608-014` | a document number, however you punctuate it — `gr 202608 014` and `GR202608014` are the same query |
+| `014` | just the sequence, the way you would read a number off a page |
+| `ali` | a name — the payee, the vendor, the employee, whoever is holding an asset |
+| `4200` | an exact amount |
+| `0300-1234567` | a phone number or a CNIC, off a call log or a photocopy |
+| `new voucher` | a screen, to jump straight to it |
+
+### Why it does not behave like most site search
+
+Two rules, and between them they are most of the difference.
+
+**Every word has to match.** Two words narrow the results rather than widening
+them. Search that quietly ORs its terms always returns *something*, which sounds
+generous and is precisely what teaches you to stop reading past the first row.
+
+**A word has to start a word.** Landing in the middle of one does not count. This
+sounds pedantic until you watch what happens without it — both of these were real
+results here before the rule went in:
+
+```
+"ali"     → Zainab M-ali-k
+"cement"  → the New notification screen, via "announ-cement"
+```
+
+Neither is a near miss to be tuned away with weights; they are noise, and noise in
+the first few results is how a search box loses its reader. The case people
+imagine needing loose matching for — "generator" finding "generators" — is a
+prefix and already matches. The reverse ("laptops" finding "laptop") is the one
+step of stemming that exists.
+
+Ranking then weighs *where* a word matched, not just that it did: a document
+number matched whole outranks everything, a name outranks a description, and a
+description outranks something buried in a notification's body. Recency only
+breaks ties — the largest date bonus is worth less than a single name match, so a
+September record can never outrank a March one that is a better answer.
+
+Results are **not grouped by module**. Grouping looks tidier and reads worse: it
+makes you scan five headings for one row and throws away the ranking, which is the
+part that knows the answer. One list, best first, each row saying what it is.
+
+### How it works, and when it would need rebuilding
+
+There is **no search index, no FTS table and no migration** — deliberately, and
+that is a judgement about this portal rather than a general opinion:
+
+- The corpus is a small company's paperwork. Thousands of rows, not millions. An
+  index would buy speed nobody could perceive.
+- Every module already has a `search` that knows which of its own columns are
+  worth matching. Reusing those means one opinion about what a voucher is
+  findable by, not two that drift apart.
+
+So a query fans out to every module in parallel, the database does a coarse filter
+on the single most selective word, and `src/lib/search/types.ts` — a pure function
+with no database in sight — does the ranking. Every read is wrapped in `tryTable`,
+so a module that is not set up on this deployment contributes nothing and search
+keeps working.
+
+The one query shape that would need a real index first is **searching by amount**:
+no module's `search` looks inside its amount column, so a bare figure is matched by
+scanning the most recent few hundred rows per module rather than by filtering.
+Past that horizon an old amount stops being findable. At tens of thousands of
+records the whole approach wants revisiting — the same line the expenditure and
+funding modules draw.
+
+---
+
 ## Vouchers
 
 | Screen | What it's for |
@@ -1022,6 +1102,10 @@ src/
       actions.ts     server actions: log, correct, attach or remove the receipt
     spend/
       types.ts       expenditure roll-up — the only place totals are decided
+    search/
+      types.ts       what a hit is, and the ranking — a pure function, no database
+      run.ts         the fan-out across every module, and how it degrades
+      destinations.ts  the screens, searchable alongside the records
     client-pdf.ts    browser-side SVG → canvas → JPEG → PDF
     image-pdf.ts     minimal multi-page PDF writer (no dependencies)
     use-sheet-pdf.ts the render-and-file hook both document types use

@@ -104,9 +104,17 @@ export default async function CompanyLayout({
             <img src={company.logo} alt={company.name} className="h-5 w-auto object-contain" />
           </Link>
 
+          {/* The company's name in words, and on a phone it goes too.
+              Measured: with search in the header this row needs 413px to show
+              "Green Rock" whole, so a 390px handset was clipping it to "Green
+              Ro…". Of everything competing for that width this is the one piece
+              that is already said twice — the logo immediately to its left reads
+              GREEN ROCK — so it is what the search box is paid for with. The way
+              to this company's overview is not lost with it: the Overview tab
+              sits in the row directly below. */}
           <Link
             href={`/${company.slug}`}
-            className="min-w-0 flex-1 rounded-md transition-opacity hover:opacity-80"
+            className="hidden min-w-0 flex-1 rounded-md transition-opacity hover:opacity-80 sm:block"
           >
             <div className="truncate text-[14px] font-semibold leading-tight">{company.name}</div>
             {/* Hidden on a phone, where it is the widest thing in this block and
@@ -118,6 +126,10 @@ export default async function CompanyLayout({
               Company portal
             </div>
           </Link>
+
+          {/* Holds the controls at the right edge once the name above is gone,
+              which is the only thing that was keeping them there. */}
+          <span aria-hidden className="flex-1 sm:hidden" />
 
           <HeaderControls />
         </div>
