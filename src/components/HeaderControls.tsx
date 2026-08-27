@@ -1,8 +1,10 @@
+import IdleLock from "@/components/IdleLock";
 import LockButton from "@/components/LockButton";
 import SearchPalette from "@/components/SearchPalette";
 import PortalClock from "@/components/PortalClock";
 import ThemeToggle from "@/components/ThemeToggle";
 import Weather from "@/components/Weather";
+import { idleWindowMs } from "@/lib/auth";
 
 /**
  * The right-hand end of every header in the portal: search, the weather, what
@@ -30,6 +32,11 @@ import Weather from "@/components/Weather";
  * and as far from Lock as this group has room for, which is the same reasoning
  * that keeps Home away from it.
  *
+ * `IdleLock` rides along for the same reason Lock does: it belongs on every
+ * authenticated screen and on none of the others, and this component is already
+ * exactly that set. It draws nothing until the window is nearly up, so it costs
+ * the header no room.
+ *
  * The instant is taken here rather than passed in, so a caller cannot forget it
  * and no page has to know that the clock needs one. Two of these headers live in
  * a layout that is not re-rendered on a client navigation, so this value can be
@@ -48,6 +55,12 @@ export default function HeaderControls() {
       <PortalClock iso={new Date().toISOString()} />
       <ThemeToggle />
       <LockButton />
+
+      {/* Renders nothing until the last minute of the idle window, and is
+          positioned over the page rather than in this row when it does. The
+          window is read on the server and handed down, so the countdown and the
+          cookie cannot disagree about when it closes. */}
+      <IdleLock idleMs={idleWindowMs()} />
     </div>
   );
 }

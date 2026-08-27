@@ -123,6 +123,71 @@ something that does not exist.
 
 ---
 
+## Locking
+
+The password is not asked for again while you work, and it is asked for again
+sooner than it used to be. Both of those are deliberate.
+
+The session cookie is now a **sliding 15-minute idle window**. Real use pushes it
+out — clicks, keystrokes, scrolling, even moving the pointer — so the clock only
+ever runs down when nobody is there. A minute before it closes, a bar appears at
+the foot of the screen:
+
+```
+Locking in 23s — nothing has happened here for a while.     [ Stay unlocked ]
+```
+
+Anything at all dismisses it; the button is only there for somebody who has read
+it and has nothing else to press. When the minute runs out the screen goes to the
+lock, exactly as if the padlock had been pressed.
+
+Change the window with **`PORTAL_IDLE_MINUTES`** in the environment — no deploy
+needed, because the right number is a fact about the room the laptop sits in and
+not about this code. It is clamped between one minute and a day.
+
+It also became a **session cookie**: no `Max-Age`, so quitting the browser drops
+it. That is the weaker of the two locks and nothing relies on it — Chrome
+restores session cookies when it is set to reopen the last tabs, and on a Mac
+closing the last window does not quit the browser. It costs nothing and
+occasionally helps.
+
+### Where it is actually enforced
+
+On the server, in `verifyToken`. The timestamp is inside the signed cookie value,
+so the window closes whether or not the browser cooperates, and every page and
+every API route already refuses a cookie that does not verify. Turning
+JavaScript off does not extend anything.
+
+The browser's part is two things the server cannot do: it *notices* — a laptop
+left open would otherwise sit on a screenful of figures looking signed-in until
+somebody clicked — and it *renews*. Renewal is one route, `POST /api/session`,
+and it is a route rather than something a page does for two reasons: a page
+cannot write a cookie, and most of what reaches a server is not evidence of a
+person. Renewing on every request would renew on prefetches and background
+revalidations, and a portal that stays unlocked because a tab is open is the
+thing this was built to stop. An expired session is never revived — `/api/session`
+answers 401 and the browser locks.
+
+There is nothing in the portal that polls, which is what makes silence
+trustworthy: the header clock ticks in the browser off its own `setTimeout`, and
+the weather is fetched once when a page loads. No traffic really does mean nobody
+is home.
+
+### The one thing to know
+
+A tab in the background has its timers throttled by the browser, so a hidden tab
+may not lock itself on the minute. It locks the instant it is looked at again —
+`IdleLock` re-checks on `visibilitychange`, which is also what makes a laptop
+that slept for three hours lock as the lid opens rather than after a screenful
+has already been read. The cookie expired on schedule either way.
+
+And the cost, worth stating because it can lose work: the purchase order and
+quotation editors hold a lot of unsaved state in the browser. Typing counts as
+being there, so this only bites if you walk away from a half-typed order — but
+then it locks and that draft is gone. The minute's warning is there for exactly
+that, and it is the argument against setting the window much shorter than 15
+minutes.
+
 ## Search
 
 **⌘K** (Ctrl-K on Windows), or **/**, or the box in any header. One panel over
@@ -1187,7 +1252,7 @@ src/
     use-sheet-pdf.ts the render-and-file hook both document types use
     amount-words.ts  the voucher's PKR wording, on top of money.ts
     actions.ts       voucher server actions
-    auth.ts          the password gate
+    auth.ts          the password gate, and the sliding idle window
     theme.ts         the light/dark choice, and the script that applies it
     uploads.ts       the one whitelist and size limit for scanned uploads
     storage.ts       file storage — local disk or Supabase Storage
