@@ -50,6 +50,7 @@ import {
 } from "../rfq/types";
 import { todayIso } from "../format";
 import { mergeSettings, type CompanySettings } from "../settings";
+import { normaliseTagName, type SpendTag, type TaggedItem } from "../spend/tags";
 import type { SpendRow } from "../spend/types";
 import {
   isSourceKind,
@@ -80,6 +81,7 @@ import type {
 import {
   allocationColumns,
   assembleAllocatable,
+  assembleTaggedItems,
   denormalize,
   denormalizePo,
   denormalizeRfq,
@@ -122,6 +124,7 @@ import {
   rowToPhoto,
   rowToPo,
   rowToRfq,
+  rowToSpendTag,
   rowToTranche,
   trancheColumns,
   statusChangesDocument,
@@ -134,8 +137,10 @@ import {
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
+  type ItemTagRow,
   type MiscRow,
   type NotificationRow,
+  type SpendTagRow,
   type PhotoRow,
   type PoRow,
   type RfqRow,
@@ -659,6 +664,35 @@ function connect(): Database.Database {
       data       TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    -- What the money was spent on. A small vocabulary the operator adds to, and
+    -- one row per tagged purchase-order line. No company column: the
+    -- expenditure page is outside a workspace because the combined figure
+    -- belongs to neither, and a category belongs to neither for the same
+    -- reason.
+    CREATE TABLE IF NOT EXISTS spend_tags (
+      id         TEXT PRIMARY KEY,
+      -- NOCASE, so "Laptop" and "laptop" cannot both exist and quietly split
+      -- the figure the tag was added in order to see.
+      name       TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      created_at TEXT NOT NULL
+    );
+
+    -- Keyed on the order and the line's own id, never its position, so a tag
+    -- survives a row being inserted, removed or moved above it. Nothing was
+    -- added to purchase_orders for this, and nothing a purchase order does
+    -- changed.
+    CREATE TABLE IF NOT EXISTS po_item_tags (
+      po_id      TEXT NOT NULL REFERENCES purchase_orders (id) ON DELETE CASCADE,
+      item_id    TEXT NOT NULL,
+      tag_id     TEXT NOT NULL REFERENCES spend_tags (id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      -- One tag per item. Two would count the same money twice and the
+      -- breakdown would add up to more than was spent.
+      PRIMARY KEY (po_id, item_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS po_item_tags_tag ON po_item_tags (tag_id);
   `);
 
   migrate(handle);
@@ -2725,6 +2759,111 @@ export const sqliteStore: Store = {
         date: m.date,
       })),
     ];
+  },
+
+  /* ---- expenditure tags -------------------------------------------------- */
+
+  async listSpendTags(): Promise<SpendTag[]> {
+    const handle = connect();
+    const rows = handle
+      .prepare(`SELECT id, name, created_at FROM spend_tags ORDER BY name COLLATE NOCASE ASC`)
+      .all() as SpendTagRow[];
+    return rows.map(rowToSpendTag);
+  },
+
+  async createSpendTag(name: string): Promise<SpendTag> {
+    const handle = connect();
+    const clean = normaliseTagName(name);
+    if (!clean) throw new Error("Give the tag a name.");
+
+    const find = handle.prepare(`SELECT id, name, created_at FROM spend_tags WHERE name = ?`);
+    // The column collates NOCASE, so this finds `Laptop` when `laptop` was
+    // typed — and returning it rather than refusing is what makes adding a tag
+    // that already exists a no-op instead of an error to read.
+    const existing = find.get(clean) as SpendTagRow | undefined;
+    if (existing) return rowToSpendTag(existing);
+
+    const row = { id: newId(), name: clean, created_at: new Date().toISOString() };
+    try {
+      handle
+        .prepare(`INSERT INTO spend_tags (id, name, created_at) VALUES (@id, @name, @created_at)`)
+        .run(row);
+    } catch (err) {
+      // Lost a race with another submit of the same name. The unique index did
+      // its job; the row that won is the answer.
+      const won = find.get(clean) as SpendTagRow | undefined;
+      if (!won) throw err;
+      return rowToSpendTag(won);
+    }
+    return rowToSpendTag(row);
+  },
+
+  async renameSpendTag(id: string, name: string): Promise<SpendTag> {
+    const handle = connect();
+    const clean = normaliseTagName(name);
+    if (!clean) throw new Error("Give the tag a name.");
+
+    const clash = handle
+      .prepare(`SELECT name FROM spend_tags WHERE name = ? AND id <> ?`)
+      .get(clean, id) as { name: string } | undefined;
+    if (clash) throw new Error(`There is already a tag called \u201C${clash.name}\u201D.`);
+
+    const info = handle.prepare(`UPDATE spend_tags SET name = ? WHERE id = ?`).run(clean, id);
+    if (info.changes === 0) throw new Error("Tag not found");
+
+    const row = handle
+      .prepare(`SELECT id, name, created_at FROM spend_tags WHERE id = ?`)
+      .get(id) as SpendTagRow;
+    return rowToSpendTag(row);
+  },
+
+  async deleteSpendTag(id: string): Promise<{ cleared: number }> {
+    const handle = connect();
+    // Counted before the delete, because the assignments go with it — the
+    // foreign key cascades — and the count is what the confirmation says.
+    const { n } = handle
+      .prepare(`SELECT COUNT(*) AS n FROM po_item_tags WHERE tag_id = ?`)
+      .get(id) as { n: number };
+    handle.prepare(`DELETE FROM spend_tags WHERE id = ?`).run(id);
+    return { cleared: n };
+  },
+
+  async taggedItems(): Promise<TaggedItem[]> {
+    const handle = connect();
+
+    // Issued and closed only, which is exactly what the Purchase orders line on
+    // /spend counts. A draft is promised to nobody and a cancelled order was
+    // never spent, so either would make the breakdown disagree with the figure
+    // printed above it.
+    const orders = handle
+      .prepare(
+        `SELECT * FROM purchase_orders
+          WHERE deleted_at IS NULL AND status IN ('issued', 'closed')`,
+      )
+      .all() as PoRow[];
+
+    const assignments = handle
+      .prepare(`SELECT po_id, item_id, tag_id FROM po_item_tags`)
+      .all() as ItemTagRow[];
+
+    return assembleTaggedItems(orders, assignments);
+  },
+
+  async setItemTag(poId: string, itemId: string, tagId: string | null): Promise<void> {
+    const handle = connect();
+    if (tagId == null) {
+      handle.prepare(`DELETE FROM po_item_tags WHERE po_id = ? AND item_id = ?`).run(poId, itemId);
+      return;
+    }
+    // Upsert rather than delete-then-insert: retagging is one statement, so a
+    // second click on the picker cannot leave the row briefly untagged.
+    handle
+      .prepare(
+        `INSERT INTO po_item_tags (po_id, item_id, tag_id, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (po_id, item_id) DO UPDATE SET tag_id = excluded.tag_id`,
+      )
+      .run(poId, itemId, tagId, new Date().toISOString());
   },
 
   /* ---- investor funding -------------------------------------------------- */

@@ -48,6 +48,7 @@ import {
   type RfqStatus,
 } from "../rfq/types";
 import { mergeSettings, type CompanySettings } from "../settings";
+import { normaliseTagName, type SpendTag, type TaggedItem } from "../spend/tags";
 import type { SpendRow } from "../spend/types";
 import {
   isSourceKind,
@@ -78,6 +79,7 @@ import type {
 import {
   allocationColumns,
   assembleAllocatable,
+  assembleTaggedItems,
   denormalize,
   denormalizePo,
   denormalizeRfq,
@@ -120,6 +122,7 @@ import {
   rowToPhoto,
   rowToPo,
   rowToRfq,
+  rowToSpendTag,
   rowToTranche,
   rowToVoucher,
   trancheColumns,
@@ -132,11 +135,13 @@ import {
   type FoodRow,
   type HoldingRow,
   type HoldingWithAssetRow,
+  type ItemTagRow,
   type MiscRow,
   type NotificationRow,
   type PhotoRow,
   type PoRow,
   type RfqRow,
+  type SpendTagRow,
   type TrancheRow,
   type VoucherRow,
 } from "./shared";
@@ -212,6 +217,8 @@ const DIRECT = "tranche_expenses";
 const EMPLOYEES = "employees";
 const PHOTOS = "asset_photos";
 const MISC = "misc_payments";
+const TAGS = "spend_tags";
+const ITEM_TAGS = "po_item_tags";
 
 /**
  * The one holding on an asset that has not been returned, if any.
@@ -283,6 +290,21 @@ async function findEmployeeByNo(
     (r) => String(r.id) !== exceptId && employeeNoKey(String(r.employee_no)) === key,
   );
   return hit ? { id: String(hit.id), name: String(hit.name) } : null;
+}
+
+/**
+ * Every tag, for the duplicate checks that guard adding and renaming one.
+ *
+ * A free function rather than a call back into the store, so a caller that has
+ * destructured a method off it cannot end up with `this` undefined.
+ */
+async function readTags(): Promise<SpendTag[]> {
+  const { data, error } = await supabase()
+    .from(TAGS)
+    .select("id, name, created_at")
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as SpendTagRow[]).map(rowToSpendTag);
 }
 
 export const supabaseStore: Store = {
@@ -2118,6 +2140,122 @@ export const supabaseStore: Store = {
         date: String(m.date).slice(0, 10),
       })),
     ];
+  },
+
+  /* ---- expenditure tags -------------------------------------------------- */
+
+  async listSpendTags(): Promise<SpendTag[]> {
+    return readTags();
+  },
+
+  async createSpendTag(name: string): Promise<SpendTag> {
+    const clean = normaliseTagName(name);
+    if (!clean) throw new Error("Give the tag a name.");
+
+    const db = supabase();
+    const fold = clean.toLowerCase();
+
+    // The whole vocabulary, matched in the application rather than with `ilike`.
+    // A name may legitimately contain `_` or `%`, and either would be read as a
+    // wildcard by a pattern match — silently returning the wrong tag, which is
+    // worse than the extra read. The list is a few dozen rows.
+    const existing = (await readTags()).find((t) => t.name.toLowerCase() === fold);
+    if (existing) return existing;
+
+    const row = { id: newId(), name: clean, created_at: new Date().toISOString() };
+    const { data, error } = await db.from(TAGS).insert(row).select().single();
+    if (error) {
+      // Lost a race with another submit of the same name. The unique index on
+      // lower(name) did its job; the row that won is the answer.
+      if (error.code !== "23505") throw error;
+      const won = (await readTags()).find((t) => t.name.toLowerCase() === fold);
+      if (!won) throw error;
+      return won;
+    }
+    return rowToSpendTag(data as SpendTagRow);
+  },
+
+  async renameSpendTag(id: string, name: string): Promise<SpendTag> {
+    const clean = normaliseTagName(name);
+    if (!clean) throw new Error("Give the tag a name.");
+
+    const fold = clean.toLowerCase();
+    const clash = (await readTags()).find(
+      (t) => t.id !== id && t.name.toLowerCase() === fold,
+    );
+    if (clash) throw new Error(`There is already a tag called \u201C${clash.name}\u201D.`);
+
+    const { data, error } = await supabase()
+      .from(TAGS)
+      .update({ name: clean })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToSpendTag(data as SpendTagRow);
+  },
+
+  async deleteSpendTag(id: string): Promise<{ cleared: number }> {
+    const db = supabase();
+
+    // Counted before the delete, because the assignments go with it — the
+    // foreign key cascades — and the count is what the confirmation says.
+    const { count, error: countErr } = await db
+      .from(ITEM_TAGS)
+      .select("po_id", { count: "exact", head: true })
+      .eq("tag_id", id);
+    if (countErr) throw countErr;
+
+    const { error } = await db.from(TAGS).delete().eq("id", id);
+    if (error) throw error;
+    return { cleared: count ?? 0 };
+  },
+
+  async taggedItems(): Promise<TaggedItem[]> {
+    const db = supabase();
+
+    // Issued and closed only, which is exactly what the Purchase orders line on
+    // /spend counts. A draft is promised to nobody and a cancelled order was
+    // never spent, so either would make the breakdown disagree with the figure
+    // printed above it.
+    //
+    // The ceilings match what the rest of this backend puts on an unpaged read.
+    // The assignments get a higher one because there is one per tagged line
+    // rather than one per order.
+    const [orders, assignments] = await Promise.all([
+      db
+        .from(POS)
+        .select()
+        .is("deleted_at", null)
+        .in("status", ["issued", "closed"])
+        .limit(5000),
+      db.from(ITEM_TAGS).select("po_id, item_id, tag_id").limit(50000),
+    ]);
+    if (orders.error) throw orders.error;
+    if (assignments.error) throw assignments.error;
+
+    return assembleTaggedItems(
+      (orders.data ?? []) as PoRow[],
+      (assignments.data ?? []) as ItemTagRow[],
+    );
+  },
+
+  async setItemTag(poId: string, itemId: string, tagId: string | null): Promise<void> {
+    const db = supabase();
+
+    if (tagId == null) {
+      const { error } = await db.from(ITEM_TAGS).delete().eq("po_id", poId).eq("item_id", itemId);
+      if (error) throw error;
+      return;
+    }
+
+    // Upsert rather than delete-then-insert: retagging is one statement, so a
+    // second click on the picker cannot leave the row briefly untagged.
+    const { error } = await db.from(ITEM_TAGS).upsert(
+      { po_id: poId, item_id: itemId, tag_id: tagId, created_at: new Date().toISOString() },
+      { onConflict: "po_id,item_id" },
+    );
+    if (error) throw error;
   },
 
   /* ---- investor funding -------------------------------------------------- */

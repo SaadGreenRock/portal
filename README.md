@@ -677,6 +677,79 @@ migration to remember; at the scale of a small company's paperwork, selecting
 five columns and summing them costs nothing. It would need revisiting at tens of
 thousands of records.
 
+### What it went on — tags
+
+The four lines above answer *how much*, split by the kind of claim behind it.
+They cannot answer the question anybody asks first — **how much have we spent on
+laptops** — because that is not a fact about a purchase order. One order buys a
+laptop, a bag and three cables, and the order's total is the only figure stored
+against it.
+
+So the unit is the **line item**. Every priced row of every issued or closed
+purchase order gets a tag, and `/spend` grows a panel:
+
+```
+What it went on                                    All time, both companies
+
+  Laptops           3 lines                            PKR   679,462
+  ██████████████████████████████████
+  Phones            2 lines                            PKR   629,928
+  ███████████████████████████████
+  Office furniture  1 line                             PKR   216,450
+  ██████████
+  Stationery        3 lines                            PKR    74,084.40
+  ███
+  Untagged          1 line                             PKR   229,320
+  ███████████
+  ────────────────────────────────────────────────────────────────────
+  Purchase orders                                      PKR 1,829,244.40
+```
+
+Tags are added and assigned on **`/spend/tags`**, reached from *Assign tags*
+beside *Create report*. That screen keeps the vocabulary — add, rename, delete —
+and lists every line item grouped under its order, each with a dropdown. It is
+all-time and unfiltered by period on purpose: tagging is a job that gets
+finished, not a period that gets reported, and a range filter there would hide
+the oldest untagged rows behind a control nobody would think to change.
+
+Five things decide what the figures mean, and each is the reason a number here
+cannot be read two ways:
+
+- **One tag per line.** Two would count the same money twice, and the breakdown
+  would add up to more than was spent.
+- **Issued and closed orders only** — exactly what the *Purchase orders* line
+  above counts. A draft is promised to nobody and a cancelled order was never
+  spent, so either would make the breakdown disagree with the figure printed
+  directly above it.
+- **Every line carries its share of its order's tax, shipping and discount**,
+  spread by line value. For two of the three that is arithmetic rather than a
+  rule: the tax *is* a percentage of the taxable value and the discount comes off
+  the subtotal, so a line's share of either is exactly its share of the subtotal.
+  Shipping is the one genuinely decided, and by value is the ordinary answer. The
+  rounding residual goes on the largest line, so the set adds up to the order to
+  the paisa. `attributedLines` in `po/totals.ts` is the only copy of this.
+- **Untagged is a row, not an omission.** It is what makes the panel checkable
+  against the total under it, and it doubles as the list of work left.
+- **Tags are global, not per company.** The expenditure page is outside a
+  workspace because the combined figure belongs to neither; "Laptops" means the
+  same thing in both, and two per-company vocabularies would make the combined
+  breakdown a merge of two lists free to drift apart.
+
+**Nothing about a purchase order changed.** No column was added to
+`purchase_orders`; a tag lives in `po_item_tags`, keyed on the order and the
+line's own `PoItem.id` — which is a UUID the editor preserves across saves, so a
+tag survives a row being inserted, removed or moved above it. The editor, the
+printed PDF, the stored totals and every PO screen are exactly as they were, and
+the word "tag" appears nowhere in that module.
+
+Deleting a tag is a **hard** delete, unlike everything else in the portal: it has
+no number to keep spent and was never printed on anything, so there is no history
+to protect. What it will untag is stated in the confirmation, because that is the
+only part not obvious from the button. A line removed from an order by a later
+edit leaves its assignment behind in the table; it is keyed on an item id that no
+longer exists in the document, so nothing reads it and nothing has to clean it
+up.
+
 ## Document numbers
 
 ```
@@ -1102,6 +1175,9 @@ src/
       actions.ts     server actions: log, correct, attach or remove the receipt
     spend/
       types.ts       expenditure roll-up — the only place totals are decided
+      report.ts      the detail behind the figures, assembled for printing
+      tags.ts        what the money went on — the line-item roll-up
+      tag-actions.ts server actions: add, rename, delete a tag; tag a line
     search/
       types.ts       what a hit is, and the ranking — a pure function, no database
       run.ts         the fan-out across every module, and how it degrades

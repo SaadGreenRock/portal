@@ -46,6 +46,7 @@ import type {
   EmployeeSummary,
 } from "../employees/types";
 import type { CompanySettings } from "../settings";
+import type { SpendTag, TaggedItem } from "../spend/tags";
 import type { SpendRow } from "../spend/types";
 import type {
   Allocation,
@@ -554,6 +555,67 @@ export interface SpendStore {
 }
 
 /**
+ * Expenditure tags: what the money was spent on.
+ *
+ * The only store here whose records are *about* another module's rows without
+ * belonging to it. A tag is keyed on an order and one of its line-item ids, so
+ * no column was added to `purchase_orders` and nothing a purchase order does
+ * changed — see the note at the top of `spend/tags.ts`.
+ *
+ * Not company-keyed, unlike almost everything else. The expenditure page is
+ * deliberately outside a workspace because the combined figure belongs to
+ * neither, and a category belongs to neither for the same reason: "Laptops"
+ * means the same thing in both companies, and two per-company vocabularies would
+ * make the combined breakdown a merge of two lists that could drift apart.
+ */
+export interface SpendTagStore {
+  /** Every tag, by name. The vocabulary is small and always wanted whole. */
+  listSpendTags(): Promise<SpendTag[]>;
+
+  /**
+   * Adds a tag, or returns the one that already carries the name.
+   *
+   * Idempotent on purpose, and case-insensitively so: `Laptop` and `laptop` are
+   * one category, and a portal that let both exist would silently split the
+   * figure somebody added the tag to see.
+   */
+  createSpendTag(name: string): Promise<SpendTag>;
+
+  /** Corrects a name. Every item tagged with it follows, since nothing copied it. */
+  renameSpendTag(id: string, name: string): Promise<SpendTag>;
+
+  /**
+   * Removes a tag outright, and reports how many items it leaves untagged.
+   *
+   * A hard delete, unlike every other record in the portal. Nothing here has a
+   * number to keep spent and nothing was printed carrying it, so there is no
+   * history to protect — and a soft-deleted tag would have to be filtered out of
+   * the breakdown, the picker and the roll-up, which is three places for a
+   * deleted category to reappear from.
+   */
+  deleteSpendTag(id: string): Promise<{ cleared: number }>;
+
+  /**
+   * Every line item of every committed order, both companies, with its tag.
+   *
+   * Flattened out of the stored documents on read. Deliberately unaggregated,
+   * for the reason `spendRows` gives at length; and deliberately not copied into
+   * a table of its own, because the document is the authority on what was
+   * ordered and a second copy would lose that argument the first time somebody
+   * corrected a quantity.
+   */
+  taggedItems(): Promise<TaggedItem[]>;
+
+  /**
+   * Tags one line item, or clears it when `tagId` is null.
+   *
+   * Keyed on the order and the row's own id rather than a position, so an item
+   * keeps its tag when a row above it is inserted, removed or moved.
+   */
+  setItemTag(poId: string, itemId: string, tagId: string | null): Promise<void>;
+}
+
+/**
  * Investor funding.
  *
  * The only interface here that reads another module's tables. `allocatable`
@@ -738,6 +800,7 @@ export interface Store
     FoodStore,
     MiscStore,
     SpendStore,
+    SpendTagStore,
     TrancheStore,
     SettingsStore,
     NotificationStore {}

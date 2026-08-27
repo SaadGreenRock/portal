@@ -3,11 +3,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderControls from "@/components/HeaderControls";
 import HomeButton from "@/components/HomeButton";
+import TagBreakdown from "@/components/TagBreakdown";
 import { isAuthenticated } from "@/lib/auth";
 import { COMPANY_LIST, type Company } from "@/lib/companies";
 import { store } from "@/lib/db";
 import { tryTable } from "@/lib/db/resilience";
 import { formatMoney } from "@/lib/money";
+import { itemWithinRange, summariseTags } from "@/lib/spend/tags";
 import {
   RANGE_LABELS,
   summarise,
@@ -72,6 +74,13 @@ export default async function Expenditure({
               </div>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              {/* Where the categories are kept and assigned. Beside the report
+                  rather than inside the panel it feeds, because it is reached to
+                  do a job — work down the untagged lines — and not while
+                  reading the figures. */}
+              <Link href="/spend/tags" className="btn btn-ghost">
+                Assign tags
+              </Link>
               {/* The detail behind these figures, laid out for printing. A link
                   rather than a button: the report is a page, and one worth being
                   able to bookmark with its period already in the URL. */}
@@ -120,6 +129,26 @@ export default async function Expenditure({
         <Suspense fallback={<ReportSkeleton />}>
           <Report range={range} />
         </Suspense>
+
+        {/* Its own boundary, and deliberately not folded into the one above.
+            This panel reads every committed order's stored document to get at
+            the line items; the figures above read five columns. Behind one
+            boundary the cheap half would wait on the expensive half for no
+            reason the reader could see. */}
+        <Suspense fallback={<TagPanelSkeleton />}>
+          <TagPanel range={range} />
+        </Suspense>
+
+        {/* Out here rather than at the foot of `Report`, so it is on the page
+            from the first paint: it is fixed text about what counts, and it does
+            not depend on a figure having arrived. */}
+        <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
+          Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
+          nothing has been promised to a vendor yet. Miscellaneous payments are counted whether or
+          not a receipt was kept. Food is counted whether it has been settled or not, and belongs
+          to neither company on its own, so it appears only in the combined figure. Currencies are
+          never added together.
+        </p>
       </main>
     </>
   );
@@ -263,15 +292,144 @@ async function Report({ range }: { range: SpendRange }) {
           <CompanyCard key={company.slug} company={company} summary={summarise(rows)} range={range} />
         ))}
       </div>
-
-      <p className="mt-6 text-[12.5px] leading-relaxed text-ink-soft">
-        Cancelled orders and anything deleted are excluded. Drafts are shown but not counted —
-        nothing has been promised to a vendor yet. Miscellaneous payments are counted whether or
-        not a receipt was kept. Food is counted whether it has been settled or not, and belongs to
-        neither company on its own, so it appears only in the combined figure. Currencies are
-        never added together.
-      </p>
     </>
+  );
+}
+
+/**
+ * What the purchase order money went on.
+ *
+ * The one cut of this page's figures that is not about a document type. A
+ * voucher, an order and a lunch are different *claims*; a laptop and a phone are
+ * different *things*, and until now nothing in the portal could tell you how
+ * much of the money went on either — an order's total is the only figure stored
+ * against it, and one order buys a laptop, a bag and three cables.
+ *
+ * So the unit here is the line item, and the totals are built from the stored
+ * documents on read. Purchase orders only: they are the module where what was
+ * bought is itemised. A voucher records who was paid, a miscellaneous payment
+ * records that money left, and neither carries a list of things.
+ *
+ * It sits under the two company cards rather than above them because it answers
+ * a later question. How much, then whose, then on what.
+ */
+async function TagPanel({ range }: { range: SpendRange }) {
+  const db = await store();
+  const now = new Date();
+
+  const [itemsResult, tagsResult] = await Promise.all([
+    tryTable(() => db.taggedItems()),
+    tryTable(() => db.listSpendTags()),
+  ]);
+
+  // The two tables arrived with this panel, so a deployment whose migration has
+  // not been re-run has the rest of the page working and this part missing.
+  // Named rather than hidden, and it says what to run — the same courtesy
+  // `ModuleUnavailable` does for a module inside a workspace.
+  if (!itemsResult.ok || !tagsResult.ok) {
+    return (
+      <section className="card mt-5 overflow-hidden">
+        <header className="border-b border-ink-line px-5 py-4">
+          <h2 className="text-[16px] font-semibold">What it went on</h2>
+        </header>
+        <p className="px-5 py-6 text-[13.5px] leading-relaxed text-ink-soft">
+          Tags are not set up on this deployment yet. Whoever maintains the portal needs to run{" "}
+          <code className="mono">supabase/migration.sql</code>, which is safe to re-run — every
+          statement in it is guarded. Nothing else on this page is affected.
+        </p>
+      </section>
+    );
+  }
+
+  const tags = tagsResult.value;
+  const items = itemsResult.value.filter((i) => itemWithinRange(i, range, now));
+  const summary = summariseTags(items, tags);
+
+  return (
+    <section className="card mt-5 overflow-hidden">
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-ink-line px-5 py-4">
+        <div className="min-w-0">
+          <h2 className="text-[16px] font-semibold">What it went on</h2>
+          <p className="mt-0.5 text-[12.5px] text-ink-soft">
+            {RANGE_LABELS[range]}, both companies. Purchase order line items, from issued and
+            closed orders.
+          </p>
+        </div>
+        <Link href="/spend/tags" className="shrink-0 text-[13px] text-ink-soft hover:text-ink">
+          {summary.untaggedItems > 0
+            ? `${summary.untaggedItems} untagged \u2192`
+            : "Manage tags \u2192"}
+        </Link>
+      </header>
+
+      {tags.length === 0 ? (
+        <div className="px-5 py-8 text-center">
+          <p className="text-[14px] font-medium">No tags yet.</p>
+          <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-ink-soft">
+            Add the categories you buy in — laptop, phone, stationery — then tag each line of each
+            order. This panel becomes what you have spent on each of them.
+          </p>
+          <Link href="/spend/tags" className="btn btn-primary mt-5">
+            Add the first tag
+          </Link>
+        </div>
+      ) : (
+        <>
+          <TagBreakdown summary={summary} />
+          <p className="border-t border-ink-line bg-wash-soft px-5 py-3 text-[12.5px] leading-snug text-ink-soft">
+            Every line carries its share of its order’s tax, shipping and discount, so these add
+            up to the Purchase orders figure above rather than to the orders’ subtotal.
+            {summary.untaggedItems > 0 ? (
+              <>
+                {" "}
+                <Link href="/spend/tags?view=untagged" className="underline">
+                  {summary.untaggedItems}{" "}
+                  {summary.untaggedItems === 1 ? "line has" : "lines have"} no tag yet
+                </Link>
+                .
+              </>
+            ) : null}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The wash of the tag panel: a heading, three rows with their proportion bars,
+ * and the total under a rule.
+ *
+ * The bars are stood in for at a *fixed* width rather than a plausible one. A
+ * skeleton bar of varying length reads as a proportion that has arrived and is
+ * telling you something, which is the one thing it must not do.
+ */
+function TagPanelSkeleton() {
+  return (
+    <div className="skeleton mt-5" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading…</span>
+      <section className="card overflow-hidden">
+        <header className="border-b border-ink-line px-5 py-4">
+          <div className="h-4 w-32 rounded bg-wash-strong" />
+          <div className="mt-2 h-3 w-64 max-w-full rounded bg-wash" />
+        </header>
+        <div className="space-y-3 px-5 py-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i}>
+              <div className="flex items-baseline justify-between gap-4">
+                <div className="h-3 w-24 rounded bg-wash" />
+                <div className="h-3 w-20 rounded bg-wash-soft" />
+              </div>
+              <div className="mt-1.5 h-1 w-1/3 rounded-full bg-wash" />
+            </div>
+          ))}
+          <div className="flex items-baseline justify-between gap-4 border-t border-ink-line pt-3">
+            <div className="h-3.5 w-28 rounded bg-wash-strong" />
+            <div className="h-4 w-28 rounded bg-wash" />
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 

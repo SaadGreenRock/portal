@@ -757,6 +757,55 @@ create table if not exists public.company_settings (
   updated_at timestamptz not null default now()
 );
 
+-- ---------------------------------------------------------------------------
+-- Expenditure tags
+-- ---------------------------------------------------------------------------
+-- What the money was spent on: a small vocabulary the operator adds to, and one
+-- row per tagged purchase-order line.
+--
+-- The only pair of tables here that are *about* another module's rows without
+-- belonging to it. A tag is keyed on an order and one of the line-item ids
+-- inside its jsonb document, so purchase_orders gained no column and nothing a
+-- purchase order does changed.
+--
+-- No company column, unlike almost everything else. The expenditure page sits
+-- outside a workspace because the combined figure belongs to neither company,
+-- and a category belongs to neither for the same reason: "Laptops" means the
+-- same thing in both, and two per-company vocabularies would make the combined
+-- breakdown a merge of two lists free to drift apart.
+create table if not exists public.spend_tags (
+  id         uuid primary key,
+  name       text        not null,
+  created_at timestamptz not null default now()
+);
+
+-- On lower(name), so "Laptop" and "laptop" cannot both exist and quietly split
+-- the figure the tag was added in order to see. This index, not application
+-- logic, is what guarantees it.
+create unique index if not exists spend_tags_name_key
+  on public.spend_tags (lower(name));
+
+-- Keyed on the order and the line's own id, never its position, so a tag
+-- survives a row being inserted, removed or moved above it.
+--
+-- Both foreign keys cascade, and neither is the soft delete the rest of the
+-- portal uses. There is no number here to keep spent and nothing was printed
+-- carrying one: an assignment is a statement about a line item, so when the tag
+-- or the order is gone outright there is nothing left for it to be about.
+create table if not exists public.po_item_tags (
+  po_id      uuid        not null references public.purchase_orders (id) on delete cascade,
+  item_id    text        not null,
+  tag_id     uuid        not null references public.spend_tags (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  -- One tag per item. Two would count the same money twice, and the breakdown
+  -- would add up to more than was spent.
+  primary key (po_id, item_id)
+);
+
+-- Backs the count of what a tag would leave untagged, read before it is deleted.
+create index if not exists po_item_tags_tag_idx
+  on public.po_item_tags (tag_id);
+
 alter table public.vouchers               enable row level security;
 alter table public.signatories            enable row level security;
 alter table public.purchase_orders        enable row level security;
@@ -772,6 +821,8 @@ alter table public.tranche_expenses       enable row level security;
 alter table public.employees              enable row level security;
 alter table public.asset_photos           enable row level security;
 alter table public.misc_payments          enable row level security;
+alter table public.spend_tags             enable row level security;
+alter table public.po_item_tags           enable row level security;
 
 -- Deliberately no policies: see the note at the top of this file.
 

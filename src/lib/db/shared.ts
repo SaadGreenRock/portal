@@ -19,8 +19,9 @@ import {
 import { isFoodStatus, isPaymentType, type FoodExpense, type FoodFields } from "../food/types";
 import type { MiscFields, MiscPayment } from "../misc/types";
 import { isNotificationTag, type Notification } from "../notifications/types";
-import { poTotals } from "../po/totals";
+import { attributedLines, poTotals } from "../po/totals";
 import { watermarkFor, type PoDoc, type PoStatus, type PurchaseOrder, type VendorProfile } from "../po/types";
+import type { SpendTag, TaggedItem } from "../spend/tags";
 import {
   rfqWatermarkFor,
   type RequestForQuotation,
@@ -1402,3 +1403,79 @@ export function docColumns(
 /** Which column holds the key for a kind, for reading the previous one. */
 export const docKeyColumn = (kind: DocKind): "cnic_key" | "passport_key" =>
   kind === "cnic" ? "cnic_key" : "passport_key";
+
+/* -------------------------------------------------------------------------
+ * Expenditure tags
+ * ---------------------------------------------------------------------------*/
+
+/** Shape of a tag row as stored, in either backend. */
+export interface SpendTagRow {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export const rowToSpendTag = (r: SpendTagRow): SpendTag => ({
+  id: r.id,
+  name: r.name,
+  createdAt: r.created_at,
+});
+
+/** Shape of one assignment row. One tag per item — see `spend/tags.ts`. */
+export interface ItemTagRow {
+  po_id: string;
+  item_id: string;
+  tag_id: string;
+}
+
+/** A key that cannot collide: an item id may not contain a NUL. */
+const itemKey = (poId: string, itemId: string) => `${poId}\u0000${itemId}`;
+
+/**
+ * Committed orders and the tag assignments, flattened into line items.
+ *
+ * Here rather than in either backend for the reason `assembleAllocatable` is:
+ * the two backends select the same rows and this decides what they mean, so a
+ * figure on the tag panel cannot depend on which database the deployment uses.
+ *
+ * Newest order first, and within an order the lines stay in the sequence the
+ * document prints them — the sort is stable, and a re-ordered item list is not
+ * something the operator should have to re-read.
+ */
+export function assembleTaggedItems(orders: PoRow[], assignments: ItemTagRow[]): TaggedItem[] {
+  const tagOf = new Map<string, string>();
+  for (const a of assignments) tagOf.set(itemKey(a.po_id, a.item_id), a.tag_id);
+
+  const out: TaggedItem[] = [];
+  for (const row of orders) {
+    const po = rowToPo(row);
+    // The order's own date, else the day it was raised — the same rule
+    // `spendRows` and the printed report use, so all three agree about which
+    // month an order falls in.
+    const date = (po.doc.poDate || po.createdAt).slice(0, 10);
+    const currency = po.doc.currency || row.currency || "PKR";
+
+    for (const { item, line, amount } of attributedLines(po.doc)) {
+      out.push({
+        poId: po.id,
+        poNo: po.poNo,
+        company: po.company,
+        status: po.status,
+        date,
+        vendor: po.doc.vendor?.name?.trim() || row.vendor_name || "",
+        itemId: item.id,
+        code: item.code,
+        description: item.description,
+        qty: item.qty,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        currency,
+        line,
+        amount,
+        tagId: tagOf.get(itemKey(po.id, item.id)) ?? null,
+      });
+    }
+  }
+
+  return out.sort((a, b) => b.date.localeCompare(a.date) || b.poNo.localeCompare(a.poNo));
+}
